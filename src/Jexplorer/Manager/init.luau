@@ -121,7 +121,7 @@ local ENT_DELETE_LOOP_INTERVAL = 0.5
 local hierarchyCache = {
 	childrenMap = {} :: {[InstanceEntity]: {InstanceEntity}},
 	roots = {} :: {InstanceEntity},
-	expandedHeights = {} :: {[InstanceEntity]: number?}
+	--expandedHeights = {} :: {[InstanceEntity]: number}
 }
 local classPriorityCache = {}
 local lastCacheVersion = -1
@@ -479,7 +479,7 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 		if entityConnections then
 			table.insert(groupsToFree, entityConnections)
 		end
-
+		
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			frame:Reuse()
@@ -816,7 +816,7 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 
 	local visible = {}
 	local invisible = {}
-	local expandedHeightIndex = hierarchyCache.expandedHeights
+	local expandedHeightIndex = {}--hierarchyCache.expandedHeights
 	local flattenedEntities = getFlattenedVisibleEntities(world, invisible)
 	local entityToIndex = {}
 	for index, entity in flattenedEntities do
@@ -829,14 +829,15 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 	for index, entity in flattenedEntities do
 		profilebegin("Manager::filterVisible::visibleCheck")
 		local frame = world:get(entity, components.Frame)
-
+		
 		local absoluteYOffset = height * (index - 1)
 		local shouldBeVisible = false
 		if not world:has(entity, components.Expanded) then
 			shouldBeVisible = absoluteYOffset >= (top - viewportBuffer) and absoluteYOffset <= (top + viewportHeight)
 		else
-			local expandedHeight = expandedHeightIndex[entity] or 1
+			local expandedHeight = getExpandedEntityHeight(world, entity) --expandedHeightIndex[entity] or 1
 			local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
+			expandedHeightIndex[entity] = expandedHeight
 			
 			-- Frame is visible if either:
 			-- 1. The top of the frame is in viewport, OR
@@ -995,11 +996,11 @@ local function toggleExpand(world: World, entity: InstanceEntity, expanded: bool
 			frame:Reuse()
 		end
 		
-		hierarchyCache.expandedHeights[entity] = nil
+		--hierarchyCache.expandedHeights[entity] = nil
 	else
 		world:add(entity, components.Expanded)
 		children.Visible = true
-		hierarchyCache.expandedHeights[entity] = getExpandedEntityHeight(world, entity)
+		--hierarchyCache.expandedHeights[entity] = getExpandedEntityHeight(world, entity)
 	end
 
 	if update then
@@ -1333,14 +1334,19 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 
 		frame.Visible = false
 		if self.CurrentEntity then
+			world:remove(self.CurrentEntity, components.Frame)
 			table.insert(frameReuseQueue, self.CurrentEntity)
 		end
 
 		profileend()
 	end
-
+	
 	local isAssigning = false
 	function instanceFrame:Assign(entity: InstanceEntity?, parent: InstanceEntity?)
+		if entity and world:has(entity, components.Deleted) then
+			self:Reuse()
+			return
+		end
 		isAssigning = true
 		local parentFrame
 		if parent then
@@ -1801,6 +1807,10 @@ local function onInstChildRemoved(world: World, entity: InstanceEntity, child: I
 	if isAncestryChanged and world:has(entity, components.AncestryLocked) then return false end
 	local frame = world:get(entity, components.Frame)
 	
+	--if hierarchyCache.expandedHeights[entity] then
+	--	hierarchyCache.expandedHeights[entity] -= 1
+	--end
+	
 	profilebegin("Manager::onInstChildRemoved")
 	if frame then
 		local main = frame.Instance:FindFirstChild("Main")
@@ -1817,6 +1827,7 @@ local function onInstChildRemoved(world: World, entity: InstanceEntity, child: I
 
 	local newParent = child.Parent
 	if not newParent then
+		table.insert(entityCleanupQueue, childEntity)
 		profileend()
 		return false
 	end
@@ -1850,6 +1861,10 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 	if isAncestryChanged and world:has(entity, components.AncestryLocked) then
 		return false
 	end
+	
+	--if hierarchyCache.expandedHeights[entity] then
+	--	hierarchyCache.expandedHeights[entity] += 1
+	--end
 
 	profilebegin("Manager::onInstChildAdded")
 	
@@ -3885,7 +3900,18 @@ function Manager.init(onClose, pluginVersion, connections)
 		Selection.SelectionChanged:Connect(function()
 			profilebegin("Manager::onSelectionChanged")
 			local selection = Selection:Get()
-
+			local entities = {}
+			local n = 0
+			for _, v in selection do
+				local ent = instanceToEntity[v]
+				if not ent then continue end
+				if not table.find(state.CurrentSelection, ent) then
+					n += 1
+				end
+				table.insert(entities, ent)
+			end
+			state.CurrentSelection = entities
+			
 			if Manager.getSetting("PropertyEditorUpdatedOnSelect") then
 				PropertyEditor.updateProperties(selection)
 			end
@@ -3945,14 +3971,8 @@ function Manager.init(onClose, pluginVersion, connections)
 				pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
 			end
 			
-			local entities = {}
-			for _, v in selection do
-				local ent = instanceToEntity[v]
-				if not ent then continue end
-				if table.find(state.CurrentSelection, ent) then continue end
-				table.insert(entities, ent)
-			end
-			if #entities == 0 then return end
+			if n == 0 then return end
+			
 			for v in selectedQuery:iter() do
 				world:remove(v, components.Selected)
 			end
@@ -4013,7 +4033,6 @@ function Manager.init(onClose, pluginVersion, connections)
 					end
 				end
 			end
-			state.CurrentSelection = entities
 
 			updateVirtualScroller()
 			updateSelectionVisuals(world, false)
@@ -4054,20 +4073,15 @@ function Manager.init(onClose, pluginVersion, connections)
 			elseif input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
 				local id = ChangeHistoryService:TryBeginRecording("Destroy", "Destroy")
 				profilebegin("Manager::onInput::BACKSPACE/DELETE (remove)")
-
-				local toclean = {}
 				for _, entity in state.CurrentSelection do
-					world:add(entity, components.AncestryLocked)
-
+					if world:has(entity, components.Deleted) then continue end
+					local parent = parent_of(entity)
+					
 					local instance = world:get(entity, components.Instance)
 					if not instance then continue end
-
-					table.insert(entityCleanupQueue, entity)
-
 					local success = pcall(function()
 						instance.Parent = nil -- Do this instead of Destroy so undo is allowed
 					end)
-					world:remove(entity, components.AncestryLocked)
 				end
 				
 				if id then
@@ -4078,8 +4092,10 @@ function Manager.init(onClose, pluginVersion, connections)
 			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.D) then
 				local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
 				profilebegin("Manager::onInput::D (duplicate)")
-
+				
+				local cloned = {}
 				for _, entity in state.CurrentSelection do
+					if world:has(entity, components.Deleted) then continue end
 					local parent = parent_of(entity)
 					if parent == nil then continue end
 
@@ -4087,18 +4103,8 @@ function Manager.init(onClose, pluginVersion, connections)
 					if not instance then continue end
 
 					local clone = instance:Clone()
-					local cloneEntity = Manager.createInstanceEntity(clone, parent)
-					if not cloneEntity then continue end
-					
-					table.insert(onChildAddedQueue, {parent = parent, child = clone})
-
-					world:add(cloneEntity, components.AncestryLocked)
 					clone.Parent = instance.Parent
-					world:remove(cloneEntity, components.AncestryLocked)
 				end
-				
-				state.HierarchyVersion += 1
-				updateVirtualScroller()
 				
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
