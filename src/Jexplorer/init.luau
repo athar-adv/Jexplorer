@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "b0.21.4"
+local VERSION = "b0.21.5"
 
 local utilities = script.Utilities
 local editors = script.Editors

@@ -3418,6 +3418,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			
 			state.HierarchyVersion += 1
 			updateVirtualScroller()
+			task.wait(0.1)
 			Selection:Set({container})
 		end
 		groupAsFolderAction = plugin:CreatePluginAction(
