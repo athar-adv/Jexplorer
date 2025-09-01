@@ -120,7 +120,8 @@ local ENT_DELETE_LOOP_INTERVAL = 0.5
 
 local hierarchyCache = {
 	childrenMap = {} :: {[InstanceEntity]: {InstanceEntity}},
-	roots = {} :: {InstanceEntity}
+	roots = {} :: {InstanceEntity},
+	expandedHeights = {} :: {[InstanceEntity]: number?}
 }
 local classPriorityCache = {}
 local lastCacheVersion = -1
@@ -637,15 +638,58 @@ local function addEntityPriorities(world: World, children: {InstanceEntity}, pri
 	return priorities
 end
 
-local function buildEntityOrderCache()
+local function calculateHeight(world: World, expanded: Jecs.Id, childrenMap: {[InstanceEntity]: {InstanceEntity}}, heightCache: {[InstanceEntity]: number}, entity: InstanceEntity): number
+	-- Check cache first
+	if heightCache[entity] then
+		return heightCache[entity]
+	end
+
+	-- If not expanded, height is just 1 (the entity itself)
+	if not world:has(entity, expanded) then
+		heightCache[entity] = 1
+		return 1
+	end
+
+	-- Get direct children
+	local children = childrenMap[entity]
+	if not children or #children == 0 then
+		heightCache[entity] = 1
+		return 1
+	end
+
+	-- Calculate total height: 1 (self) + sum of all children heights
+	local totalHeight = 1
+	for _, child in children do
+		totalHeight += calculateHeight(world, expanded, childrenMap, heightCache, child)
+	end
+
+	heightCache[entity] = totalHeight
+	return totalHeight
+end
+
+local function getExpandedEntityHeight(world: World, entity: InstanceEntity): number
+	profilebegin("Manager::getExpandedEntityHeight")
+	local components = Manager.Components
+	local map = {}
+	local childrenMap = hierarchyCache.childrenMap
+
+	-- Cache for recursive height calculations
+	local heightCache = {}
+	local n = calculateHeight(world, components.Expanded, childrenMap, heightCache, entity)
+
+	profileend()
+	return n
+end
+
+local function rebuildHierarchyCache()
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
 
 	local roots, childrenMap = {}, {}
 
-	profilebegin("Manager::buildEntityOrderCache")
-	profilebegin("Manager::buildEntityOrderCache::buildChildrenMap")
+	profilebegin("Manager::rebuildHierarchyCache")
+	profilebegin("Manager::rebuildHierarchyCache::buildChildrenMap")
 
 	for _, eid in state.Entities do
 		local parent = parent_of(eid)
@@ -662,7 +706,7 @@ local function buildEntityOrderCache()
 	end
 
 	profileend()
-	profilebegin("Manager::buildEntityOrderCache::collectPriorities")
+	profilebegin("Manager::rebuildHierarchyCache::collectPriorities")
 
 	local tosort = {roots}
 
@@ -705,85 +749,60 @@ local function getFlattenedVisibleEntities(world: World, invisible: {InstanceEnt
 	profilebegin("Manager::getFlattenedVisibleEntities")
 	local state = Manager.WidgetState
 	local components = Manager.Components
-
 	local currentVersion = state.HierarchyVersion
 	local childrenMap: any, roots: any
+
 	if currentVersion == lastCacheVersion then
 		childrenMap = hierarchyCache.childrenMap
 		roots = hierarchyCache.roots
 	else
-		childrenMap, roots = buildEntityOrderCache()
+		childrenMap, roots = rebuildHierarchyCache()
 	end
 
 	local flatList = {}
-	local function addEntityAndChildren(entity: InstanceEntity)
-		if isEntityInvisible(world, entity) then
-			table.insert(invisible, entity)
-			return false
+	local flatIndex = 0
+	local invisibleIndex = #invisible
+	local stack = {}
+	local stackSize = 0
+	local invisibilityCache = {}
+	local function isInvisibleCached(entity)
+		if invisibilityCache[entity] == nil then
+			invisibilityCache[entity] = isEntityInvisible(world, entity)
 		end
-		table.insert(flatList, entity)
-		if world:has(entity, components.Expanded) and childrenMap[entity] then
-			-- Children are already sorted from the cache
-			for _, child in childrenMap[entity] do
-				addEntityAndChildren(child)
+		return invisibilityCache[entity]
+	end
+	profilebegin("Manager::getFlattenedVisibleEntities::traverse")
+	for i = #roots, 1, -1 do
+		stackSize += 1
+		stack[stackSize] = roots[i]
+	end
+
+	while stackSize > 0 do
+		local entity = stack[stackSize]
+		stackSize -= 1
+
+		if isInvisibleCached(entity) then
+			invisibleIndex += 1
+			invisible[invisibleIndex] = entity
+		else
+			flatIndex += 1
+			flatList[flatIndex] = entity
+			
+			if world:has(entity, components.Expanded) then
+				local children = childrenMap[entity]
+				if children then
+					for i = #children, 1, -1 do
+						stackSize += 1
+						stack[stackSize] = children[i]
+					end
+				end
 			end
 		end
-		return true
 	end
-	
-	for _, root in roots do
-		addEntityAndChildren(root)
-	end
+
+	profileend()
 	profileend()
 	return flatList
-end
-
-local function getExpandedEntityHeight(world: World, entity: InstanceEntity, flattenedEntities: {InstanceEntity}, entityToIndex: {[InstanceEntity]: number}): number
-	profilebegin("Manager::getExpandedEntityHeight")
-	local components = Manager.Components
-
-	if not world:has(entity, components.Expanded) then
-		profileend()
-		return 1 -- Just the entity itself
-	end
-
-	local startIndex = entityToIndex[entity]
-	if not startIndex then
-		profileend()
-		return 1
-	end
-
-	-- Find the range of children for this entity
-	local childrenCount = 0
-	for i = startIndex + 1, #flattenedEntities do
-		local child = flattenedEntities[i]
-
-		-- Check if this child belongs to our entity's hierarchy
-		local current = child
-		local belongsToEntity = false
-
-		-- Walk up the parent chain to see if we reach our entity
-		while current do
-			local parent = parent_of(current)
-			if parent == entity::any then
-				belongsToEntity = true
-				break
-			elseif not parent then
-				break -- Reached root without finding our entity
-			else
-				current = parent
-			end
-		end
-
-		if belongsToEntity then
-			childrenCount += 1
-		else
-			break -- No longer in our entity's children
-		end
-	end
-
-	profileend()
-	return childrenCount + 1 -- +1 for the parent entity itself
 end
 
 local function filterVisible(world: World, top: number, viewportHeight: number)
@@ -797,8 +816,7 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 
 	local visible = {}
 	local invisible = {}
-	local expandedHeightIndex: {[InstanceEntity]: number} = {}
-
+	local expandedHeightIndex = hierarchyCache.expandedHeights
 	local flattenedEntities = getFlattenedVisibleEntities(world, invisible)
 	local entityToIndex = {}
 	for index, entity in flattenedEntities do
@@ -807,7 +825,7 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 
 	local frameBuffer = Manager.getSetting("VirtualScrollFrameBuffer")
 	local viewportBuffer = height * frameBuffer
-	local viewportHeight = viewportHeight + viewportBuffer	
+	local viewportHeight = viewportHeight + viewportBuffer
 	for index, entity in flattenedEntities do
 		profilebegin("Manager::filterVisible::visibleCheck")
 		local frame = world:get(entity, components.Frame)
@@ -817,10 +835,9 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 		if not world:has(entity, components.Expanded) then
 			shouldBeVisible = absoluteYOffset >= (top - viewportBuffer) and absoluteYOffset <= (top + viewportHeight)
 		else
-			local expandedHeight = getExpandedEntityHeight(world, entity, flattenedEntities, entityToIndex)
+			local expandedHeight = expandedHeightIndex[entity] or 1
 			local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
-			expandedHeightIndex[entity] = expandedHeight
-
+			
 			-- Frame is visible if either:
 			-- 1. The top of the frame is in viewport, OR
 			-- 2. The bottom of the expanded frame (including all children) is in viewport, OR  
@@ -975,9 +992,12 @@ local function toggleExpand(world: World, entity: InstanceEntity, expanded: bool
 		for child, frame in world:query(components.Frame, ChildOf(entity)):iter() do
 			frame:Reuse()
 		end
+		
+		hierarchyCache.expandedHeights[entity] = nil
 	else
 		world:add(entity, components.Expanded)
 		children.Visible = true
+		hierarchyCache.expandedHeights[entity] = getExpandedEntityHeight(world, entity)
 	end
 
 	if update then
@@ -4250,7 +4270,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		flushFrameReuseQueue()
 		if childMapNeedsUpdate then
 			childMapNeedsUpdate = false
-			buildEntityOrderCache()
+			rebuildHierarchyCache()
 			updateVirtualScroller()
 		end
 	end

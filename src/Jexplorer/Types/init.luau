@@ -136,7 +136,6 @@ export type Manager = {
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> (),
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
-	getVisibleEntities: (world: World, invisible: {InstanceEntity}) -> {InstanceEntity},
 	getInstanceFrame: () -> InstanceFrame,
 	createInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
 	getOrCreateInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
