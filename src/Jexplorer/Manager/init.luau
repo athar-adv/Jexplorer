@@ -482,14 +482,27 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 		if frame then
 			frame:Reuse()
 		end
-
+		
 		local idx = table.find(entities, entity)
 		if idx then
 			table.insert(entityIndexesToRemove, idx)
 		end
+		
+		local parent = parent_of(entity)
+		if parent then
+			local frame = world:get(parent, components.Frame)
+			if frame then
+				local main = frame.Instance:FindFirstChild("Main")
+				if main and not world:has(parent, components.ArrowInvisible) then
+					-- -1 cuz this child is being removed
+					childAmountCache[parent] -= 1
+					main.Arrow.Visible = getChildAmount(parent) > 0
+				end
+			end
+		end
 		profileend()
 	end
-
+	
 	profilebegin("Manager::cleanupEntity::processDeferredCleaningTasks")
 	profilebegin("freeGroups")
 	for _, group in groupsToFree do
@@ -505,6 +518,7 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 	for _, entity in queueTable do
 		classNameCache[entity] = nil
 		nameCache[entity] = nil
+		childAmountCache[entity] = nil
 	end
 	profileend()
 
@@ -903,7 +917,7 @@ local function updateVirtualScroller(isScroller: boolean?)
 			frame = f
 		end
 		if not frame then continue end
-
+		
 		frame.Instance.LayoutOrder = entityToIndex[entity]
 		if world:has(entity, components.ArrowInvisible) then
 			frame.Instance.Main.Arrow.Visible = false
@@ -911,14 +925,14 @@ local function updateVirtualScroller(isScroller: boolean?)
 			frame.Instance.Main.Arrow.Visible = getChildAmount(entity) > 0
 		end
 
-		if not isScroller then
-			local n = 0
-			for child in world:children(entity) do
-				if isEntityInvisible(world, child) then continue end
-				n += 1
-			end
-			childAmountCache[entity] = n
-		end
+		--if not isScroller then
+		--	local n = 0
+		--	for child in world:children(entity) do
+		--		if isEntityInvisible(world, child) then continue end
+		--		n += 1
+		--	end
+		--	childAmountCache[entity] = n
+		--end
 
 		if parent then
 			local parentIndex = entityToIndex[parent]
@@ -960,24 +974,21 @@ local function toggleExpand(world: World, entity: InstanceEntity, expanded: bool
 	local children = frame.Instance.Children
 
 	if instance == game then return end
+	
+	local n = getChildAmount(entity)
+	if not world:has(entity, components.ArrowInvisible) then
+		arrow.Rotation = 0
+		arrow.Visible = n > 0
+	end
 	if not expanded then
 		world:remove(entity, components.Expanded)
-		if not world:has(entity, components.ArrowInvisible) then
-			arrow.Rotation = -90
-		end
 		children.Visible = false
-
+		
 		for child, frame in world:query(components.Frame, ChildOf(entity)):iter() do
 			frame:Reuse()
 		end
 	else
 		world:add(entity, components.Expanded)
-		local n = getChildAmount(entity)
-
-		if not world:has(entity, components.ArrowInvisible) then
-			arrow.Rotation = 0
-			arrow.Visible = n > 0
-		end
 		children.Visible = true
 	end
 
@@ -1540,6 +1551,11 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 				end
 
 				local dragConnections = instanceFrame.Connections:Extend("Disconnect")
+				
+				do
+					local pos = state.Widget:GetRelativeMousePosition()
+					dragFrame.Position = UDim2.fromOffset(pos.X, pos.Y)
+				end
 				dragConnections.Items = {
 					RunService.RenderStepped:Connect(function()
 						local pos = state.Widget:GetRelativeMousePosition()
@@ -1550,7 +1566,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 					end)
 				}
 				dragFrame.Parent = jexplorerUi
-
+				
 				local dragInstances = dragConnections:Extend("Destroy", {
 					dragFrame
 				})
@@ -1658,7 +1674,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 
 				local parent = parent_of(dragEntity)
 				if not parent then continue end
-
+				
 				world:remove(dragEntity, ChildOf(parent))
 				world:add(dragEntity, ChildOf(newParentEntity))
 
@@ -1771,10 +1787,10 @@ end
 local function onInstChildRemoved(world: World, entity: InstanceEntity, child: Instance, isAncestryChanged: boolean)
 	local components = Manager.Components
 	local state = Manager.WidgetState
-
+	
 	if isAncestryChanged and world:has(entity, components.AncestryLocked) then return false end
 	local frame = world:get(entity, components.Frame)
-
+	
 	profilebegin("Manager::onInstChildRemoved")
 	if frame then
 		local main = frame.Instance:FindFirstChild("Main")
@@ -1806,29 +1822,27 @@ local function onInstChildRemoved(world: World, entity: InstanceEntity, child: I
 		world:remove(childEntity, ChildOf(parent))
 	end
 	world:add(childEntity, ChildOf(newParentEntity))
-
-	local framesChanged = false
+	
 	local frame = world:get(childEntity, components.Frame)
 	if frame then 
-		framesChanged = true
 		frame:Assign(childEntity, newParentEntity)
 	end
 	updateEntityOrder(world, childEntity, newParentEntity)
 
 	profileend()
-	return framesChanged
+	return true
 end
 
 local function onInstChildAdded(world: World, entity: InstanceEntity, child: Instance, isAncestryChanged: boolean)
 	local components = Manager.Components
 	local state = Manager.WidgetState
-
+	
 	if isAncestryChanged and world:has(entity, components.AncestryLocked) then
 		return false
 	end
 
 	profilebegin("Manager::onInstChildAdded")
-
+	
 	local frame = world:get(entity, components.Frame)
 	if frame then 
 		local main = frame.Instance:FindFirstChild("Main")
@@ -1839,7 +1853,7 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 		end
 	end
 
-	local framesChanged = false
+	local ancestryChanged = false
 	-- Check if a frame already exists for this child (reuse case)
 	local existingChildEntity = instanceToEntity[child]
 	if existingChildEntity and world:contains(existingChildEntity) then
@@ -1849,40 +1863,38 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 				world:remove(existingChildEntity, ChildOf(parent))
 			end
 			world:add(existingChildEntity, ChildOf(entity))
+			ancestryChanged = true
 		end
 		if frame and world:has(entity, components.Expanded) then
 			local existingChildFrame = world:get(existingChildEntity, components.Frame)
 			if not existingChildFrame then
-				framesChanged = true
 				local frame = getInstanceFrame()
 				world:set(existingChildEntity, components.Frame, frame)
 				frame:Assign(existingChildEntity, entity)
 			else
-				framesChanged = true
 				existingChildFrame:Assign(existingChildEntity, entity)
 			end
 		else
 			local childFrame = world:get(existingChildEntity, components.Frame)
 			if childFrame then
-				framesChanged = true
 				childFrame:Reuse()
 			end
 		end
 
 		updateEntityOrder(world, existingChildEntity, entity)
-		return framesChanged
+		return ancestryChanged
 	end
 
 	local childEntity = Manager.createInstanceEntity(child, entity)
 	if not childEntity then 
 		profileend()
-		return framesChanged
+		return ancestryChanged
 	end
-
+	
+	ancestryChanged = true
 	createEntityWithChildren(child, childEntity)
-
+	
 	if world:has(entity, components.Expanded) then
-		framesChanged = true
 		local frame = getInstanceFrame()
 		world:set(childEntity, components.Frame, frame)
 		frame:Assign(childEntity, entity)
@@ -1890,7 +1902,7 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 
 	updateEntityOrder(world, childEntity, entity)
 	profileend()
-	return framesChanged
+	return ancestryChanged
 end
 
 local function flushOnChildAddedQueue()
@@ -1909,8 +1921,8 @@ local function flushOnChildAddedQueue()
 	end
 	table.clear(onChildAddedQueue)
 	flushEntityPropAssignQueue()
-
-	if not anyChanged then
+	
+	if anyChanged then
 		childMapNeedsUpdate = true
 	end
 
@@ -1933,8 +1945,8 @@ local function flushOnChildRemovedQueue()
 		end
 	end
 	table.clear(onChildRemovedQueue)
-
-	if not anyChanged then
+	
+	if anyChanged then
 		childMapNeedsUpdate = true
 	end
 
@@ -2958,7 +2970,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			end
 
 			table.insert(onChildAddedQueue, {parent = entity, child = inst})
-
+			
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 			end
@@ -3105,9 +3117,8 @@ function Manager.init(onClose, pluginVersion, connections)
 
 				instances = {luaSourceContainer}
 			end
-
+			
 			local id = ChangeHistoryService:TryBeginRecording("Import", "Import from File")
-			if not id then return end
 			for _, v in instances do
 				local success, err = pcall(function()
 					v.Parent = instance
@@ -3120,7 +3131,7 @@ function Manager.init(onClose, pluginVersion, connections)
 					state.CurrentlyInserting = nil
 					return
 				end
-
+				
 				table.insert(onChildAddedQueue, {parent = entity, child = v})
 			end
 
@@ -3395,31 +3406,64 @@ function Manager.init(onClose, pluginVersion, connections)
 
 				local path = inst:GetFullName()
 				table.insert(pathArray, path)
-				pathMap[path] = inst
+				pathMap[path] = ent
 			end
 			table.sort(pathArray)
 			local shortest = pathArray[1]
 			if not shortest then return end
-
-			local inst = pathMap[shortest]
-			local targetParent = inst.Parent
+			
+			local targetParentEnt = world:parent(pathMap[shortest])
+			assert(targetParentEnt)
+			local targetParent = world:get(targetParentEnt, components.Instance)
+			assert(targetParent)
 
 			local id = ChangeHistoryService:TryBeginRecording("GroupAsFolder", "Group As Folder")
 
 			local container = Instance.new(className)
 			container.Parent = targetParent
-			for _, v in pathMap do
-				v.Parent = container
+			
+			local containerEntity = Manager.getOrCreateInstanceEntity(container, targetParentEnt)
+			
+			assert(containerEntity)
+			world:add(containerEntity, components.AncestryLocked)
+			
+			for _, ent in pathMap do
+				world:add(ent, components.AncestryLocked)
 			end
+			
+			for _, ent in pathMap do
+				local inst = world:get(ent, components.Instance)
+				if not inst then continue end
+				
+				local parent = parent_of(ent)
+				if not parent then continue end
+				
+				world:remove(ent, ChildOf(parent))
+				world:add(ent, ChildOf(containerEntity))
 
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+				pcall(rawnewindex, inst, "Parent", container)
+				
+				local frame = world:get(ent, components.Frame)
+				if frame then
+					frame:Reuse()
+				end
 			end
+			
+			for _, ent in pathMap do
+				world:remove(ent, components.AncestryLocked)
+			end
+			
+			world:remove(containerEntity, components.AncestryLocked)
 			
 			state.HierarchyVersion += 1
 			updateVirtualScroller()
-			task.wait(0.1)
-			Selection:Set({container})
+			
+			if id then
+				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+			end
+			task.delay(0.1, function()
+				Selection:Set({container})
+			end)
 		end
 		groupAsFolderAction = plugin:CreatePluginAction(
 			getId("Jexplorer_ContextMenu_GroupAsFolder", true), "Group as Folder", "Groups the selected Instances inside 1 Folder."
@@ -3675,7 +3719,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	for _, service in game:GetChildren() do
 		-- Prevent a specific FilteredSelection instance with no classname from showing up
 		if not service.ClassName:match("%w+") then continue end
-
+		
 		local entity = Manager.getOrCreateInstanceEntity(service)
 		if not entity then continue end
 		table.insert(entities, entity)
@@ -4013,13 +4057,13 @@ function Manager.init(onClose, pluginVersion, connections)
 					local success = pcall(function()
 						instance.Parent = nil -- Do this instead of Destroy so undo is allowed
 					end)
-					world:add(entity, components.AncestryLocked)
+					world:remove(entity, components.AncestryLocked)
 				end
-
+				
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
-
+				
 				profileend()
 			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.D) then
 				local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
@@ -4042,11 +4086,11 @@ function Manager.init(onClose, pluginVersion, connections)
 					clone.Parent = instance.Parent
 					world:remove(cloneEntity, components.AncestryLocked)
 				end
-
+				
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
-
+				
 				profileend()
 			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.C) then
 				copySelection(world)
@@ -4219,6 +4263,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		if childMapNeedsUpdate then
 			childMapNeedsUpdate = false
 			buildEntityOrderCache()
+			updateVirtualScroller()
 		end
 	end
 	
