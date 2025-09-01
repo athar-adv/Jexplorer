@@ -7,4 +7,4 @@
 
 </div>
 
-## PRs currently not accepted!
+PRs currently not accepted!
