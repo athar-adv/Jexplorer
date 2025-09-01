@@ -466,6 +466,7 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 	for _, entity in queueTable do
 		if seen[entity] then continue end
 		seen[entity] = true
+		world:add(entity, components.Deleted)
 
 		profilebegin("Manager::processImmediateCleaningTasks")
 		local inst = world:get(entity, components.Instance)
@@ -487,19 +488,6 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 		if idx then
 			table.insert(entityIndexesToRemove, idx)
 		end
-		
-		local parent = parent_of(entity)
-		if parent then
-			local frame = world:get(parent, components.Frame)
-			if frame then
-				local main = frame.Instance:FindFirstChild("Main")
-				if main and not world:has(parent, components.ArrowInvisible) then
-					-- -1 cuz this child is being removed
-					childAmountCache[parent] -= 1
-					main.Arrow.Visible = getChildAmount(parent) > 0
-				end
-			end
-		end
 		profileend()
 	end
 	
@@ -514,14 +502,14 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 		table.remove(entities, idx)
 	end
 	profileend()
-	profilebegin("remoteEntityData")
+	profilebegin("removeEntityData")
 	for _, entity in queueTable do
 		classNameCache[entity] = nil
 		nameCache[entity] = nil
 		childAmountCache[entity] = nil
 	end
 	profileend()
-
+	
 	profilebegin("deregisterFromQueryWorld")
 	for _, entity in queueTable do
 		local linked = world:get(entity, components.LinkedQueryEntity)
@@ -538,18 +526,18 @@ local function cleanupEntitiesInTable(queueTable: {InstanceEntity})
 		end
 	end
 	profileend()
-
+	
 	-- Handled in a seperate thread
 	--flushFrameReuseQueue()
 
 	profilebegin("deleteEntities")
-	for _, entity in entityCleanupQueue do
+	for _, entity in queueTable do
 		--world:delete(entity)
 		table.insert(entityDeleteQueue, entity)
 	end
 	profileend()
-
-	table.clear(entityCleanupQueue)
+	
+	table.clear(queueTable)
 	profileend()
 	profileend()
 	return true
@@ -919,20 +907,20 @@ local function updateVirtualScroller(isScroller: boolean?)
 		if not frame then continue end
 		
 		frame.Instance.LayoutOrder = entityToIndex[entity]
+		if not isScroller then
+			local n = 0
+			for child in world:query(ChildOf(entity)):without(components.Deleted):iter() do
+				if isEntityInvisible(world, child) then continue end
+				n += 1
+			end
+			childAmountCache[entity] = n
+		end
+		
 		if world:has(entity, components.ArrowInvisible) then
 			frame.Instance.Main.Arrow.Visible = false
 		else
 			frame.Instance.Main.Arrow.Visible = getChildAmount(entity) > 0
 		end
-
-		--if not isScroller then
-		--	local n = 0
-		--	for child in world:children(entity) do
-		--		if isEntityInvisible(world, child) then continue end
-		--		n += 1
-		--	end
-		--	childAmountCache[entity] = n
-		--end
 
 		if parent then
 			local parentIndex = entityToIndex[parent]
@@ -4275,7 +4263,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		for i = n, start, -1 do
 			local entity = entityDeleteQueue[i]
 			entityDeleteQueue[i] = nil
-
+			
 			local queryEntity = world:get(entity, components.LinkedQueryEntity)
 			world:delete(entity)
 

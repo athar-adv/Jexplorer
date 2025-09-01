@@ -535,10 +535,16 @@ function VersionControl.init(_m)
 	PluginUI.createHeader(list, "WARNING: The github sync functionality is still very early, do not use it for anything except testing!")
 	
 	local tokenInput
-	tokenInput = PluginUI.createAttributeBox(list, "GitHub Token Key (fine-grained) (hidden)", "", function(tokenKey)
+	local existingToken = plugin:GetSetting("GithubAuthToken")
+	if existingToken then
+		local token = GitAPI.AuthToken.new(existingToken, "fine_grained")
+		VersionControl.Token = token
+	end
+	tokenInput = PluginUI.createAttributeBox(list, "GitHub Token Key (fine-grained) (hidden)", existingToken and string.rep("*", #existingToken) or "", function(tokenKey)
 		local token = GitAPI.AuthToken.new(tokenKey, "fine_grained")
 		VersionControl.Token = token
 		tokenInput.Instance.ValueBox.Text = string.rep("*", #tokenInput.Instance.ValueBox.Text)
+		plugin:SetSetting("GithubAuthToken", tokenKey)
 	end)
 	local repoInput = PluginUI.createAttributeBox(list, "Github Repo Id ('authorName/repoName')", "", function(repoId)
 		VersionControl.RepoId = repoId
@@ -635,7 +641,7 @@ function VersionControl.init(_m)
 		
 		GitAPI.batchCreateOrUpdate(token, repo, branch, files, commitMsg)
 	end)
-	PluginUI.createButton(list, "Commit & Overwrite", function()
+	PluginUI.createButton(list, "Commit Selected Src", function()
 		widget.Enabled = false
 		
 		local branch = branchInput:Get()
