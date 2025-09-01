@@ -6,3 +6,5 @@
 #### [Devforum Post](https://devforum.roblox.com/t/beta-0215-jexplorer-stylizable-explorer-widget-made-with-jecs/3788801)
 
 </div>
+
+# PRs currently not accepted!
