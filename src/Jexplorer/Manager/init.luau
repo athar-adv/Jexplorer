@@ -936,9 +936,11 @@ local function updateVirtualScroller(isScroller: boolean?)
 		if world:has(entity, components.ArrowInvisible) then
 			frame.Instance.Main.Arrow.Visible = false
 		else
-			frame.Instance.Main.Arrow.Visible = getChildAmount(entity) > 0
+			local visible = getChildAmount(entity) > 0
+			frame.Instance.Main.Arrow.Visible = visible
+			frame.Instance.Children.Visible = visible
 		end
-
+		
 		if parent then
 			local parentIndex = entityToIndex[parent]
 			if parentIndex then
@@ -1860,7 +1862,7 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 			main.Arrow.Visible = true
 		end
 	end
-
+	
 	local ancestryChanged = false
 	-- Check if a frame already exists for this child (reuse case)
 	local existingChildEntity = instanceToEntity[child]
@@ -4095,6 +4097,9 @@ function Manager.init(onClose, pluginVersion, connections)
 					world:remove(cloneEntity, components.AncestryLocked)
 				end
 				
+				state.HierarchyVersion += 1
+				updateVirtualScroller()
+				
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
@@ -4270,7 +4275,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		flushFrameReuseQueue()
 		if childMapNeedsUpdate then
 			childMapNeedsUpdate = false
-			rebuildHierarchyCache()
+			state.HierarchyVersion += 1
 			updateVirtualScroller()
 		end
 	end
@@ -4311,7 +4316,6 @@ function Manager.init(onClose, pluginVersion, connections)
 	})
 end
 
-Manager.getVisibleEntities = getFlattenedVisibleEntities
 Manager.getInstanceFrame = getInstanceFrame
 function Manager.setInstanceFramePoolTarget(n)
 	instanceFramePoolTarget = n
