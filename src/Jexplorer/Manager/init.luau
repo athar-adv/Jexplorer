@@ -20,6 +20,7 @@ local AssetService = game:GetService("AssetService")
 local HttpService = game:GetService("HttpService")
 local ScriptEditorService = game:GetService('ScriptEditorService')
 local TextService = game:GetService("TextService")
+local CoreGui = game:GetService("CoreGui")
 
 local main = script.Parent
 
@@ -117,6 +118,8 @@ local API_MAP_VERSION = 3
 local CLEANUP_LOOP_INTERVAL = 1/30
 local REUSE_LOOP_INTERVAL = 1/30
 local ENT_DELETE_LOOP_INTERVAL = 0.5
+
+local INSTANCE_INSERT_INFO = require(script.InstanceInsertInfo)
 
 local hierarchyCache = {
 	childrenMap = {} :: {[InstanceEntity]: {InstanceEntity}},
@@ -2272,7 +2275,8 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 			if g and widgetIsJexp(g) then
 				return
 			end
-
+			if child:IsDescendantOf(CoreGui) then return end
+			
 			table.insert(onChildAddedQueue, {parent = entity, child = child})
 		end),
 		instance.ChildRemoved:Connect(function(child)
@@ -2285,7 +2289,8 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 			if g and widgetIsJexp(g) then
 				return
 			end
-
+			if child:IsDescendantOf(CoreGui) then return end
+			
 			-- Handled in game.DescendantRemoving
 			if child.Parent == nil then
 				return
@@ -3024,7 +3029,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 			end
 		end)
-
+		
 		local function insert(class: string)
 			insertInstanceList:Hide()
 
@@ -3042,8 +3047,21 @@ function Manager.init(onClose, pluginVersion, connections)
 			end
 
 			local success, inst = pcall(Instance.new, class)
-			if not success then warn(inst) end
-
+			if not success then warn(inst) return end
+			
+			local info: typeof(((nil :: any) :: typeof(INSTANCE_INSERT_INFO))[""])?
+			for k, v in INSTANCE_INSERT_INFO do
+				if inst:IsA(k) then info = v break end
+			end
+			if info then
+				for k, v in info.Props do
+					pcall(rawnewindex, inst, k, v)
+				end
+				if info.SideEffect then
+					info.SideEffect(inst)
+				end
+			end
+			
 			inst.Parent = entityInst
 
 			if not world:has(entity, components.Expanded) then
@@ -3804,7 +3822,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	--end)
 
 	-->> Initialize entities
-	local entities = {}
+	local entities = {favoritedInstancesEntity}
 	-- Initialize services
 	for _, service in game:GetChildren() do
 		-- Prevent a specific FilteredSelection instance with no classname from showing up
@@ -3946,7 +3964,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		game.DescendantRemoving:Connect(function(descendant)
 			local childEntity = instanceToEntity[descendant]
 			if not childEntity then return end
-
+			
 			if world:has(childEntity, components.AncestryLocked) then
 				return
 			end
