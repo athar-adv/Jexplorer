@@ -194,13 +194,7 @@ local function buildMap(): ({[string]: {[string]: {Type: string, Category: strin
 		map[class.Name] = properties
 	end
 	
-	-- Cache map.
-	local encodedMap = HttpService:JSONEncode(map)
-	-- Let copies of this library know that we're no longer building.
-	workspace:SetAttribute("APIMapBuilding", nil)
-	
-	-- Return map.
-	return map, encodedMap
+	return map
 end
 
 return buildMap

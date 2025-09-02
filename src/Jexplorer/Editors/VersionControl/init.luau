@@ -23,6 +23,7 @@ local rawindex = InstanceUtility.rawindex
 
 local Types = require(main.Types)
 
+local init = false
 local VersionControl = {
 	Versions = {},
 	PendingChanges = {}
@@ -229,6 +230,7 @@ local function syntaxHighlight(src: string): string
 end
 
 function VersionControl.openSourceViewer(src)
+	if not init then return end
 	local highlighted = syntaxHighlight(src)
 	
 	local mainframe = VersionControl.SourceViewerMainframe
@@ -294,6 +296,7 @@ function VersionControl.openSourceViewer(src)
 end
 
 function VersionControl.showInstanceHistoryWidget(inst)
+	if not init then return false end
 	local list = VersionControl.InstanceHistoryUIList
 	list:Clear()
 	
@@ -314,6 +317,7 @@ function VersionControl.showInstanceHistoryWidget(inst)
 end
 
 function VersionControl.createInstanceVersion(inst, changedProp, newValue)
+	if not init then return false end
 	local currentTime = os.time()
 	
 	local id = inst:GetDebugId()
@@ -339,6 +343,7 @@ function VersionControl.createInstanceVersion(inst, changedProp, newValue)
 end
 
 function VersionControl.addPendingChange(inst, changedProp, newValue)
+	if not init then return end
 	local id = inst:GetDebugId()
 	local changes = VersionControl.PendingChanges[id]
 	if not changes then
@@ -376,6 +381,7 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 end
 
 function VersionControl.appendPendingChanges(inst)
+	if not init then return false end
 	local id = inst:GetDebugId()
 	local changes = VersionControl.PendingChanges[id]
 	
@@ -407,6 +413,7 @@ function VersionControl.appendPendingChanges(inst)
 end
 
 function VersionControl.createPendingChanges(inst)
+	if not init then return false end
 	local id = inst:GetDebugId()
 	local changes = VersionControl.PendingChanges[id]
 	
@@ -438,6 +445,7 @@ function VersionControl.createPendingChanges(inst)
 end
 
 function VersionControl.appendInstanceVersion(inst, changedProp, newValue)
+	if not init then return false end
 	local currentTime = os.time()
 	
 	local id = inst:GetDebugId()
@@ -458,6 +466,7 @@ function VersionControl.appendInstanceVersion(inst, changedProp, newValue)
 end
 
 function VersionControl.init(_m)
+	init = true
 	Manager = _m
 	
 	local state = Manager.WidgetState

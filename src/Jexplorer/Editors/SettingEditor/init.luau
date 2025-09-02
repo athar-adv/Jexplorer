@@ -15,12 +15,14 @@ local JDF = require(utilities.JDF)
 
 local getId = PluginUI.getId
 
+local init = false
 local SettingEditor = {} :: Types.SettingEditor
 
 local settingNameToData = {}
 local settingNameToFrame = {}
 
 function SettingEditor.getSetting(Manager, name)
+	if not init then return end
 	local configs = SettingEditor.Configs
 
 	local value = configs[name]
@@ -31,6 +33,7 @@ function SettingEditor.getSetting(Manager, name)
 end
 
 function SettingEditor.setSetting(Manager, name, value)
+	if not init then return end
 	local configs = SettingEditor.Configs
 	configs[name] = value
 	
@@ -51,6 +54,7 @@ function SettingEditor.setSetting(Manager, name, value)
 end
 
 function SettingEditor.createSetting(list, settingName, displayName, valueType, defaultValue, onChange)
+	if not init then return end
 	local configs = SettingEditor.Configs
 
 	configs[settingName] = defaultValue
@@ -82,6 +86,7 @@ function SettingEditor.createSetting(list, settingName, displayName, valueType, 
 end
 
 function SettingEditor.init(Manager)
+	init = true
 	assert(SettingEditor.Configs, "configs must be initialized by manager")
 
 	local state = Manager.WidgetState

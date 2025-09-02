@@ -27,9 +27,11 @@ local newindex = InstanceUtility.newindex
 
 local studioSettings = settings().Studio
 
+local init = false
 local StyleEditor = {} :: Types.StyleEditor
 
 function StyleEditor.init(Manager)
+	init = true
 	local sheet = Manager.Style
 	local state = Manager.WidgetState
 	local components = Manager.Components

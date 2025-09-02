@@ -15,6 +15,8 @@ local Types = require(main.Types)
 
 local rawindex = InstanceUtility.rawindex
 
+local init = false
+
 local ContextMenuEditor = {} :: Types.ContextMenuEditor
 
 type ContextMenuConfigs = {
@@ -32,6 +34,7 @@ type ContextMenuConfigs = {
 }
 
 function ContextMenuEditor.init(Manager)
+	init = true
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	

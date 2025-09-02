@@ -1,11 +1,5 @@
 local JDF = require(script.Parent.JDF)
 
-local _, index: (Instance, string) -> ...any = xpcall(function()
-	local b = game[""]
-end, function()
-	return debug.info(2, "f")
-end)
-
 local evaluateCondition
 
 local JQL = {}
@@ -470,7 +464,7 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = index(instance, condition.component)
+		local value = instance[condition.component]
 		return condition.value == value
 	else
 		-- For complex conditions, evaluate them recursively
@@ -540,7 +534,7 @@ local function checkSingleCondition(world, components, componentMap, entity, con
 
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-		local value = index(instance, condition.component)
+		local value = instance[condition.component]
 
 		return condition.value == value
 	end

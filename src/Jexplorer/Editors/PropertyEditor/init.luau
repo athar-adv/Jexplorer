@@ -46,6 +46,8 @@ local CATEGORY_PRIORITIES = {
 	"Attributes"
 }
 
+local init = false
+
 local Manager: Types.Manager
 local PropertyEditor = {} :: Types.PropertyEditor
 
@@ -96,6 +98,7 @@ local function getCommonProperties(instances: {Instance}): {[any]: any}
 end
 
 function PropertyEditor.updateProperties(instances)
+	if not init then return end
 	debug.profilebegin("PropertyEditor::updateProperties")
 	local widget = PropertyEditor.Widget
 	local list = PropertyEditor.PropertyList
@@ -382,6 +385,7 @@ function PropertyEditor.updateProperties(instances)
 end
 
 function PropertyEditor.init(_m)
+	init = true
 	Manager = _m
 
 	local state = Manager.WidgetState

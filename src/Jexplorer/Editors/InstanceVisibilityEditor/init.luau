@@ -17,12 +17,15 @@ local Types = require(main.Types)
 
 local items = {}
 
+local init = false
+
 local InstanceVisibilityEditor = {
 	InvisibleClasses = {},
 	InvisibleInstances = {}
 } :: Types.InstanceVisibilityEditor
 
 function InstanceVisibilityEditor.setVisible(className, visible)
+	if not init then return end
 	local item = items[className]
 	assert(item)
 	
@@ -30,6 +33,7 @@ function InstanceVisibilityEditor.setVisible(className, visible)
 end
 
 function InstanceVisibilityEditor.init(Manager)
+	init = true
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	

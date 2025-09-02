@@ -18,6 +18,8 @@ local ClassIcon = require(utilities.ClassIcon)
 
 local getId = PluginUI.getId
 
+local init = false
+
 local OrderEditor = {
 	DefaultPriority = 999,
 	PriorityVersion = 0,
@@ -25,6 +27,7 @@ local OrderEditor = {
 } :: Types.OrderEditor
 
 function OrderEditor.init(Manager)
+	init = true
 	local state = Manager.WidgetState
 	local components = Manager.Components
 

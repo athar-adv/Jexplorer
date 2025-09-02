@@ -29,7 +29,7 @@ export type Style = {
 	UpdateTokens: (Style) -> (),
 	
 	AddRules: (Style, rules: {[any]: any}) -> (),
-	FindRule: (Style, selector: string, priority: number) -> StyleRule?,
+	FindRule: (Style, selector: string) -> StyleRule?,
 	Replace: (Style, newStyle: Style) -> (),
 	
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
@@ -61,7 +61,7 @@ export type Rule = {
 	__initialized: boolean
 }
 
-local RULE_NAME_FORMAT = "'%s';'%s'"
+local RULE_NAME_FORMAT = "%s"
 
 local Style = {
 	eval = eval
@@ -220,8 +220,8 @@ function StyleMethods:AddRules(newRules)
 	end
 end
 
-function StyleMethods:FindRule(selector, priority)
-	local rule = self.Sheet:FindFirstChild(RULE_NAME_FORMAT:format(selector, priority))
+function StyleMethods:FindRule(selector)
+	local rule = self.Sheet:FindFirstChild(RULE_NAME_FORMAT:format(selector))
 	return rule :: StyleRule
 end
 
@@ -400,7 +400,7 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		error(rule.SelectorError)
 	end
 	rule.Priority = priority
-	rule.Name = RULE_NAME_FORMAT:format(selector, priority)
+	rule.Name = RULE_NAME_FORMAT:format(selector)
 	rule:SetAttribute("Name", name)
 	
 	local arrayPart = {}
@@ -415,10 +415,7 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 	end
 	
 	rule:GetPropertyChangedSignal("Selector"):Connect(function()
-		rule.Name = RULE_NAME_FORMAT:format(rule.Selector, rule.Priority)
-	end)
-	rule:GetPropertyChangedSignal("Priority"):Connect(function()
-		rule.Name = RULE_NAME_FORMAT:format(rule.Selector, rule.Priority)
+		rule.Name = RULE_NAME_FORMAT:format(rule.Selector)
 	end)
 	
 	local realProps = {}
@@ -449,7 +446,7 @@ function Style.create(rules: {[any]: any}): Style
 
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new(),
-		TokenChanged = SimpleSignal.new()
+		TokenChanged = SimpleSignal.new(),
 	} :: Style, StyleMethods) :: any
 	
 	filterRules(style, rules, tokens)
