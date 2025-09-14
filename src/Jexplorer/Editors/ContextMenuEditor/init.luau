@@ -33,6 +33,8 @@ type ContextMenuConfigs = {
 	}
 }
 
+local currentlyUsedModule: Instance?
+
 function ContextMenuEditor.init(Manager)
 	init = true
 	local state = Manager.WidgetState
@@ -55,8 +57,8 @@ function ContextMenuEditor.init(Manager)
 		plugin:SetSetting("ContextMenuConfigsModulePath", v)
 	end)
 	
-	local defaultCtxMenus = Manager.ContextMenus
-	local defaultActions = Manager.PluginActions
+	local defaultCtxMenus = table.clone(Manager.ContextMenus)
+	local defaultActions = table.clone(Manager.PluginActions)
 	
 	local function refresh()
 		local path: string = pathBox:Get()
@@ -71,10 +73,19 @@ function ContextMenuEditor.init(Manager)
 		for _, v in segments do
 			current = rawindex(current, v)
 		end
-
+		
 		assert(current:IsA("ModuleScript"), "context menu configs path must lead to a ModuleScript")
-
-		local configs: ContextMenuConfigs = (require::any)(current)
+		
+		if currentlyUsedModule then
+			currentlyUsedModule:Destroy()
+		end
+		local clone = current:Clone()
+		currentlyUsedModule = clone
+		
+		clone.Source = current.Source
+		clone.Parent = plugin
+		
+		local configs: ContextMenuConfigs = (require::any)(clone)
 
 		for name, info in configs.Actions do
 			local action = plugin:CreatePluginAction(
@@ -88,8 +99,8 @@ function ContextMenuEditor.init(Manager)
 			Manager.PluginActions[name] = action
 		end
 		for name, actionNames in configs.Menus do
-			local menu = Manager.ContextMenus[name]
-			assert(menu, `ContextMenu '{name}' doesn't exist.`)
+			--local menu = Manager.ContextMenus[name]
+			--assert(menu, `ContextMenu '{name}' doesn't exist.`)
 
 			local newMenu = Manager.createContextMenu(tostring(os.clock()), actionNames)
 			Manager.ContextMenus[name] = newMenu

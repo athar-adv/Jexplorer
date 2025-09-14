@@ -1,4 +1,10 @@
 return {
+	Input = {
+		"ProximityPrompt",
+		"ClickDetector",
+		"DragDetector"
+	},
+	
 	UI = {
 		"Frame",
 		"TextLabel",
@@ -101,7 +107,10 @@ return {
 		"FlangeSoundEffect",
 		"PitchShiftSoundEffect",
 		"ReverbSoundEffect",
-		"TremoloSoundEffect"
+		"TremoloSoundEffect",
+		
+		"AudioPlayer",
+		"AudioAnalyzer"
 	},
 
 	Meshes = {
@@ -120,17 +129,12 @@ return {
 	},
 
 	Gameplay = {
-		"Spawn",
 		"SpawnLocation",
 		"Team",
 		"Seat",
 		"VehicleSeat",
 		"Tool",
 		"HopperBin",
-		"Backpack",
-		"StarterGui",
-		"StarterPack",
-		"StarterPlayer",
 		"Flag",
 		"FlagStand"
 	},

@@ -39,7 +39,7 @@ export type JStateObject = {
 }
 
 -- Bump this when defaults change
-local CURRENT_VERSION = 63
+local CURRENT_VERSION = 64
 
 local DEFAULT_INVIS_MAP = {}
 for _, v in DefaultInvisClasses do
@@ -211,7 +211,7 @@ function JState.load(): JStateObject
 		-- Reset to default state if missing or outdated
 		local defaultState = JState.getDefaultState()
 		
-		local tabArray = savedState.Tabs and (savedState.Tabs[game.PlaceId]) or {}
+		local tabArray = {}
 		local serialized = serializeState(
 			defaultState.Style,
 			defaultState.Settings,

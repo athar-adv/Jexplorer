@@ -22,7 +22,6 @@ local settingNameToData = {}
 local settingNameToFrame = {}
 
 function SettingEditor.getSetting(Manager, name)
-	if not init then return end
 	local configs = SettingEditor.Configs
 
 	local value = configs[name]
@@ -33,7 +32,6 @@ function SettingEditor.getSetting(Manager, name)
 end
 
 function SettingEditor.setSetting(Manager, name, value)
-	if not init then return end
 	local configs = SettingEditor.Configs
 	configs[name] = value
 	
@@ -125,7 +123,7 @@ function SettingEditor.init(Manager)
 			Parent = mainframe.Items
 		}, "Saving Behavior"),
 	}
-
+	
 	for behaviorName, list in DefaultSettings do
 		local behavior = behaviors[behaviorName]
 		for name, data in list do

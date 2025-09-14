@@ -48,6 +48,7 @@ export type StudioIconResult = {
 export type ContextMenu = {
 	Actions: {PluginAction},
 	Menu: PluginMenu,
+	SubMenus: {ContextMenu},
 	Id: string
 }
 export type Tab = {
@@ -137,11 +138,16 @@ export type Manager = {
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
 	getInstanceFrame: () -> InstanceFrame,
-	createInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
 	getOrCreateInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
 	registerTab: (name: string, roots: {InstanceEntity}, createDeleteButton: boolean, registerIntoTabsArray: boolean) -> Tab,
+	toggleExpand: (world: World, entity: InstanceEntity, expanded: boolean, update: boolean) -> (),
 	
-	createContextMenu: (id: string, actions: {string}) -> ContextMenu,
+	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
+	
+	createVirtualEntity: (options: {ClassName: string, Name: string, ChildAmount: number, ClassIcon: StudioIconResult, PropTags: {Jecs.Id}, Parent: InstanceEntity?}, extra: {[string]: any}) -> InstanceEntity,
+	createInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
+	
+	createContextMenu: (id: string, actions: {string}, title: string?, icon: string?) -> ContextMenu,
 	replaceContextMenu: (name: string, newActions: {string}) -> (),
 	
 	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, InstanceEntity?, Tab?),
@@ -160,8 +166,10 @@ export type Manager = {
 	
 	setInstanceFramePoolTarget: (n: number) -> (),
 	fillInstanceFramePoolToLimit: () -> (),
-	addEntitiesToSelection: (world: World, entities: {InstanceEntity}) -> (),
+	addEntitiesToSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
+	setEntitiesAsSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
 	updateVirtualScroller: () -> (),
+	updateSelectionVisuals: (updateSelection: boolean) -> (),
 	
 	init: (onClose: () -> (), pluginVersion: string, connections: Group.Group) -> ()
 }

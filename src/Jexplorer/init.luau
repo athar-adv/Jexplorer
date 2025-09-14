@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "b0.21.7"
+local VERSION = "b0.21.8"
 
 local utilities = script.Utilities
 local editors = script.Editors
@@ -76,6 +76,9 @@ shared.Jexplorer = {
 	__close = onCloseEvent,
 	__modify = modifyIconEvent
 }
+
+plugin.Name = "Jexplorer_PluginSession"
+plugin.Parent = game
 
 Manager.init(onClose, VERSION, connections)
 

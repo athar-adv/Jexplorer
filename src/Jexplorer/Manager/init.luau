@@ -95,6 +95,7 @@ local entityCleanupQueue: {InstanceEntity} = {}
 local onChildAddedQueue: { {child: Instance, parent: InstanceEntity} } = {}
 local onChildRemovedQueue: { {child: Instance, parent: InstanceEntity} } = {}
 local entityDeleteQueue: {InstanceEntity} = {}
+local currentSelectionCache: {Instance} = {}
 
 local debugIdToInstance = setmetatable({}, {__mode = "v"})
 
@@ -180,6 +181,14 @@ local Manager = {
 local showInsertInstanceMenu
 local APIMap: {[string]: {[string]: any}}
 
+local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?, allowBinding: boolean?)
+	local action = plugin:CreatePluginAction(
+		actionId, text, statusTip, iconId, allowBinding
+	)
+	action.Name = actionId
+	return action
+end
+
 local function loop(interval: number, fn: () -> ())
 	while true do task.wait(interval) fn() end
 end
@@ -263,6 +272,15 @@ local function getPropertyComponentsForClass(world: World, className: string)
 
 	classComponentCache[className] = components
 	return components
+end
+
+local function getPropertyCt(world: World, propName: string)
+	local ct = componentMap[propName]
+	if not ct then
+		ct = world:entity()
+		componentMap[propName] = ct
+	end
+	return ct
 end
 
 local function deregisterFromQueryWorld(world: World, queryWorld: World, entity: InstanceEntity)
@@ -459,7 +477,7 @@ local function flushEntityPropAssignQueue()
 	local world = Manager.WidgetState.World
 	local queryWorld = Manager.WidgetState.QueryWorld
 	local components = Manager.Components
-
+	
 	profilebegin("Manager::flushEntityPropAssignQueue")
 	for _, data in entityPropAssignQueue do
 		local ent = data.entity
@@ -468,7 +486,6 @@ local function flushEntityPropAssignQueue()
 		if not instance then continue end
 
 		local className = instance.ClassName
-
 		nameCache[ent] = instance.Name
 		classNameCache[ent] = className
 		childAmountCache[ent] = #instance:GetChildren()
@@ -479,6 +496,7 @@ local function flushEntityPropAssignQueue()
 		registerToQueryWorld(world, queryWorld, ent, className, data.tags)
 	end
 	table.clear(entityPropAssignQueue)
+	
 	profileend()
 	return true
 end
@@ -490,7 +508,7 @@ local function flushTagAssignQueue()
 	local components = Manager.Components
 
 	local world = state.World
-
+	
 	profilebegin("Manager::flushTagAssignQueue")
 	for _, v in tagAssignQueue do
 		local frame, entity = v.frame, v.entity
@@ -1238,7 +1256,7 @@ local function setSelection(world: World, entities: {InstanceEntity}, updateSele
 	updateSelectionVisuals(world, updateSelection)
 end
 
-local function addEntitiesToSelection(world: World, entities: {InstanceEntity})
+local function addEntitiesToSelection(world: World, entities: {InstanceEntity}, updateSelection: boolean)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 
@@ -1247,7 +1265,7 @@ local function addEntitiesToSelection(world: World, entities: {InstanceEntity})
 	end
 	table.move(entities, 1, #entities, #state.CurrentSelection + 1, state.CurrentSelection)
 	state.LastSelectedEntity = entities[#entities]
-	updateSelectionVisuals(world, true)
+	updateSelectionVisuals(world, updateSelection)
 end
 
 local function copySelection(world: World)
@@ -1260,13 +1278,11 @@ local function copySelection(world: World)
 		if not inst then continue end
 		table.insert(instances, inst)
 	end
-	pcall(function()
-		plugin:SetSetting("CopiedInstances", 
-			HttpService:JSONEncode(
-				SerializationService:SerializeInstancesAsync(instances)
-			)
+	plugin:SetSetting("CopiedInstances", 
+		HttpService:JSONEncode(
+			SerializationService:SerializeInstancesAsync(instances)
 		)
-	end)
+	)
 end
 
 local function pasteCopiedInstances(world: World)
@@ -1276,16 +1292,17 @@ local function pasteCopiedInstances(world: World)
 	if not targetEntity then return end
 	local targetInstance = world:get(targetEntity, components.Instance)
 	assert(targetInstance, "target instance not found")
-
+	
 	local success, instances = pcall(
 		SerializationService.DeserializeInstancesAsync, SerializationService, 
 		HttpService:JSONDecode(
 			plugin:GetSetting("CopiedInstances")
 		)
 	)
+	
 	if not success then return end
 	local id = ChangeHistoryService:TryBeginRecording("Paste", "Paste")
-
+	
 	for _, v in instances do
 		local success = pcall(function()
 			v.Parent = targetInstance
@@ -1572,7 +1589,21 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 				if not world:has(entity, components.Selected) then
 					setSelection(world, {entity}, true)
 				end
-				Manager.ContextMenus.Instance.Menu:ShowAsync()
+				local ctx = Manager.ContextMenus
+				local menu =
+					ctx[`@{classNameCache[entity]} & #{nameCache[entity]}`]
+					or	ctx[`@{classNameCache[entity]}`]
+					or	ctx[`#{nameCache[entity]}`]
+				
+				if not menu then
+					if instance.Parent == nil then
+						menu = ctx.Service
+					else
+						menu = ctx.Instance
+					end
+				end
+				
+				menu.Menu:ShowAsync()
 			elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 				profilebegin("InstanceFrame::onInput::LMB (click)")
 				isLMBActive = true
@@ -1637,7 +1668,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 					local icon = ClassIcon.getIcon(instance.ClassName)
 					if not icon then
 						profileend()
-						return 
+						return
 					end
 
 					iconImage.Image = icon.Image
@@ -1707,7 +1738,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			if not state.CurrentDrag and hasBeenSelected and #state.CurrentSelection > 1 then
 				local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
 				local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
-
+				
 				if not isCtrlHeld and not isShiftHeld then
 					-- Normal click on multi-selection - select only this one
 					for entityId in selectedQuery:iter() do
@@ -1946,7 +1977,8 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 	if isAncestryChanged and world:has(entity, components.AncestryLocked) then
 		return false
 	end
-
+	if not child.Parent then return false end
+	
 	profilebegin("Manager::onInstChildAdded")
 
 	local frame = world:get(entity, components.Frame)
@@ -2102,6 +2134,10 @@ function Manager.getInstFromId(id)
 	return debugIdToInstance[id]
 end
 
+function Manager.updateSelectionVisuals(updateSelection)
+	updateSelectionVisuals(Manager.WidgetState.World, updateSelection)
+end
+
 function Manager.getDragInfo(inst, propName)
 	return {
 		Sender = `jprops:{propName}`,
@@ -2185,6 +2221,41 @@ function Manager.getEntityAt(x, y, filteredParent)
 	return newParentFrame, entity
 end
 
+function Manager.createVirtualEntity(options, extra)
+	assert(options.ClassName, "ClassName required")
+	assert(options.Name, 'Name required')
+	assert(options.ChildAmount, "ChildAmount required")
+
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local queryWorld = state.QueryWorld
+	local world = state.World
+
+	local connections: Group.Group = options.Parent and world:get(options.Parent, components.Connections)::any or state.Connections
+
+	local tbl = {
+		ClassName = options.ClassName,
+		Name = options.Name,
+	}
+	
+	for k, v in extra do
+		tbl[k] = v
+	end
+	local ent = createAbstractEntity(tbl)
+
+	classNameCache[ent] = options.ClassName
+	nameCache[ent] = options.Name
+	childAmountCache[ent] = options.ChildAmount
+	ClassIcon.CachedIcons[options.ClassName] = options.ClassIcon
+	table.insert(state.Entities, ent)
+
+	local instConnections = connections:Extend("Disconnect")
+	world:set(ent, components.Connections, instConnections)
+
+	registerToQueryWorld(world, queryWorld, ent, options.ClassName, options.PropTags)
+	return ent
+end
+
 function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntity)
 	profilebegin("Manager::createInstanceEntity")
 	local state = Manager.WidgetState
@@ -2196,7 +2267,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 
 	local components = Manager.Components
 	local state = Manager.WidgetState
-
+	
 	local parentConnections = state.Connections
 	if parent then
 		local connections = world:get(parent, components.Connections)
@@ -2264,7 +2335,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 		local src = ScriptEditorService:GetEditorSource(instance)
 		VersionControl.createInstanceVersion(instance, "Source", src)
 	end
-
+	
 	connections.Items = {
 		rawindex(instance, "Changed"):Connect(function(prop: string)
 			--VersionControl.onInstancePropChange(instance, prop, rawindex(instance, prop))
@@ -2290,7 +2361,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 			if childEntity and world:has(childEntity, components.AncestryLocked) then
 				return
 			end
-
+			
 			local g = child:FindFirstAncestorOfClass("DockWidgetPluginGui")
 			if g and widgetIsJexp(g) then
 				return
@@ -2553,13 +2624,23 @@ function Manager.registerTab(name, stored, createDeleteButton, registerIntoTabs)
 	return tab
 end
 
-function Manager.createContextMenu(id, actions)
-	local menu = plugin:CreatePluginMenu(id)
+function Manager.createContextMenu(id, actions, title, icon)
+	local menu = plugin:CreatePluginMenu(id, title, icon)
 	local pluginActions = {}
+	local subMenus = {}
 
 	for _, name: any in actions do
 		if name == "---" then
 			menu:AddSeparator()
+			continue
+		end
+		-- Submenu case
+		if typeof(name) == "table" then
+			local submenu = Manager.createContextMenu(
+				getId(name.Id or "", true), name[1], name.Title, name.Icon
+			)
+			menu:AddMenu(submenu.Menu)
+			table.insert(subMenus, submenu)
 			continue
 		end
 
@@ -2572,6 +2653,7 @@ function Manager.createContextMenu(id, actions)
 
 	return table.freeze {
 		Actions = pluginActions,
+		SubMenus = subMenus,
 		Menu = menu,
 		Id = id
 	}
@@ -2714,7 +2796,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	for name, value in loadedState.Settings do
 		Manager.setSetting(name, value)
 	end
-
+	
 	if IS_EDIT then
 		StyleEditor.init(Manager)
 	end
@@ -2728,11 +2810,23 @@ function Manager.init(onClose, pluginVersion, connections)
 	--ContextMenuEditor.init(Manager)
 
 	shared.Jexplorer.__modify:Fire()
-
-	local favoritedInstancesEntity do
-		favoritedInstancesEntity = createAbstractEntity {
+	
+	local favoritedInstancesEntity = Manager.createVirtualEntity(
+		{
 			ClassName = Manager.AbstractEntClasses.Favorited,
 			Name = "Favorites",
+			ChildAmount = 0,
+			ClassIcon = {
+				Image = "rbxassetid://12982756171",
+				ImageRectOffset = Vector2.zero,
+				ImageRectSize = Vector2.zero
+			},
+			PropTags = {
+				getPropertyCt(world, "ClassName"),
+				getPropertyCt(world, "Name")
+			}
+		},
+		{
 			GetChildren = function(self)
 				return state.Favorited
 			end,
@@ -2746,31 +2840,8 @@ function Manager.init(onClose, pluginVersion, connections)
 				return {}
 			end,
 		}
-		classNameCache[favoritedInstancesEntity] = Manager.AbstractEntClasses.Favorited
-		nameCache[favoritedInstancesEntity] = "Favorites"
-		childAmountCache[favoritedInstancesEntity] = 0
-		ClassIcon.CachedIcons[Manager.AbstractEntClasses.Favorited] = {
-			Image = "rbxassetid://12982756171",
-			ImageRectOffset = Vector2.zero,
-			ImageRectSize = Vector2.zero
-		}
-		table.insert(state.Entities, favoritedInstancesEntity)
-		
-		local instConnections = connections:Extend("Disconnect")
-		world:set(favoritedInstancesEntity, components.Connections, instConnections)
-		
-		componentMap.Name = world:entity()
-		componentMap.ClassName = world:entity()
-		local queryEntity = queryWorld:entity()
-		queryWorld:set(queryEntity, components.QueryLinkedEntities, {
-			favoritedInstancesEntity
-		})
-		queryWorld:add(queryEntity, componentMap.Name)
-		queryWorld:add(queryEntity, componentMap.ClassName)
-		
-		world:set(favoritedInstancesEntity, components.LinkedQueryEntity, queryEntity)
-	end
-
+	)
+	
 	local topbarMenuDropdown do
 		topbarMenuDropdown = PluginUI.createItemList {
 			Name = "TopbarMenuDropdown"
@@ -2920,12 +2991,12 @@ function Manager.init(onClose, pluginVersion, connections)
 		topbarMenuDropdown.Backdrop.Parent = topbar
 	end
 
-	local editName do
-		editName = plugin:CreatePluginAction(
+	local tabEditName do
+		tabEditName = createPluginAction(
 			getId("EditName", true), "Edit Name", "Edits the name of a tab."
 		)
 
-		editName.Triggered:Connect(function()
+		tabEditName.Triggered:Connect(function()
 			if not targetTab then return end
 
 			local box: TextBox = targetTab.NameBox
@@ -3001,7 +3072,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		highlightFrame.Size = UDim2.fromScale(1, 1)
 		highlightFrame.BackgroundColor3 = Color3.new(100, 100, 100)
 		highlightFrame.BackgroundTransparency = 0.8
-
+		
 		searchbar:GetPropertyChangedSignal("Text"):Connect(function()
 			local searchText = searchbar.Text
 			local matches = {}
@@ -3079,13 +3150,13 @@ function Manager.init(onClose, pluginVersion, connections)
 			local id = ChangeHistoryService:TryBeginRecording("CreateInstance", "Create Instance")
 
 			local entityInst = world:get(entity, components.Instance)
-			if not entityInst then 
+			if not entityInst then
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
 				end
 				return 
 			end
-
+			
 			local success, inst = pcall(Instance.new, class)
 			if not success then warn(inst) return end
 			
@@ -3107,9 +3178,10 @@ function Manager.init(onClose, pluginVersion, connections)
 			if not world:has(entity, components.Expanded) then
 				toggleExpand(world, entity, true, true)
 			end
-
+			
 			table.insert(onChildAddedQueue, {parent = entity, child = inst})
-
+			Selection:Set({inst})
+			
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 			end
@@ -3216,7 +3288,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local renameAction do
-		renameAction = plugin:CreatePluginAction(
+		renameAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_Rename", true), "Rename Instance", "Rename selected instance."
 		) :: PluginAction
 		renameAction.Triggered:Connect(function()
@@ -3233,7 +3305,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local insertFromFileAction do
-		insertFromFileAction = plugin:CreatePluginAction(
+		insertFromFileAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_InsertFromFile", true), "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
 		)
 		insertFromFileAction.Triggered:Connect(function()
@@ -3284,7 +3356,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local insertObjectAction do
-		insertObjectAction = plugin:CreatePluginAction(
+		insertObjectAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_InsertObject", true), "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
 		)
 		insertObjectAction.Triggered:Connect(function()
@@ -3294,7 +3366,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local selectChildrenAction do
-		selectChildrenAction = plugin:CreatePluginAction(
+		selectChildrenAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_SelectChildren", true), "Select Children", "Selects all children of an Instance."
 		)
 		selectChildrenAction.Triggered:Connect(function()
@@ -3307,13 +3379,13 @@ function Manager.init(onClose, pluginVersion, connections)
 				if not world:has(target, components.Expanded) then
 					toggleExpand(world, target, true, true)
 				end
-				addEntitiesToSelection(world, children)
+				addEntitiesToSelection(world, children, true)
 			end
 		end)
 	end
 
 	local saveToFileAction do
-		saveToFileAction = plugin:CreatePluginAction(
+		saveToFileAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_SaveToFile", true), "Save to File...", "Saves an Instance as a local file."
 		)
 		saveToFileAction.Triggered:Connect(function()
@@ -3327,7 +3399,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local saveToRobloxAction do
-		saveToRobloxAction = plugin:CreatePluginAction(
+		saveToRobloxAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_SaveToRoblox", true), "Save to Roblox...", "Saves an Instance to Roblox."
 		)
 		saveToRobloxAction.Triggered:Connect(function()
@@ -3337,7 +3409,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local copyAction do
-		copyAction = plugin:CreatePluginAction(
+		copyAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_Copy", true), "Copy", "Copies all Instances to your clipboard."
 		)
 		copyAction.Triggered:Connect(function()
@@ -3346,7 +3418,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local pasteIntoAction do
-		pasteIntoAction = plugin:CreatePluginAction(
+		pasteIntoAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_PasteInto", true), "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
 		)
 		pasteIntoAction.Triggered:Connect(function()
@@ -3355,7 +3427,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local collapseAllAction do
-		collapseAllAction = plugin:CreatePluginAction(
+		collapseAllAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_CollapseAll", true), "Collapse All", "Collapses all expanded descendants."
 		)
 		collapseAllAction.Triggered:Connect(function()
@@ -3376,7 +3448,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local toggleFavoriteAction do
-		toggleFavoriteAction = plugin:CreatePluginAction(
+		toggleFavoriteAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_ToggleFavorite", true), "Toggle Favorite", "Puts this instance into the favorited list.", "rbxassetid://12982756171"
 		)
 		toggleFavoriteAction.Triggered:Connect(function()
@@ -3403,7 +3475,7 @@ function Manager.init(onClose, pluginVersion, connections)
 					if not proxy then continue end
 					world:add(proxy, components.ArrowInvisible)
 
-					if not proxy then 
+					if not proxy then
 						warn(`could not create favorite proxy for '{instance}'`)
 						return
 					end
@@ -3439,7 +3511,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local hideClassAction do
-		hideClassAction = plugin:CreatePluginAction(
+		hideClassAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_HideClass", true), "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
 		)
 		hideClassAction.Triggered:Connect(function()
@@ -3454,7 +3526,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local deleteAction do
-		deleteAction = plugin:CreatePluginAction(
+		deleteAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_Delete", true), "Delete", "Deletes this Instance."
 		)
 		deleteAction.Triggered:Connect(function()
@@ -3474,7 +3546,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local openVersionHistoryAction do
-		openVersionHistoryAction = plugin:CreatePluginAction(
+		openVersionHistoryAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_OpenVersionHistory", true), "Open Version History", "Opens the version history viewer."
 		)
 		openVersionHistoryAction.Triggered:Connect(function()
@@ -3489,7 +3561,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local appendAction do
-		appendAction = plugin:CreatePluginAction(
+		appendAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_Append", true), "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
 		)
 		appendAction.Triggered:Connect(function()
@@ -3501,7 +3573,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local commitAction do
-		commitAction = plugin:CreatePluginAction(
+		commitAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_Commit", true), "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
 		)
 		commitAction.Triggered:Connect(function()
@@ -3513,7 +3585,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	end
 
 	local removeFromTabAction do
-		removeFromTabAction = plugin:CreatePluginAction(
+		removeFromTabAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_RemoveFromTab", true), "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
 		)
 		removeFromTabAction.Triggered:Connect(function()
@@ -3548,10 +3620,14 @@ function Manager.init(onClose, pluginVersion, connections)
 		local function groupAs(className: string)
 			local pathArray = {}
 			local pathMap = {}
+			local entities = {}
+			
 			for _, ent in state.CurrentSelection do
 				local inst = world:get(ent, components.Instance)
 				if not inst then continue end
-
+				
+				table.insert(entities, ent)
+				
 				local path = inst:GetFullName()
 				table.insert(pathArray, path)
 				pathMap[path] = ent
@@ -3565,7 +3641,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			local targetParent = world:get(targetParentEnt, components.Instance)
 			assert(targetParent)
 
-			local id = ChangeHistoryService:TryBeginRecording("GroupAsFolder", "Group As Folder")
+			local id = ChangeHistoryService:TryBeginRecording("GroupAs", "Group As")
 
 			local container = Instance.new(className)
 			container.Parent = targetParent
@@ -3575,11 +3651,11 @@ function Manager.init(onClose, pluginVersion, connections)
 			assert(containerEntity)
 			world:add(containerEntity, components.AncestryLocked)
 
-			for _, ent in pathMap do
+			for _, ent in entities do
 				world:add(ent, components.AncestryLocked)
 			end
-
-			for _, ent in pathMap do
+			
+			for _, ent in entities do
 				local inst = world:get(ent, components.Instance)
 				if not inst then continue end
 
@@ -3596,8 +3672,8 @@ function Manager.init(onClose, pluginVersion, connections)
 					frame:Reuse()
 				end
 			end
-
-			for _, ent in pathMap do
+			
+			for _, ent in entities do
 				world:remove(ent, components.AncestryLocked)
 			end
 
@@ -3613,10 +3689,10 @@ function Manager.init(onClose, pluginVersion, connections)
 				Selection:Set({container})
 			end)
 		end
-		groupAsFolderAction = plugin:CreatePluginAction(
+		groupAsFolderAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_GroupAsFolder", true), "Group as Folder", "Groups the selected Instances inside 1 Folder."
 		)
-		groupAsModelAction = plugin:CreatePluginAction(
+		groupAsModelAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_GroupAsModel", true), "Group as Model", "Groups the selected Instances inside 1 Model."
 		)
 		groupAsFolderAction.Triggered:Connect(function()
@@ -3654,7 +3730,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		GroupAsModel = groupAsModelAction,
 		GroupAsFolder = groupAsFolderAction,
 
-		Tab_EditName = editName
+		Tab_EditName = tabEditName
 	}
 
 	local instanceContextMenu = Manager.createContextMenu(
@@ -3702,10 +3778,30 @@ function Manager.init(onClose, pluginVersion, connections)
 	local serviceContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ServiceContextMenu", true),
 		{
-
+			"PasteInto",
+			"Rename",
+			
+			"---",
+			
+			"HideClass",
+			
+			"---",
+			
+			"SelectChildren",
+			"CollapseAll",
+			
+			"---",
+			
+			"InsertFromFile",
+			"InsertObject",
+			
+			"---",
+			
+			"ToggleFavorite",
+			"RemoveFromTab"
 		}
 	)
-
+	
 	local tabMenu = Manager.createContextMenu(
 		getId("Jexplorer_TabContextMenu", true),
 		{
@@ -3976,7 +4072,6 @@ function Manager.init(onClose, pluginVersion, connections)
 
 			sheet:SetToken("BackgroundColor", theme:GetColor(Enum.StudioStyleGuideColor.MainBackground), false)
 			sheet:SetToken("TextColor", theme:GetColor(Enum.StudioStyleGuideColor.MainText), false)
-
 			for _, rule in sheet.Rules do
 				local class = rule.Rule.Selector:match("%.JEXP_TAGGED_ClassName_(%w-)[^%w]")
 				if not class then continue end
@@ -4000,7 +4095,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			
 			local inst = world:get(entity, components.Instance)
 			if not inst then return end
-
+			
 			rawnewindex(targetInst, propName, inst)
 		end),
 		game.DescendantRemoving:Connect(function(descendant)
@@ -4025,22 +4120,27 @@ function Manager.init(onClose, pluginVersion, connections)
 		Selection.SelectionChanged:Connect(function()
 			profilebegin("Manager::onSelectionChanged")
 			local selection = Selection:Get()
+			currentSelectionCache = selection
+			
 			local entities = {}
 			local n = 0
 			for _, v in selection do
+				while not instanceToEntity[v] do
+					task.wait()
+				end
+				
 				local ent = instanceToEntity[v]
-				if not ent then continue end
 				if not table.find(state.CurrentSelection, ent) then
 					n += 1
 				end
 				table.insert(entities, ent)
 			end
 			state.CurrentSelection = entities
-
+			
 			if Manager.getSetting("PropertyEditorUpdatedOnSelect") then
 				PropertyEditor.updateProperties(selection)
 			end
-
+			
 			local pathSegments = topbar.PathBar.Segments
 			if pathClickConnection then
 				pathClickConnection:Disconnect()
@@ -4058,12 +4158,12 @@ function Manager.init(onClose, pluginVersion, connections)
 				local pathButton = pathSegments.PathSegment
 				local current: Instance? = commonAncestor
 				local segmentBounds = {}
-
+				
 				local pathParts = {}
 				local size = pathButton.TextSize
 				local font = pathButton.Font
 				local entities = {}
-				while current do
+				while current and current ~= game do
 					--local entity = instanceToEntity[current]
 					table.insert(pathParts, 1, current.Name)
 					table.insert(entities, 1, current)
@@ -4095,8 +4195,6 @@ function Manager.init(onClose, pluginVersion, connections)
 				pathButton.Text = table.concat(pathParts, " / ")
 				pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
 			end
-
-			if n == 0 then return end
 			
 			for v in selectedQuery:iter() do
 				world:remove(v, components.Selected)
@@ -4104,7 +4202,8 @@ function Manager.init(onClose, pluginVersion, connections)
 			for _, ent in entities do
 				world:add(ent, components.Selected)
 			end
-
+			if n == 0 then return end
+			
 			local autoExpand = Manager.getSetting("AutoExpandOnSelect")
 			-- I am a genius for this
 			if autoExpand then
@@ -4125,7 +4224,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 				profileend()
 			end
-
+			
 			-- Jump the canvas position to the middle entity
 			local middle = entities[math.max(#entities // 2, 1)]
 			local entityIndex = getFlattenedVisibleEntities(world, {})
@@ -4239,7 +4338,7 @@ function Manager.init(onClose, pluginVersion, connections)
 					local clone = instance:Clone()
 					clone.Parent = instance.Parent
 				end
-
+				
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
@@ -4465,6 +4564,9 @@ function Manager.setInstanceFramePoolTarget(n)
 end
 Manager.fillInstanceFramePoolToLimit = fillInstanceFramePoolToLimit
 Manager.addEntitiesToSelection = addEntitiesToSelection
+Manager.setEntitiesAsSelection = setSelection
 Manager.updateVirtualScroller = updateVirtualScroller
+Manager.toggleExpand = toggleExpand
+Manager.getPropertyTag = getPropertyCt
 
 return Manager

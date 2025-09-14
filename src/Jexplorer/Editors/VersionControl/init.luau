@@ -213,7 +213,7 @@ local function syntaxHighlight(src: string): string
 		return a.span.x > b.span.x
 	end)
 	
-	local LT = "\32"
+	local LT = "\30"
 	local GT = "\31"
 	for _, replacement in all_replacements do
 		local fmt = `{LT}font color='rgb({math.round(replacement.color.R * 255)}, {math.round(replacement.color.G * 255)}, {math.round(replacement.color.B * 255)})'{GT}%s{LT}/font{GT}`
