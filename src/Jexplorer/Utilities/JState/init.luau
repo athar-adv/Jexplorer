@@ -39,7 +39,7 @@ export type JStateObject = {
 }
 
 -- Bump this when defaults change
-local CURRENT_VERSION = 64
+local CURRENT_VERSION = 65
 
 local DEFAULT_INVIS_MAP = {}
 for _, v in DefaultInvisClasses do

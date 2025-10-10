@@ -140,7 +140,6 @@ export type Manager = {
 	getInstanceFrame: () -> InstanceFrame,
 	getOrCreateInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
 	registerTab: (name: string, roots: {InstanceEntity}, createDeleteButton: boolean, registerIntoTabsArray: boolean) -> Tab,
-	toggleExpand: (world: World, entity: InstanceEntity, expanded: boolean, update: boolean) -> (),
 	
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 	
@@ -170,6 +169,7 @@ export type Manager = {
 	setEntitiesAsSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
 	updateVirtualScroller: () -> (),
 	updateSelectionVisuals: (updateSelection: boolean) -> (),
+	updateChildrenVisuals: (world: World, update: boolean, expandedCt: Jecs.Id?) -> (),
 	
 	init: (onClose: () -> (), pluginVersion: string, connections: Group.Group) -> ()
 }
@@ -252,6 +252,21 @@ export type PropertyEditor = Editor & {
 
 export type ContextMenuEditor = Editor & {
 	
+}
+
+export type Jexplorer = {
+	Manager: Manager,
+	StyleEditor: StyleEditor,
+	SettingEditor: SettingEditor,
+	OrderEditor: OrderEditor,
+	VersionControl: VersionControl,
+	PropertyEditor: PropertyEditor,
+	
+	Dependencies: {[string]: any},
+	
+	OnLoad: RBXScriptSignal,
+	OnClose: RBXScriptSignal,
+	ModifyIconStep: RBXScriptSignal
 }
 
 return nil

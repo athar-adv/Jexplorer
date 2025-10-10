@@ -363,16 +363,6 @@ function StyleEditor.init(Manager)
 		createStyleRuleItemList.Backdrop.Parent = topbar
 	end
 
-	local header = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
-
-	PluginUI.createInsertButton(header, function()
-		createStyleRuleItemList:Show()
-	end)
-
-	for _, rule in sheet.Rules do
-		createStyleRuleDropdown(rule)
-	end
-
 	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string)
 		local box
 		box = PluginUI.createAttributeBox(tokensDropdown, k, defaultStr, function(newValue)
@@ -443,17 +433,35 @@ function StyleEditor.init(Manager)
 		end)
 		createTokenItemList.Backdrop.Parent = topbar
 	end
-	-- Tokens
-	for k, v in sheet.Tokens do
-		local defaultValue = v
-		local defaultStr = JDF.to(v)
-
-		createTokenAttribute(k, defaultValue, defaultStr)
-	end
-
-	local header = tokensDropdown.Backdrop:FindFirstChild("DropDownHeader")
 	
-	PluginUI.createInsertButton(header, function()
+	task.spawn(function()
+		task.wait(2)
+		for k, v in sheet.Tokens do
+			local defaultValue = v
+			local defaultStr = JDF.to(v)
+
+			createTokenAttribute(k, defaultValue, defaultStr)
+			task.wait(0.5)
+		end
+	end)
+	
+	task.spawn(function()
+		task.wait(2)
+		for _, rule in sheet.Rules do
+			createStyleRuleDropdown(rule)
+			task.wait(0.5)
+		end
+	end)
+	
+	local rulesHeader = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
+
+	PluginUI.createInsertButton(rulesHeader, function()
+		createStyleRuleItemList:Show()
+	end)
+	
+	local tokensHeader = tokensDropdown.Backdrop:FindFirstChild("DropDownHeader")
+	
+	PluginUI.createInsertButton(tokensHeader, function()
 		createTokenItemList:Show()
 	end)
 

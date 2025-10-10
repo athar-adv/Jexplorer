@@ -200,10 +200,12 @@ function StyleMethods:Replace(new: Style)
 	table.clear(self.Rules)
 	for _, v in new.Rules do
 		table.insert(self.Rules, v)
+		self.RuleAdded:Fire(v)
 	end
 	table.clear(self.Tokens)
 	for k, v in new.Tokens do
 		self.Tokens[k] = v
+		self.TokenChanged:Fire(k, v)
 	end
 	table.clear(self.AppliedTokens)
 	for k, v in new.AppliedTokens do

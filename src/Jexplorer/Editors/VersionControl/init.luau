@@ -541,7 +541,7 @@ function VersionControl.init(_m)
 	end
 	
 	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
-	PluginUI.createHeader(list, "WARNING: The github sync functionality is still very early, do not use it for anything except testing!")
+	PluginUI.createHeader(list, "WARNING: The github sync functionality is still early in functionality, be careful using this in production!")
 	
 	local tokenInput
 	local existingToken = plugin:GetSetting("GithubAuthToken")

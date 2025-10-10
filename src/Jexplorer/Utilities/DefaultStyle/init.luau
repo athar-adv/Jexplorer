@@ -268,6 +268,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			BackgroundTransparency = 0.6,
 			BackgroundColor3 = "$HoverColor"
 		}),
+		rule("PackageLinkIcon", "#PackageLinkIcon", 1, {
+			Image = assert(ClassIcon.getIcon("PackageLink"), "PackageLink icon not found!").Image
+		}),
 		
 		rule("ClientRunContextIcon", `{Selector.getTaggedPropertySelector("RunContext", "Client")} > #Main > #ClassIcon`, 1, {
 			Image = "rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/LocalScript.png",

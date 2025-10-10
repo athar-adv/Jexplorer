@@ -219,6 +219,11 @@ local function isEntityGone(world: World, entity: InstanceEntity)
 	return world:has(entity, components.Deleted) or not world:contains(entity)
 end
 
+local function isEntityExpanded(world: World, entity: InstanceEntity)
+	local components = Manager.Components
+	return world:has(entity, components.Expanded) or world:has(entity, components.QueryExpanded)
+end
+
 local function getTaggedPropertyTag(propName: string, targetedValue: string)
 	return `JEXP_TAGGED_{propName}_{targetedValue}`
 end
@@ -396,14 +401,14 @@ local function getFrameTags(instance: any)
 	return tags
 end
 
-local function calculateDeepHeight(world: World, expanded: Jecs.Id, childrenMap: {[InstanceEntity]: {InstanceEntity}}, heightCache: {[InstanceEntity]: number}, entity: InstanceEntity): number
+local function calculateDeepHeight(world: World, expanded: Jecs.Id, queryExpanded: Jecs.Id, childrenMap: {[InstanceEntity]: {InstanceEntity}}, heightCache: {[InstanceEntity]: number}, entity: InstanceEntity): number
 	if isEntityInvisible(world, entity) or isEntityGone(world, entity) then return 0 end
 	-- Check cache first
 	if heightCache[entity] then
 		return heightCache[entity]
 	end
 	-- If not expanded, height is just 1 (the entity itself)
-	if not world:has(entity, expanded) then
+	if not world:has(entity, expanded) and not world:has(entity, queryExpanded) then
 		heightCache[entity] = 1
 		return 1
 	end
@@ -417,7 +422,7 @@ local function calculateDeepHeight(world: World, expanded: Jecs.Id, childrenMap:
 	-- Calculate total height: 1 (self) + sum of all children heights
 	local totalHeight = 1
 	for _, child in children do
-		totalHeight += calculateDeepHeight(world, expanded, childrenMap, heightCache, child)
+		totalHeight += calculateDeepHeight(world, expanded, queryExpanded, childrenMap, heightCache, child)
 	end
 
 	heightCache[entity] = totalHeight
@@ -477,7 +482,7 @@ local function flushEntityPropAssignQueue()
 	local world = Manager.WidgetState.World
 	local queryWorld = Manager.WidgetState.QueryWorld
 	local components = Manager.Components
-	
+
 	profilebegin("Manager::flushEntityPropAssignQueue")
 	for _, data in entityPropAssignQueue do
 		local ent = data.entity
@@ -496,7 +501,7 @@ local function flushEntityPropAssignQueue()
 		registerToQueryWorld(world, queryWorld, ent, className, data.tags)
 	end
 	table.clear(entityPropAssignQueue)
-	
+
 	profileend()
 	return true
 end
@@ -508,7 +513,7 @@ local function flushTagAssignQueue()
 	local components = Manager.Components
 
 	local world = state.World
-	
+
 	profilebegin("Manager::flushTagAssignQueue")
 	for _, v in tagAssignQueue do
 		local frame, entity = v.frame, v.entity
@@ -623,25 +628,25 @@ local function cleanupEntities(queueTable: {InstanceEntity})
 		if inst then
 			instanceToEntity[inst] = nil
 		end
-		
+
 		local entityConnections = world:get(entity, components.Connections)
 		if entityConnections then
 			table.insert(groupsToFree, entityConnections)
 		end
-		
+
 		--local idx = table.find(entities, entity)
 		--if idx then
 		--	table.insert(entityIndexesToRemove, idx)
 		--end
-		
+
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			frame:Reuse()
 		end
-		
+
 		profileend()
 	end
-	
+
 	profilebegin("Manager::cleanupEntity::processDeferredCleaningTasks")
 	profilebegin("freeGroups")
 	for _, group in groupsToFree do
@@ -802,7 +807,7 @@ local function rebuildHierarchyCache()
 
 	for _, eid in state.Entities do
 		if isEntityGone(world, eid) then continue end
-		
+
 		local parent = parent_of(eid)
 		if not parent then
 			table.insert(roots, eid)
@@ -869,7 +874,7 @@ local function getFlattenedVisibleEntities(world: World, invisible: {InstanceEnt
 	else
 		childrenMap, roots = rebuildHierarchyCache()
 	end
-	
+
 	local flatList = {}
 	local flatIndex = 0
 	local invisibleIndex = #invisible
@@ -899,7 +904,7 @@ local function getFlattenedVisibleEntities(world: World, invisible: {InstanceEnt
 			flatIndex += 1
 			flatList[flatIndex] = entity
 
-			if world:has(entity, components.Expanded) then
+			if isEntityExpanded(world, entity) then
 				local children = childrenMap[entity]
 				if children then
 					for i = #children, 1, -1 do
@@ -910,7 +915,7 @@ local function getFlattenedVisibleEntities(world: World, invisible: {InstanceEnt
 			end
 		end
 	end
-	
+
 	profileend()
 	profileend()
 	return flatList
@@ -933,7 +938,7 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 	for index, entity in flattenedEntities do
 		entityToIndex[entity] = index
 	end
-	
+
 	local frameBuffer = Manager.getSetting("VirtualScrollFrameBuffer")
 	local viewportBuffer = height * frameBuffer
 	local viewportHeight = viewportHeight + viewportBuffer
@@ -945,19 +950,20 @@ local function filterVisible(world: World, top: number, viewportHeight: number)
 
 		local absoluteYOffset = height * (index - 1)
 		local shouldBeVisible = false
-		if not world:has(entity, components.Expanded) then
+		if not world:has(entity, components.Expanded) and not world:has(entity, components.QueryExpanded) then
 			shouldBeVisible = absoluteYOffset >= (top - viewportBuffer) and absoluteYOffset <= (top + viewportHeight)
 		else
 			local expandedHeight =  calculateDeepHeight(
 				world,
 				components.Expanded,
+				components.QueryExpanded,
 				hierarchyCache.childrenMap,
 				heightCache,
 				entity
 			)
 			local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
 			expandedHeightIndex[entity] = expandedHeight
-			
+
 			-- Frame is visible if either:
 			-- 1. The top of the frame is in viewport, OR
 			-- 2. The bottom of the expanded frame (including all children) is in viewport, OR  
@@ -1074,7 +1080,7 @@ local function updateVirtualScroller(isScroller: boolean?)
 			frame.Instance.Position = UDim2.fromOffset(0, absoluteYOffset)
 		end
 		local expandedHeight = expandedHeightIndex[entity]
-		if expandedHeight and world:has(entity, components.Expanded) then
+		if expandedHeight and isEntityExpanded(world, entity) then
 			frame.Instance.Children.List.Size = UDim2.new(1, 0, 0, (expandedHeight - 1) * height)
 		else
 			frame.Instance.Children.List.Size = UDim2.new(1, 0, 1, 0)
@@ -1086,36 +1092,24 @@ local function updateVirtualScroller(isScroller: boolean?)
 	profileend()
 end
 
-local function toggleExpand(world: World, entity: InstanceEntity, expanded: boolean, update: boolean)
+local function updateExpandedVisuals(world: World, update: boolean, expandedCt: Jecs.Id?)
 	profilebegin("Manager::toggleExpand")
 
 	local components = Manager.Components
-	local instance, frame = world:get(entity, components.Instance, components.Frame)
-	if not frame then
-		return
-	end
-	assert(instance)
+	local expandedCt = expandedCt or components.Expanded
 
-	local components = Manager.Components
-	local arrow = frame.Instance.Main.Arrow
-	local children = frame.Instance.Children
+	for entity, instance, frame in world:query(components.Instance, components.Frame, components.Expanded):iter() do
+		if instance == game then return end
 
-	if instance == game then return end
+		local arrow = frame.Instance.Main.Arrow
 
-	local n = getChildAmount(entity)
-	if not world:has(entity, components.ArrowInvisible) then
-		arrow.Rotation = 0
-		arrow.Visible = n > 0
-	end
-	if not expanded then
-		world:remove(entity, components.Expanded)
-		children.Visible = false
-
-		for child, frame in world:query(components.Frame, ChildOf(entity)):iter() do
-			frame:Reuse()
+		local n = getChildAmount(entity)
+		if not world:has(entity, components.ArrowInvisible) then
+			arrow.Rotation = 0
+			arrow.Visible = n > 0
 		end
-	else
-		world:add(entity, components.Expanded)
+
+		local children = frame.Instance.Children
 		children.Visible = true
 		--hierarchyCache.expandedHeights[entity] = calculateDeepHeight(
 		--	world,
@@ -1124,6 +1118,28 @@ local function toggleExpand(world: World, entity: InstanceEntity, expanded: bool
 		--	{},
 		--	entity
 		--)
+	end
+
+	if update then
+		updateVirtualScroller()
+	end
+	profileend()
+end
+
+local function updateCollapsedVisuals(world: World, update: boolean, expandedCt: Jecs.Id?)
+	profilebegin("Manager::toggleExpand")
+
+	local components = Manager.Components
+	local expandedCt = expandedCt or components.Expanded
+
+	for entity, instance, frame in world:query(components.Instance, components.Frame):without(components.Expanded):iter() do
+		local children = frame.Instance.Children
+		world:remove(entity, expandedCt)
+		children.Visible = false
+
+		for child, frame in world:query(components.Frame, ChildOf(entity)):iter() do
+			frame:Reuse()
+		end
 	end
 
 	if update then
@@ -1292,17 +1308,17 @@ local function pasteCopiedInstances(world: World)
 	if not targetEntity then return end
 	local targetInstance = world:get(targetEntity, components.Instance)
 	assert(targetInstance, "target instance not found")
-	
+
 	local success, instances = pcall(
 		SerializationService.DeserializeInstancesAsync, SerializationService, 
 		HttpService:JSONDecode(
 			plugin:GetSetting("CopiedInstances")
 		)
 	)
-	
+
 	if not success then return end
 	local id = ChangeHistoryService:TryBeginRecording("Paste", "Paste")
-	
+
 	for _, v in instances do
 		local success = pcall(function()
 			v.Parent = targetInstance
@@ -1482,11 +1498,11 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			entity = entity
 		})
 		frame.Visible = true
-		
+
 		self:ToggleSelection(world:has(entity, components.Selected))
 
 		local sheet = Manager.Style
-		
+
 		local className = instance.ClassName
 		local icon = ClassIcon.getIcon(className)
 		local slctr = Selector.getIconSelector(nil, className)
@@ -1496,7 +1512,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 				rule(name, slctr, 0, icon)
 			}
 		end
-		
+
 		instanceName.Text = instance.Name
 		if world:has(entity, components.ArrowInvisible) then
 			-- Handled in updateVirtualScroller
@@ -1507,7 +1523,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			else
 				arrow.Visible = true
 			end
-			if world:has(entity, components.Expanded) then
+			if isEntityExpanded(world, entity) then
 				arrow.Rotation = 0
 				frame.Children.Visible = true
 			else
@@ -1539,6 +1555,18 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			return
 		end
 
+		local link = instance:FindFirstChildOfClass("PackageLink")
+		if link then
+			main.PackageLinkIcon.Visible = true
+			--if link.AutoUpdate then
+			--	main.PackageLinkIcon.ImageColor3 = Color3.fromRGB(38, 35, 127)
+			--else
+			--	main.PackageLinkIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+			--end
+		else
+			main.PackageLinkIcon.Visible = false
+		end
+
 		pcall(rawnewindex, frame, "Parent", newParent)
 
 		profileend()
@@ -1552,6 +1580,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			local x = instanceName:GetStyled("Position").X.Offset + bounds.X
 			insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
 			frame.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+			frame.Main.PackageLinkIcon.Position = UDim2.new(0, x + 28, 0.5)
 		end),
 		instanceName.Focused:Connect(function()
 			local entity = instanceFrame.CurrentEntity
@@ -1594,7 +1623,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 					ctx[`@{classNameCache[entity]} & #{nameCache[entity]}`]
 					or	ctx[`@{classNameCache[entity]}`]
 					or	ctx[`#{nameCache[entity]}`]
-				
+
 				if not menu then
 					if instance.Parent == nil then
 						menu = ctx.Service
@@ -1602,7 +1631,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 						menu = ctx.Instance
 					end
 				end
-				
+
 				menu.Menu:ShowAsync()
 			elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 				profilebegin("InstanceFrame::onInput::LMB (click)")
@@ -1738,7 +1767,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			if not state.CurrentDrag and hasBeenSelected and #state.CurrentSelection > 1 then
 				local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
 				local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
-				
+
 				if not isCtrlHeld and not isShiftHeld then
 					-- Normal click on multi-selection - select only this one
 					for entityId in selectedQuery:iter() do
@@ -1802,7 +1831,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			end
 
 			local id = ChangeHistoryService:TryBeginRecording("Drop", "Drop")
-			local isExpanded = world:has(newParentEntity, components.Expanded)
+			local isExpanded = isEntityExpanded(world, newParentEntity)
 			for _, dragEntity in dragEntities do
 				local child = world:get(dragEntity, components.Instance)
 				if not child then continue end
@@ -1835,7 +1864,9 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			flushTagAssignQueue()
 
 			if not isExpanded then
-				toggleExpand(world, newParentEntity, true, true)
+				--toggleExpand(world, newParentEntity, true, true)
+				world:add(newParentEntity, components.Expanded)
+				updateExpandedVisuals(world, false)
 			end
 
 			for _, e in dragEntities do
@@ -1885,7 +1916,17 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 			local entity = instanceFrame.CurrentEntity
 			if not entity then return end
 
-			toggleExpand(world, entity, not world:has(entity, components.Expanded), true)
+			--toggleExpand(world, entity, not isEntityExpanded(world, entity), true)
+			local expanded = isEntityExpanded(world, entity)
+			if expanded then
+				world:remove(entity, components.QueryExpanded)
+				world:remove(entity, components.Expanded)
+				updateCollapsedVisuals(world, true)
+			else
+				world:add(entity, components.QueryExpanded)
+				world:add(entity, components.Expanded)
+				updateExpandedVisuals(world, true)
+			end
 		end)
 	}
 
@@ -1978,7 +2019,7 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 		return false
 	end
 	if not child.Parent then return false end
-	
+
 	profilebegin("Manager::onInstChildAdded")
 
 	local frame = world:get(entity, components.Frame)
@@ -2004,7 +2045,7 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 			world:add(existingChildEntity, ChildOf(entity))
 			ancestryChanged = true
 		end
-		if frame and world:has(entity, components.Expanded) then
+		if frame and isEntityExpanded(world, entity) then
 			local existingChildFrame = world:get(existingChildEntity, components.Frame)
 			if not existingChildFrame then
 				local frame = getInstanceFrame()
@@ -2033,8 +2074,8 @@ local function onInstChildAdded(world: World, entity: InstanceEntity, child: Ins
 
 	ancestryChanged = true
 	createEntityWithChildren(child, childEntity)
-	
-	if world:has(entity, components.Expanded) then
+
+	if isEntityExpanded(world, entity) then
 		local frame = getInstanceFrame()
 		world:set(childEntity, components.Frame, frame)
 		frame:Assign(childEntity, entity)
@@ -2237,7 +2278,7 @@ function Manager.createVirtualEntity(options, extra)
 		ClassName = options.ClassName,
 		Name = options.Name,
 	}
-	
+
 	for k, v in extra do
 		tbl[k] = v
 	end
@@ -2267,7 +2308,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 
 	local components = Manager.Components
 	local state = Manager.WidgetState
-	
+
 	local parentConnections = state.Connections
 	if parent then
 		local connections = world:get(parent, components.Connections)
@@ -2282,14 +2323,16 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 	local entity = createAbstractEntity(instance)
 	world:set(entity, components.Connections, connections)
 	world:set(entity, components.ParentTabs, {})
-	
+
 	if parent then
 		world:add(entity, ChildOf(parent))
 	end
-	
+
 	profilebegin("Manager::createInstanceEntity::getPropertyComponents")
 	local appliedTaggedProps = {}
 	local props = APIMap[className]
+	if not props then return end
+
 	local tags = {}
 
 	for _, name in TAGGED_PROPERTIES do
@@ -2302,7 +2345,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 
 		table.insert(tags, comp)
 	end
-	
+
 	table.insert(entityPropAssignQueue, {entity = entity, tags = tags})
 	profileend()
 
@@ -2310,16 +2353,16 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 	if not dontSetInInstanceToEntity then
 		instanceToEntity[instance] = entity
 	end
-	
+
 	local handlers = {}
 	for _, v in appliedTaggedProps do
 		local success, oldValue = pcall(rawindex, instance, v)
 		if not success then continue end
-		
+
 		local function onChange()
 			local frame = world:get(entity, components.Frame)
 			if not frame then return end
-			
+
 			local value = rawindex(instance, v)
 			local oldTag = getTaggedPropertyTag(v, typeof(oldValue) == "EnumItem" and oldValue.Name or tostring(oldValue))
 			local newTag = getTaggedPropertyTag(v, typeof(value) == "EnumItem" and value.Name or tostring(value))
@@ -2330,16 +2373,16 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 		end
 		handlers[v] = onChange
 	end
-	
+
 	if instance:IsA("LuaSourceContainer") then
 		local src = ScriptEditorService:GetEditorSource(instance)
 		VersionControl.createInstanceVersion(instance, "Source", src)
 	end
-	
+
 	connections.Items = {
 		rawindex(instance, "Changed"):Connect(function(prop: string)
 			--VersionControl.onInstancePropChange(instance, prop, rawindex(instance, prop))
-			
+
 			if prop == "Name" then
 				nameCache[entity] = instance.Name
 				local frame = world:get(entity, components.Frame)
@@ -2361,13 +2404,13 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 			if childEntity and world:has(childEntity, components.AncestryLocked) then
 				return
 			end
-			
+
 			local g = child:FindFirstAncestorOfClass("DockWidgetPluginGui")
 			if g and widgetIsJexp(g) then
 				return
 			end
 			if child:IsDescendantOf(CoreGui) and child:FindFirstAncestor("DraggerUI") then return end
-			
+
 			table.insert(onChildAddedQueue, {parent = entity, child = child})
 		end),
 		rawindex(instance, "ChildRemoved"):Connect(function(child: Instance)
@@ -2381,7 +2424,7 @@ function Manager.createInstanceEntity(instance, parent, dontSetInInstanceToEntit
 				return
 			end
 			if child:IsDescendantOf(CoreGui) and child:FindFirstAncestor("DraggerUI") then return end
-			
+
 			-- Handled in game.DescendantRemoving
 			if child.Parent == nil then
 				return
@@ -2767,7 +2810,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		APIMap = map
 		local success, encoded, msg = Converter.serialize(API_MAP_SCHEMA, map::any)
 		assert(success, msg)
-		
+
 		local str = HttpService:JSONEncode(encoded)
 		plugin:SetSetting("APIMap", str)
 	else
@@ -2796,10 +2839,8 @@ function Manager.init(onClose, pluginVersion, connections)
 	for name, value in loadedState.Settings do
 		Manager.setSetting(name, value)
 	end
-	
-	if IS_EDIT then
-		StyleEditor.init(Manager)
-	end
+
+	StyleEditor.init(Manager)
 	SettingEditor.init(Manager)
 	if IS_EDIT then
 		OrderEditor.init(Manager)
@@ -2810,7 +2851,7 @@ function Manager.init(onClose, pluginVersion, connections)
 	--ContextMenuEditor.init(Manager)
 
 	shared.Jexplorer.__modify:Fire()
-	
+
 	local favoritedInstancesEntity = Manager.createVirtualEntity(
 		{
 			ClassName = Manager.AbstractEntClasses.Favorited,
@@ -2839,9 +2880,12 @@ function Manager.init(onClose, pluginVersion, connections)
 			GetTags = function()
 				return {}
 			end,
+			FindFirstChildOfClass = function()
+				return nil
+			end,
 		}
 	)
-	
+
 	local topbarMenuDropdown do
 		topbarMenuDropdown = PluginUI.createItemList {
 			Name = "TopbarMenuDropdown"
@@ -3072,7 +3116,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		highlightFrame.Size = UDim2.fromScale(1, 1)
 		highlightFrame.BackgroundColor3 = Color3.new(100, 100, 100)
 		highlightFrame.BackgroundTransparency = 0.8
-		
+
 		searchbar:GetPropertyChangedSignal("Text"):Connect(function()
 			local searchText = searchbar.Text
 			local matches = {}
@@ -3140,7 +3184,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 			end
 		end)
-		
+
 		local function insert(class: string)
 			insertInstanceList:Hide()
 
@@ -3156,10 +3200,10 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 				return 
 			end
-			
+
 			local success, inst = pcall(Instance.new, class)
 			if not success then warn(inst) return end
-			
+
 			local info: typeof(((nil :: any) :: typeof(INSTANCE_INSERT_INFO))[""])?
 			for k, v in INSTANCE_INSERT_INFO do
 				if inst:IsA(k) then info = v break end
@@ -3172,16 +3216,18 @@ function Manager.init(onClose, pluginVersion, connections)
 					info.SideEffect(inst)
 				end
 			end
-			
+
 			inst.Parent = entityInst
 
-			if not world:has(entity, components.Expanded) then
-				toggleExpand(world, entity, true, true)
+			if not isEntityExpanded(world, entity) then
+				--toggleExpand(world, entity, true, true)
+				world:add(entity, components.Expanded)
+				updateExpandedVisuals(world, true)
 			end
-			
+
 			table.insert(onChildAddedQueue, {parent = entity, child = inst})
 			Selection:Set({inst})
-			
+
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 			end
@@ -3377,7 +3423,9 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 
 				if not world:has(target, components.Expanded) then
-					toggleExpand(world, target, true, true)
+					--toggleExpand(world, target, true, true)
+					world:add(target, components.Expanded)
+					updateExpandedVisuals(world, true)
 				end
 				addEntitiesToSelection(world, children, true)
 			end
@@ -3441,8 +3489,10 @@ function Manager.init(onClose, pluginVersion, connections)
 
 					world:remove(child, components.Expanded)
 				end
-				toggleExpand(world, entity, false, false)
+				--toggleExpand(world, entity, false, false)
+				world:remove(entity, components.Expanded)
 			end
+			updateCollapsedVisuals(world, false)
 			updateVirtualScroller()
 		end)
 	end
@@ -3621,13 +3671,13 @@ function Manager.init(onClose, pluginVersion, connections)
 			local pathArray = {}
 			local pathMap = {}
 			local entities = {}
-			
+
 			for _, ent in state.CurrentSelection do
 				local inst = world:get(ent, components.Instance)
 				if not inst then continue end
-				
+
 				table.insert(entities, ent)
-				
+
 				local path = inst:GetFullName()
 				table.insert(pathArray, path)
 				pathMap[path] = ent
@@ -3654,7 +3704,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			for _, ent in entities do
 				world:add(ent, components.AncestryLocked)
 			end
-			
+
 			for _, ent in entities do
 				local inst = world:get(ent, components.Instance)
 				if not inst then continue end
@@ -3672,7 +3722,7 @@ function Manager.init(onClose, pluginVersion, connections)
 					frame:Reuse()
 				end
 			end
-			
+
 			for _, ent in entities do
 				world:remove(ent, components.AncestryLocked)
 			end
@@ -3780,28 +3830,28 @@ function Manager.init(onClose, pluginVersion, connections)
 		{
 			"PasteInto",
 			"Rename",
-			
+
 			"---",
-			
+
 			"HideClass",
-			
+
 			"---",
-			
+
 			"SelectChildren",
 			"CollapseAll",
-			
+
 			"---",
-			
+
 			"InsertFromFile",
 			"InsertObject",
-			
+
 			"---",
-			
+
 			"ToggleFavorite",
 			"RemoveFromTab"
 		}
 	)
-	
+
 	local tabMenu = Manager.createContextMenu(
 		getId("Jexplorer_TabContextMenu", true),
 		{
@@ -4092,16 +4142,16 @@ function Manager.init(onClose, pluginVersion, connections)
 			local mousePos = jexplorerWidget:GetRelativeMousePosition()
 			local _, entity = Manager.getEntityAt(mousePos.X, mousePos.Y)
 			if not entity then return end
-			
+
 			local inst = world:get(entity, components.Instance)
 			if not inst then return end
-			
+
 			rawnewindex(targetInst, propName, inst)
 		end),
 		game.DescendantRemoving:Connect(function(descendant)
 			local childEntity = instanceToEntity[descendant]
 			if not childEntity then return end
-			
+
 			if world:has(childEntity, components.AncestryLocked) then
 				return
 			end
@@ -4121,14 +4171,14 @@ function Manager.init(onClose, pluginVersion, connections)
 			profilebegin("Manager::onSelectionChanged")
 			local selection = Selection:Get()
 			currentSelectionCache = selection
-			
+
 			local entities = {}
 			local n = 0
 			for _, v in selection do
 				while not instanceToEntity[v] do
 					task.wait()
 				end
-				
+
 				local ent = instanceToEntity[v]
 				if not table.find(state.CurrentSelection, ent) then
 					n += 1
@@ -4136,11 +4186,11 @@ function Manager.init(onClose, pluginVersion, connections)
 				table.insert(entities, ent)
 			end
 			state.CurrentSelection = entities
-			
+
 			if Manager.getSetting("PropertyEditorUpdatedOnSelect") then
 				PropertyEditor.updateProperties(selection)
 			end
-			
+
 			local pathSegments = topbar.PathBar.Segments
 			if pathClickConnection then
 				pathClickConnection:Disconnect()
@@ -4158,7 +4208,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				local pathButton = pathSegments.PathSegment
 				local current: Instance? = commonAncestor
 				local segmentBounds = {}
-				
+
 				local pathParts = {}
 				local size = pathButton.TextSize
 				local font = pathButton.Font
@@ -4195,7 +4245,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				pathButton.Text = table.concat(pathParts, " / ")
 				pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
 			end
-			
+
 			for v in selectedQuery:iter() do
 				world:remove(v, components.Selected)
 			end
@@ -4203,7 +4253,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				world:add(ent, components.Selected)
 			end
 			if n == 0 then return end
-			
+
 			local autoExpand = Manager.getSetting("AutoExpandOnSelect")
 			-- I am a genius for this
 			if autoExpand then
@@ -4219,12 +4269,14 @@ function Manager.init(onClose, pluginVersion, connections)
 						currentParent = parent_of(currentParent)
 					end
 					if unexpanded then
-						toggleExpand(world, unexpanded, true, false)
+						--toggleExpand(world, unexpanded, true, false)
+						world:add(unexpanded, components.Expanded)
 					end
 				end
+				updateExpandedVisuals(world, false)
 				profileend()
 			end
-			
+
 			-- Jump the canvas position to the middle entity
 			local middle = entities[math.max(#entities // 2, 1)]
 			local entityIndex = getFlattenedVisibleEntities(world, {})
@@ -4297,7 +4349,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			elseif input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
 				local id = ChangeHistoryService:TryBeginRecording("Destroy", "Destroy")
 				profilebegin("Manager::onInput::BACKSPACE/DELETE (remove)")
-				
+
 				local selection = state.CurrentSelection
 				for _, entity in selection do
 					world:add(entity, components.AncestryLocked)
@@ -4306,18 +4358,18 @@ function Manager.init(onClose, pluginVersion, connections)
 					world:add(entity, components.Deleted)
 					local instance = world:get(entity, components.Instance)
 					assert(instance)
-					
-					instance:Destroy()
+
+					instance.Parent = nil
 				end
 				for _, entity in selection do
 					world:remove(entity, components.AncestryLocked)
 				end
-				
+
 				cleanupEntities(selection)
-				
+
 				state.HierarchyVersion += 1
 				updateVirtualScroller()
-				
+
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
@@ -4338,7 +4390,7 @@ function Manager.init(onClose, pluginVersion, connections)
 					local clone = instance:Clone()
 					clone.Parent = instance.Parent
 				end
-				
+
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 				end
@@ -4368,26 +4420,25 @@ function Manager.init(onClose, pluginVersion, connections)
 
 			local queryText = queryInput.Text
 
-			-- Update arrow visibility for all entities
 			for _, entity in state.Entities do
 				local frame = world:get(entity, components.Frame)
 				if frame then
 					frame.Instance.Main.Arrow.Visible = getChildAmount(entity) > 0
 				end
 			end
-
+			
 			-- Collapse ancestors from previous queries
 			for entity in world:query(components.QueryExpanded):iter() do
 				world:remove(entity, components.QueryExpanded)
-				world:remove(entity, components.Expanded)
 			end
 			for entity in world:query(components.QueryAncestor):iter() do
 				world:remove(entity, components.QueryAncestor)
-				toggleExpand(world, entity, false, false)
 			end
 			for entity in world:query(components.IsQueried):iter() do
 				world:remove(entity, components.ArrowInvisible)
 			end
+
+			updateCollapsedVisuals(world, false)
 
 			if queryText == "" then
 				queryInput.QueryCount.Text = "0"
@@ -4416,7 +4467,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				return queryResult
 			end)
 
-			if not success or #result == 0 then
+			if not success then
 				if not success then
 					warn("JEXPLORER Query error: " .. tostring(result))
 				end
@@ -4428,6 +4479,11 @@ function Manager.init(onClose, pluginVersion, connections)
 				profileend()
 				updateVirtualScroller()
 				profileend()
+				return
+			end
+			-- Everything is invisible if no results
+			if #result == 0 then
+				queryInput.QueryCount.Text = "0"
 				return
 			end
 
@@ -4470,14 +4526,13 @@ function Manager.init(onClose, pluginVersion, connections)
 						local parent = parentTree[i]
 						world:remove(parent, components.QueryInvisible)
 						world:remove(parent, components.ArrowInvisible)
-						world:add(parent, components.Expanded)
 						world:add(parent, components.QueryExpanded)
 					end
 
 					world:add(last, components.QueryAncestor)
-					toggleExpand(world, last, true, false)
 				end
 			end
+			updateExpandedVisuals(world, false)
 
 			profileend()
 
@@ -4486,7 +4541,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			updateVirtualScroller()
 			profileend()
 		end),
-		
+
 		queryInput.Focused:Connect(function()
 
 		end),
@@ -4505,8 +4560,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		local suc3 = cleanupEntities(entityCleanupQueue)
 
 		if suc1 or suc2 or suc3 then
-			state.HierarchyVersion += 1
-			updateVirtualScroller()
+			childMapNeedsUpdate = true
 		end
 	end
 
@@ -4527,7 +4581,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		for i = n, start, -1 do
 			local entity = entityDeleteQueue[i]
 			entityDeleteQueue[i] = nil
-			
+
 			local idx = table.find(state.Entities, entity)
 			if idx then table.remove(state.Entities, idx) end
 
@@ -4566,7 +4620,6 @@ Manager.fillInstanceFramePoolToLimit = fillInstanceFramePoolToLimit
 Manager.addEntitiesToSelection = addEntitiesToSelection
 Manager.setEntitiesAsSelection = setSelection
 Manager.updateVirtualScroller = updateVirtualScroller
-Manager.toggleExpand = toggleExpand
 Manager.getPropertyTag = getPropertyCt
 
 return Manager

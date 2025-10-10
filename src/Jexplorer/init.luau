@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "b0.21.8"
+local VERSION = "b0.22"
 
 local utilities = script.Utilities
 local editors = script.Editors
@@ -21,10 +21,12 @@ local Manager = require(script.Manager)
 local PluginUI = require(utilities.PluginUI)
 local Group = require(utilities.Group)
 local JState = require(utilities.JState)
+local Types = require(script.Types)
 
 local connections = Group.new("Disconnect")
 
 local function onClose()
+	plugin.Parent = nil
 	shared.Jexplorer.__close:Fire()
 	
 	if JState.Initialized and Manager.getSetting("SaveOnClose") then
@@ -54,11 +56,14 @@ local onLoadEvent = getevent("__load")
 local onCloseEvent = getevent("__close")
 local modifyIconEvent = getevent("__modify")
 
-shared.Jexplorer = {
+local jexplorerApi: Types.Jexplorer = {
 	Manager = Manager,
 	StyleEditor = require(editors.StyleEditor),
 	SettingEditor = require(editors.SettingEditor),
 	OrderEditor = require(editors.OrderEditor),
+	VersionControl = require(editors.VersionControl),
+	PropertyEditor = require(editors.PropertyEditor),
+	
 	Dependencies = {
 		Selector = require(utilities.Selector),
 		Style = require(utilities.Style),
@@ -66,16 +71,19 @@ shared.Jexplorer = {
 		ClassIcon = require(utilities.ClassIcon),
 		JDF = require(utilities.JDF),
 		JState = JState,
+		GitAPI = require(utilities.GitAPI)
 	},
-
+	
 	OnLoad = onLoadEvent.Event,
 	OnClose = onCloseEvent.Event,
 	ModifyIconStep = modifyIconEvent.Event,
-
+	
 	__load = onLoadEvent,
 	__close = onCloseEvent,
 	__modify = modifyIconEvent
 }
+
+shared.Jexplorer = jexplorerApi
 
 plugin.Name = "Jexplorer_PluginSession"
 plugin.Parent = game
