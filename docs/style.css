@@ -43,10 +43,10 @@ nav a.active {
   color: #fff;
 }
 
-main hr {
-  border: none;
+h1 {
   border-bottom: 2px solid #444;
   margin: 4rem 0;
+  font-family: system-ui, sans-serif;
 }
 
 /* Main content */
