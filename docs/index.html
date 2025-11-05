@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jexplorer Documentation</title>
+  <title>Jexplorer Docs</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <aside>
+  <input type="checkbox" id="menu-toggle" hidden>
+
+  <aside class="sidebar">
+    <label for="menu-toggle" class="menu-close">✖</label>
     <h2>Jexplorer</h2>
     <nav>
       <a href="index.html">🏠 Home</a>
@@ -15,6 +18,11 @@
       <a href="api/setting_editor.html">Setting Editor</a>
     </nav>
   </aside>
+
+  <header class="mobile-header">
+    <label for="menu-toggle" class="menu-open">☰</label>
+    <span>Jexplorer Docs</span>
+  </header>
 
   <main>
     <h1>Jexplorer</h1>
