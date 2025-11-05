@@ -1,0 +1,43 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  display: flex;
+  min-height: 100vh;
+}
+
+aside {
+  width: 250px;
+  background: #1e1e1e;
+  color: #fff;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+aside h2 {
+  margin-top: 0;
+}
+
+nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+nav a {
+  color: #ccc;
+  text-decoration: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+}
+
+nav a:hover,
+nav a.active {
+  background: #333;
+  color: #fff;
+}
+
+main {
+  flex: 1;
+  padding: 2rem;
+  background: #fafafa;
+}
