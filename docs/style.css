@@ -13,7 +13,7 @@ aside {
   width: 250px;
   background: #1e1e1e;
   color: #fff;
-  padding: 1rem;
+  padding: 1rem 0; /* remove side padding from aside */
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -26,17 +26,15 @@ nav {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  padding: 0 1rem;
 }
 
 nav a {
   color: #ccc;
   text-decoration: none;
+  display: block;
   padding: 0.3rem 0.5rem;
   border-radius: 4px;
-}
-
-nav a {
-  display: block;
 }
 
 nav a:hover,
