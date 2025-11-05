@@ -1,16 +1,21 @@
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
-  display: flex;
-  min-height: 100vh;
 }
 
+.layout {
+  display: flex;              /* key line */
+  min-height: 100vh;          /* make it full height */
+}
+
+/* Sidebar */
 aside {
   width: 250px;
   background: #1e1e1e;
   color: #fff;
   padding: 1rem;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 aside h2 {
@@ -36,6 +41,7 @@ nav a.active {
   color: #fff;
 }
 
+/* Main content */
 main {
   flex: 1;
   padding: 2rem;
