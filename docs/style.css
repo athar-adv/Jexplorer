@@ -47,5 +47,6 @@ nav a.active {
 main {
   flex: 1;
   padding: 2rem;
-  background: #fafafa;
+  background: #121212;
+  color: #e0e0e0;
 }
