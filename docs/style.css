@@ -18,7 +18,7 @@ code var {
 }
 
 code type {
-  color: #227ee0;
+  color: #529ae6;
 }
 
 code string {
@@ -37,7 +37,8 @@ code num {
   background-color: #262626;
   border-radius: 12px;
   display: block;           /* Add this */
-  padding: 1px;
+  padding-left: 10px;
+  padding-top: 1px;
 }
 
 /* Sidebar */
