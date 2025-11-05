@@ -10,7 +10,7 @@
   <div class="layout">
     <div id="sidebar"></div>
     <script>
-      fetch("/Jexplorer/sidebar.html")
+      fetch("/Jexplorer/docs/sidebar.html")
         .then(r => r.text())
         .then(html => {
           document.getElementById("sidebar").innerHTML = html;
