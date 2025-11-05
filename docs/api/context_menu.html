@@ -23,41 +23,41 @@
     <main>
       <h1 align="center">About Context Menus</h1>
       <p>
-        A context menu is a menu that displays a list of actions you can click to perform specific actions, such as deletion, modification, insertion, etc.
+        <p>A context menu is a menu that displays a list of actions you can click to perform specific actions, such as deletion, modification, insertion, etc.</p>
         
-        The instance context menu specifically is the menu that appears when you right click any instance inside the explorer,
-        and it displays a list of submenus and/or actions that you can use to perform specific actions with the instances inside the explorer.
+        <p>The instance context menu specifically is the menu that appears when you right click any instance inside the explorer,</p>
+        <p>and it displays a list of submenus and/or actions that you can use to perform specific actions with the instances inside the explorer.</p>
 
-        <img src="/Jexplorer/images/contextMenu.png">
-        <small>The default instance context menu.</small>
+        <p><img src="/Jexplorer/images/contextMenu.png"></p>
+        <p><small>The default instance context menu.</small></p>
       </p>
       <h1 align="center">The Context Menu Editor</h1>
       <p>
-        The context menu editor is a way for you to control what actions and submenus are contained within any context menu.
+        <p>The context menu editor is a way for you to control what actions and submenus are contained within any context menu.</p>
 
-        The way you define the context menu layout is via a ModuleScript which you set its global path to in the context menu editor widget.
-        <img src="/Jexplorer/images/contextMenuEditor.png">
-        <small>The context menu editor.</small>
+        <p>The way you define the context menu layout is via a ModuleScript which you set its global path to in the context menu editor widget.</p>
+        <p><img src="/Jexplorer/images/contextMenuEditor.png"></p>
+        <p><small>The context menu editor.</small></p>
 
-        Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.
-        The return value of your ModuleScript must be of this type:
-        <code>
+        <p>Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.</p>
+        <p>The return value of your ModuleScript must be of this type:</p>
+        <pre><code>
           Configs = {
             Menus: {[string]: {string | SubMenu},
             Actions: {[string]: (m: Manager, target: InstanceEntity) -> ()}
           }
-        </code>
-        where
-        <code>
+        </code></pre>
+        <p>where</p>
+        <pre><code>
           SubMenu = {
             Id: string,
             Title: string,
             Icon: string?,
             [1]: {[string]: {string | SubMenu}
           }
-        </code>
+        </code></pre>
 
-        For the <code>target</code> parameter of the <code>Actions</code> value type, this is the InstanceEntity that the user clicked on before triggering the action.
+        <p>For the <code>target</code> parameter of the <code>Actions</code> value type, this is the InstanceEntity that the user clicked on before triggering the action.</p>
       </p>
     </main>
   </div>
