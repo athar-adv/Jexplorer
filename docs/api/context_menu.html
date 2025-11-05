@@ -52,14 +52,14 @@
           Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.
           The return value of your ModuleScript must be of this type:
         </p>
-        <code><pre>
+        <code class="block"><pre>
           <var>Configs</var> = {
             <var>Menus:</var> <type>{[string]: {string | SubMenu}</type>,
             <var>Actions:</var> <type>{[string]: (m: Manager, target: InstanceEntity) -> ()}</type>
           }
         </pre></code>
         <p>where</p>
-        <code><pre>
+        <code class="block"><pre>
           <var>SubMenu</var> = {
             <var>Id:</var> <type>string</type>,
             <var>Title:</var> <type>string</type>,
