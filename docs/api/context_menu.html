@@ -53,19 +53,19 @@
           The return value of your ModuleScript must be of this type:
         </p>
         <code class="block"><pre>
-          <var>Configs</var> = {
-            <var>Menus:</var> <type>{[string]: {string | SubMenu}</type>,
-            <var>Actions:</var> <type>{[string]: (m: Manager, target: InstanceEntity) -> ()}</type>
-          }
+<var>Configs</var> = {
+  <var>Menus:</var> {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>},
+  <var>Actions:</var> {[<type>string</type>]: (<var>m:</var> <type>Manager</type>, <var>target:</var> <type>InstanceEntity</type>) -> ()}
+}
         </pre></code>
         <p>where</p>
         <code class="block"><pre>
-          <var>SubMenu</var> = {
-            <var>Id:</var> <type>string</type>,
-            <var>Title:</var> <type>string</type>,
-            <var>Icon:</var> <type>string?</type>,
-            [<num>1</num>]: <type>{[string]: {string | SubMenu}</type>
-          }
+<var>SubMenu</var> = {
+  <var>Id:</var> <type>string</type>,
+  <var>Title:</var> <type>string</type>,
+  <var>Icon:</var> <type>string</type>?,
+  [<num>1</num>]: {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>}
+}
         </pre></code>
         <p>
           For the <code>target</code> parameter of the <code>Actions</code> value type,
