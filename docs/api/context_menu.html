@@ -53,18 +53,18 @@
           The return value of your ModuleScript must be of this type:
         </p>
         <pre><code>
-          Configs = {
-            Menus: {[string]: {string | SubMenu},
-            Actions: {[string]: (m: Manager, target: InstanceEntity) -> ()}
+          <var>Configs</var> = {
+            <var>Menus:</var> <type>{[string]: {string | SubMenu}</type>,
+            <var>Actions:</var> <type>{[string]: (m: Manager, target: InstanceEntity) -> ()}</type>
           }
         </code></pre>
         <p>where</p>
         <pre><code>
-          SubMenu = {
-            Id: string,
-            Title: string,
-            Icon: string?,
-            [1]: {[string]: {string | SubMenu}
+          <var>SubMenu</var> = {
+            <var>Id:</var> <type>string</type>,
+            <var>Title:</var> <type>string</type>,
+            <var>Icon:</var> <type>string?</type>,
+            [<num>1</num>]: <type>{[string]: {string | SubMenu}</type>
           }
         </code></pre>
         <p>
