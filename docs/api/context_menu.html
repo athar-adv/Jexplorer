@@ -52,21 +52,21 @@
           Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.
           The return value of your ModuleScript must be of this type:
         </p>
-        <pre><code>
+        <code><pre>
           <var>Configs</var> = {
             <var>Menus:</var> <type>{[string]: {string | SubMenu}</type>,
             <var>Actions:</var> <type>{[string]: (m: Manager, target: InstanceEntity) -> ()}</type>
           }
-        </code></pre>
+        </pre></code>
         <p>where</p>
-        <pre><code>
+        <code><pre>
           <var>SubMenu</var> = {
             <var>Id:</var> <type>string</type>,
             <var>Title:</var> <type>string</type>,
             <var>Icon:</var> <type>string?</type>,
             [<num>1</num>]: <type>{[string]: {string | SubMenu}</type>
           }
-        </code></pre>
+        </pre></code>
         <p>
           For the <code>target</code> parameter of the <code>Actions</code> value type,
           this is the InstanceEntity that the user clicked on before triggering the action.
