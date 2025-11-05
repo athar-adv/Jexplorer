@@ -3,6 +3,10 @@ body {
   font-family: system-ui, sans-serif;
 }
 
+p {
+  margin: 1px;
+}
+
 .layout {
   display: flex;              /* key line */
   min-height: 100vh;          /* make it full height */
