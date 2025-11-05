@@ -35,6 +35,10 @@ nav a {
   border-radius: 4px;
 }
 
+nav a {
+  display: block;
+}
+
 nav a:hover,
 nav a.active {
   background: #333;
