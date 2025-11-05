@@ -13,6 +13,31 @@ p {
   min-height: 100vh;          /* make it full height */
 }
 
+code var {
+  color: #8de5f2;
+}
+
+code type {
+  color: #227ee0;
+}
+
+code string {
+  color: #93f587;
+}
+
+code keyword {
+  color: #fa7d7d;
+}
+
+code num {
+  color: #f2fa7d;
+}
+
+code {
+  background-color: #262626;
+  border-radius: 4px;
+}
+
 /* Sidebar */
 aside {
   width: 250px;
