@@ -33,10 +33,11 @@ code num {
   color: #f2fa7d;
 }
 
-code {
+code .block {
   background-color: #262626;
   border-radius: 4px;
   display: block;           /* Add this */
+  padding: 8px;
 }
 
 /* Sidebar */
