@@ -67,6 +67,8 @@ nav {
   flex-direction: column;
   gap: 0.4rem;
   padding: 0 1rem;
+  position: stick;
+  top: 0;
 }
 
 nav a {
