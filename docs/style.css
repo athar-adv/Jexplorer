@@ -10,7 +10,9 @@ p {
 }
 
 img {
-  block-size: 50vh
+  display: block;
+  block-size: 50vh;
+  margin: 0 auto;
 }
 
 .layout {
