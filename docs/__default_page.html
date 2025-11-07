@@ -1,0 +1,27 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title> ???!!!PAGE_TITLE_HERE!!!??? </title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <script>
+      fetch("../sidebar.html")
+        .then(r => r.text())
+        .then(html => {
+          document.getElementById("sidebar").innerHTML = html;
+          const links = document.querySelectorAll("#sidebar a");
+          links.forEach(a => {
+            if (a.href === location.href) a.classList.add("active");
+          });
+        });
+    </script>
+    <main>
+      
+    </main>
+  </div>
+</body>
+</html>
