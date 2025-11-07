@@ -32,7 +32,7 @@
         </p>
         <p>
           <img src="/Jexplorer/images/contextMenu.png" align="center"><br>
-          <small>The default instance context menu.</small>
+          <small align="center">The default instance context menu.</small>
         </p>
       </p>
       <h1 align="center">The Context Menu Editor</h1>
@@ -46,31 +46,53 @@
         </p>
         <p>
           <img src="/Jexplorer/images/contextMenuEditor.png" align="center"><br>
-          <small>The context menu editor.</small>
+          <small align="center">The context menu editor.</small>
         </p>
         <p>
           Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.
           The return value of your ModuleScript must be of this type:
         </p>
         <code class="block"><pre>
-<var>Configs</var> = {
-  <var>Menus:</var> {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>},
-  <var>Actions:</var> {[<type>string</type>]: (<var>m:</var> <type>Manager</type>, <var>target:</var> <type>InstanceEntity</type>) -> ()}
-}
+          <var>Configs</var> = {
+            <var>Menus:</var> {[<type>string</type>]: {<type>string</type> | <string>"---"</string> | <type>SubMenu</type>},
+            <var>Actions:</var> {[<type>string</type>]: (<var>m:</var> <type>Manager</type>, <var>target:</var> <type>InstanceEntity</type>) -> ()}
+          }
         </pre></code>
         <p>where</p>
         <code class="block"><pre>
-<var>SubMenu</var> = {
-  <var>Id:</var> <type>string</type>,
-  <var>Title:</var> <type>string</type>,
-  <var>Icon:</var> <type>string</type>?,
-  [<num>1</num>]: {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>}
-}
+          <var>SubMenu</var> = {
+            <var>Id:</var> <type>string</type>,
+            <var>Title:</var> <type>string</type>,
+            <var>Icon:</var> <type>string</type>?,
+            [<num>1</num>]: {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>}
+          }
         </pre></code>
+        <p>
+          Note that Configs.Actions does not overwrite any default actions unless you name one the same as a default one.
+        </p>
         <p>
           For the <code>target</code> parameter of the <code>Actions</code> value type,
           this is the InstanceEntity that the user clicked on before triggering the action.
         </p>
+        <p>
+          A "---" inside Configs.Menus[<code><type>string</type></code>] indicates a seperator.
+        </p>
+        <p>
+          Heres an example of a module return to configure custom actions in the instance context menu:
+        </p>
+        <code class="block"><pre>
+          <keyword>return</keyword> {
+            <var>Menus</var> = {
+              <var>Instance</var> = {
+                "OpenVersionHistory",
+                
+              }
+            },
+            <var>Actions</var> = {
+              
+            }
+          }
+        </pre></code>
       </p>
     </main>
   </div>
