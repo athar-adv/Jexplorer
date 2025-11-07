@@ -1,0 +1,81 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jexplorer Query Language</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside id="sidebar"></aside>
+    <script>
+      fetch("../sidebar.html")
+        .then(r => r.text())
+        .then(html => {
+          document.getElementById("sidebar").innerHTML = html;
+          const links = document.querySelectorAll("#sidebar a");
+          links.forEach(a => {
+            if (a.href === location.href) a.classList.add("active");
+          });
+        });
+    </script>
+    <main>
+      <h1 align="center">What is JQL?</h1>
+      <p>
+        JQL (Jexplorer Query Language) is the structured query language used when doing queries (aka searches)
+        inside Jexplorers query bar
+      </p>
+      <img src="/Jexplorer/images/queryBar.png", align="center"><br>
+      <small align ="center">The query bar.</small>
+      <p>
+        Typing in JQL into the query bar can be used to only show specific Instances within the explorer, only with the conditions you specified.
+        For example, typing in <code>Name = Part & ClassName = Folder</code> will only show all Instances who have properties where Name == "Part" and ClassName == "Folder"
+      </p>
+      <h1 align="center">Syntaxes</h1>
+      <table>
+        <thead>
+          <tr>
+            <th>Alias</th>
+            <th>Usage</th>
+            <th>Syntax</th>
+            <th>Example</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Equality</td>
+            <td>Condition only passes if instance contains the property with the specified value. 
+              Value is written in JDF without quotes</td>
+            <td><code>NAME = VALUE</code></td>
+            <td><code>Name = Part</code></td>
+          </tr>
+          <tr>
+            <td>And</td>
+            <td>Condition only passes if both the left and right sides pass.</td>
+            <td><code>[LEFT] &amp [RIGHT]</code></td>
+            <td><code>Name = Part &amp ClassName = Part</code></td>
+          </tr>
+          <tr>
+            <td>And</td>
+            <td>Condition only passes if either the left or right side passes.</td>
+            <td><code>[LEFT] | [RIGHT]</code></td>
+            <td><code>Name = Part | ClassName = Part</code></td>
+          </tr>
+          <tr>
+            <td>Parent</td>
+            <td>Modifies a condition to apply to the parent of an instance instead of itself. This operator is stackable</td>
+            <td><code>&lt[CONDITION]</code></td>
+            <td><code>&lt&ltName = Workspace &amp &lt&lt&ltClassName = DataModel</code></td>
+          </tr>
+          <tr>
+            <td>First Child</td>
+            <td>Modifies a condition to apply to the first children of an instance that matches the condition. This operator is stackable</td>
+            <td><code>&gt[CONDITION]</code></td>
+            <td><code>&gt&gtName = Light</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+  </div>
+</body>
+</html>
