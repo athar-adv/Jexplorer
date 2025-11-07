@@ -79,9 +79,8 @@ nav {
   border-radius: 4px;
 }
 
-.button :hover,
-.button .active 
-{
+.button:hover,
+.button .active {
   background: #333;
   color: #fff;
 }
