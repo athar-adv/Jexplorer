@@ -31,7 +31,7 @@
           and it displays a list of submenus and/or actions that you can use to perform specific actions with the instances inside the explorer.
         </p>
         <p>
-          <img src="/Jexplorer/images/contextMenu.png"><br>
+          <img src="/Jexplorer/images/contextMenu.png" align="center"><br>
           <small>The default instance context menu.</small>
         </p>
       </p>
@@ -45,21 +45,21 @@
           The way you define the context menu layout is via a ModuleScript which you set its global path to in the context menu editor widget.
         </p>
         <p>
-          <img src="/Jexplorer/images/contextMenuEditor.png"><br>
+          <img src="/Jexplorer/images/contextMenuEditor.png" align="center"><br>
           <small>The context menu editor.</small>
         </p>
         <p>
           Before you click "Refresh Module", you must first know the correct way to format your ModuleScript.
           The return value of your ModuleScript must be of this type:
         </p>
-        <code class="block"><pre>
+        <code class="block" align="center"><pre>
 <var>Configs</var> = {
   <var>Menus:</var> {[<type>string</type>]: {<type>string</type> | <type>SubMenu</type>},
   <var>Actions:</var> {[<type>string</type>]: (<var>m:</var> <type>Manager</type>, <var>target:</var> <type>InstanceEntity</type>) -> ()}
 }
         </pre></code>
         <p>where</p>
-        <code class="block"><pre>
+        <code class="block" align="center"><pre>
 <var>SubMenu</var> = {
   <var>Id:</var> <type>string</type>,
   <var>Title:</var> <type>string</type>,
