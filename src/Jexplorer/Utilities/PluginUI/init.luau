@@ -5,7 +5,7 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local StudioService = game:GetService("StudioService")
 
-local InstanceUtility = require(script.Parent.InstanceUtility)
+local InstanceUtility = require(script.Parent.Small.InstanceUtility)
 local index, newindex = InstanceUtility.index, InstanceUtility.newindex
 
 export type ItemList = {
@@ -207,8 +207,8 @@ function PluginUI.getId(name: string, unique: boolean?)
 	return name
 end
 
-function PluginUI.createEditorWidget<T>(mainframeTemplate: T, name: string, displayName: string, guiInfo: DockWidgetPluginGuiInfo?): (DockWidgetPluginGui, T)
-	assert(typeof(mainframeTemplate) == "Instance")
+function PluginUI.createEditorWidget<T>(mainframe: T, name: string, displayName: string, guiInfo: DockWidgetPluginGuiInfo?): (DockWidgetPluginGui, T)
+	assert(typeof(mainframe) == "Instance")
 	
 	local widget = plugin:CreateDockWidgetPluginGui(
 		PluginUI.getId(name, true), guiInfo or DockWidgetPluginGuiInfo.new(
@@ -225,7 +225,6 @@ function PluginUI.createEditorWidget<T>(mainframeTemplate: T, name: string, disp
 		widget.Enabled = not widget.Enabled
 	end)
 	
-	local mainframe = mainframeTemplate:Clone()
 	mainframe:AddTag("JEXP_Background")
 	mainframe.Parent = widget
 	

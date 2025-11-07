@@ -8,13 +8,13 @@ local RunService = game:GetService("RunService")
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local Types = require(main.Types)
 
 local JDF = require(utilities.JDF)
 local PluginUI = require(utilities.PluginUI)
-local ClassIcon = require(utilities.ClassIcon)
+local ClassIcon = require(utilities.Small.ClassIcon)
 
 local getId = PluginUI.getId
 
@@ -37,7 +37,7 @@ function OrderEditor.init(Manager)
 	local connections = state.Connections
 	local instances = connections:Extend("Destroy")
 	
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "OrderEditor", "Order Editor")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "OrderEditor", "Order Editor")
 	OrderEditor.Widget = widget
 	Manager.Style:Link(widget)
 	

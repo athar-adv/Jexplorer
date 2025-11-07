@@ -2,7 +2,7 @@
 --!optimize 2
 
 local eval = require(script.ExprEvaluator)
-local SimpleSignal = require(script.Parent.SimpleSignal)
+local SimpleSignal = require(script.Parent.Vendor.SimpleSignal)
 
 export type Expression = {
 	__stylevar: boolean,

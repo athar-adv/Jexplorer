@@ -8,10 +8,10 @@ local HttpService = game:GetService("HttpService")
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local PluginUI = require(utilities.PluginUI)
-local ClassIcon = require(utilities.ClassIcon)
+local ClassIcon = require(utilities.Small.ClassIcon)
 
 local Types = require(main.Types)
 
@@ -43,7 +43,7 @@ function InstanceVisibilityEditor.init(Manager)
 	local connections = state.Connections
 	local instances = connections:Extend("Destroy")
 	
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "InstanceVisibilityEditor", "Instance Visibility Editor")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "InstanceVisibilityEditor", "Instance Visibility Editor")
 	InstanceVisibilityEditor.Widget = widget
 	Manager.Style:Link(widget)
 	

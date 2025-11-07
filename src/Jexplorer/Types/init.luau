@@ -3,15 +3,17 @@
 local main = script.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
+local ui = main.__legacy.UI
 
 local PluginUI = require(utilities.PluginUI)
 local Style = require(utilities.Style)
-local Group = require(utilities.Group)
-local SimpleSignal = require(utilities.SimpleSignal)
 local GitAPI = require(utilities.GitAPI)
-local APIMap = require(utilities.APIMap)
-local ColorPicker = require(utilities.PluginColorPicker)
+
+local Group = require(utilities.Vendor.Group)
+local SimpleSignal = require(utilities.Vendor.SimpleSignal)
+local APIMap = require(utilities.Vendor.APIMap)
+local ColorPicker = require(utilities.Vendor.PluginColorPicker)
+
 local Jecs = require(main.Jecs)
 
 type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
@@ -169,7 +171,8 @@ export type Manager = {
 	setEntitiesAsSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
 	updateVirtualScroller: () -> (),
 	updateSelectionVisuals: (updateSelection: boolean) -> (),
-	updateChildrenVisuals: (world: World, update: boolean, expandedCt: Jecs.Id?) -> (),
+	updateExpandedVisuals: (update: boolean, expandedCt: Jecs.Id?) -> (),
+	updateCollapsedVisuals: (update: boolean, expandedCt: Jecs.Id?) -> (),
 	
 	init: (onClose: () -> (), pluginVersion: string, connections: Group.Group) -> ()
 }

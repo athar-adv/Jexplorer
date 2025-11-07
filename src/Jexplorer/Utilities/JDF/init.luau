@@ -1,3 +1,4 @@
+--!strict
 --[[
 	Jexplorer Datatype Format
 ]]
@@ -5,7 +6,7 @@
 local HttpService = game:GetService('HttpService')
 
 local Style = require(script.Parent.Style)
-local Selector = require(script.Parent.Selector)
+local Selector = require(script.Parent.Small.Selector)
 
 local JDF = {}
 
@@ -23,7 +24,7 @@ function JDF.to(input: any): string
 	elseif typeof(input) == "Vector2" then
 		return `[vec2] {input.X}, {input.Y}`
 	elseif type(input) == "vector" then
-		return `[vec3] {input.x}, {input.y}, {input.z}`
+		return `[vec3] {input.X}, {input.Y}, {input.Z}`
 	elseif typeof(input) == "UDim2" then
 		return `[udim2] {input.X.Scale}, {input.X.Offset}, {input.Y.Scale}, {input.Y.Offset}`
 	elseif typeof(input) == "UDim" then
@@ -66,7 +67,7 @@ function JDF.from(input: string): any
 			return
 		end
 		
-		local item = enum:FromName(input)
+		local item = (enum::any):FromName(input)
 		if not item then
 			warn(`'{input}' is not a valid member of 'Enum.{datatype}'`)
 			return
@@ -101,9 +102,9 @@ function JDF.from(input: string): any
 	elseif datatype == "vec3" then
 		local values = string.split(input, ",")
 		return vector.create(
-			tonumber(values[1]),
-			tonumber(values[2]),
-			tonumber(values[3])
+			tonumber(values[1])::number,
+			tonumber(values[2])::number,
+			tonumber(values[3])::number
 		)
 	elseif datatype == "expr" then
 		return Style.var(input)
@@ -115,7 +116,7 @@ function JDF.from(input: string): any
 		
 		return value
 	else
-		warn(`[{datatype}] is not a valid datatype for styles.`)
+		error(`[{datatype}] is not a valid datatype for styles.`)
 	end
 end
 

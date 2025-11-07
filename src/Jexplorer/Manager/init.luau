@@ -9,6 +9,7 @@
 
 local plugin = script:FindFirstAncestorOfClass("Plugin")
 
+local ScriptEditorService = game:GetService("ScriptEditorService")
 local StudioService = game:GetService("StudioService")
 local Selection = game:GetService("Selection")
 local UserInputService = game:GetService("UserInputService")
@@ -21,6 +22,7 @@ local HttpService = game:GetService("HttpService")
 local ScriptEditorService = game:GetService('ScriptEditorService')
 local TextService = game:GetService("TextService")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local IS_EDIT = RunService:IsEdit()
 
@@ -28,7 +30,7 @@ local main = script.Parent
 
 local utilities = main.Utilities
 local editors = main.Editors
-local ui = main.UI
+--local ui = main.UI
 
 local Jecs = require(main.Jecs)
 local Types = require(main.Types)
@@ -41,25 +43,26 @@ local InstanceVisibilityEditor = require(editors.InstanceVisibilityEditor)
 local PropertyEditor = require(editors.PropertyEditor)
 local ContextMenuEditor = require(editors.ContextMenuEditor)
 
-local Group = require(utilities.Group)
 local PluginUI = require(utilities.PluginUI)
-local Transform = require(utilities.Transform)
 local Style = require(utilities.Style)
 local JDF = require(utilities.JDF)
 local JQL = require(utilities.JQL)
-local Signal = require(utilities.SimpleSignal)
 local JState = require(utilities.JState)
-local InstanceUtility = require(utilities.InstanceUtility)
-local BuildAPIMap = require(utilities.APIMap)
-local Selector = require(utilities.Selector)
-local ClassIcon = require(utilities.ClassIcon)
-local childrenOf = require(utilities.ChildrenOf)
-local getClampedXY = require(utilities.GetClampedXY)
-local Converter = require(utilities.Converter)
+local UITemplates = require(utilities.UITemplates)
+
+local Group = require(utilities.Vendor.Group)
+local Signal = require(utilities.Vendor.SimpleSignal)
+local BuildAPIMap = require(utilities.Vendor.APIMap)
+local Converter = require(utilities.Vendor.Converter)
+
+local InstanceUtility = require(utilities.Small.InstanceUtility)
+local Selector = require(utilities.Small.Selector)
+local ClassIcon = require(utilities.Small.ClassIcon)
+local childrenOf = require(utilities.Small.ChildrenOf)
+local getClampedXY = require(utilities.Small.GetClampedXY)
 local d = Converter.data
 
 local getId = PluginUI.getId
-local tween = Transform.tween
 local rule = Style.rule
 local var = Style.var
 
@@ -124,7 +127,7 @@ local CLEANUP_LOOP_INTERVAL = 1/30
 local REUSE_LOOP_INTERVAL = 1/30
 local ENT_DELETE_LOOP_INTERVAL = 0.5
 
-local INSTANCE_INSERT_INFO = require(script.InstanceInsertInfo)
+local INSTANCE_INSERT_INFO = require(utilities.Info.InstanceInsertInfo)
 
 local API_MAP_SCHEMA = d.dict_64(
 	d.str_u8(),
@@ -1409,7 +1412,7 @@ local function createAbstractEntity(instance: any): InstanceEntity
 	return ent
 end
 
-local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
+local function createInstanceFrame(frame: any)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 
@@ -1645,7 +1648,9 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 
 				-- Check for double-click
 				if timeSinceLastClick <= Manager.getSetting("DoubleClickToOpenScriptTime") and instance:IsA("LuaSourceContainer") then
-					plugin:OpenScript(instance)
+					--plugin:OpenScript(instance)
+					local success, err = ScriptEditorService:OpenScriptDocumentAsync(instance)
+					if not success then warn(`Couldn't open LuaSourceContainer '{instance.Name}': '{err}'`) end
 					return
 				elseif timeSinceLastClick <= Manager.getSetting("DoubleClickToRenameTime") then
 					instanceName.TextEditable = true
@@ -1687,7 +1692,7 @@ local function createInstanceFrame(frame: typeof(ui.InstanceFrame))
 				profilebegin("InstanceFrame::beginDrag")
 
 				-- Start drag operation
-				local dragFrame = ui.DragFrame:Clone()
+				local dragFrame = UITemplates.DragFrame()
 				dragFrame:AddTag("JEXP_Selected")
 
 				local amt = #state.CurrentSelection
@@ -1939,7 +1944,8 @@ local function fillInstanceFramePoolToLimit()
 
 	local framesToCreate = instanceFramePoolTarget - #pooledInstanceFrames
 	for _ = 1, framesToCreate do
-		local clone = ui.InstanceFrame:Clone()
+		local clone = UITemplates.InstanceFrame()
+		
 		local frame = createInstanceFrame(clone)
 		clone.Visible = false
 		clone.Parent = Manager.WidgetState.JExplorerUI.InstanceTree
@@ -2179,6 +2185,14 @@ function Manager.updateSelectionVisuals(updateSelection)
 	updateSelectionVisuals(Manager.WidgetState.World, updateSelection)
 end
 
+function Manager.updateExpandedVisuals(update, expandedCt)
+	updateExpandedVisuals(Manager.WidgetState.World, update, expandedCt)
+end
+
+function Manager.updateCollapsedVisuals(update, expandedCt)
+	updateCollapsedVisuals(Manager.WidgetState.World, update, expandedCt)
+end
+
 function Manager.getDragInfo(inst, propName)
 	return {
 		Sender = `jprops:{propName}`,
@@ -2234,7 +2248,7 @@ function Manager.getEntityAt(x, y, filteredParent)
 	local objects = PluginUI.getGuiObjectsAtPosition(Manager.WidgetState.JExplorerUI, x, y)
 
 	-- Dont ask me how this works it just does
-	local newParentFrame: typeof(ui.InstanceFrame)?
+	local newParentFrame: any?
 	for _, v: Instance in objects do
 		if v.Name == "Overlay" and (filteredParent and v.Parent ~= filteredParent) then
 			if not v.Parent then continue end
@@ -2738,7 +2752,9 @@ function Manager.init(onClose, pluginVersion, connections)
 		jexplorerWidget.Enabled = not jexplorerWidget.Enabled
 	end)
 
-	local jexplorerUi = ui.JExplorerUi:Clone()
+	local jexplorerUi = UITemplates.JexplorerUi {
+		Parent = jexplorerWidget
+	}
 
 	local c = Jecs.component
 	local tag = Jecs.tag
@@ -3234,7 +3250,7 @@ function Manager.init(onClose, pluginVersion, connections)
 		end
 
 		local layoutOrder = 0
-		for category, tbl in require(script.InstanceCategories) do
+		for category, tbl in require(utilities.Info.InstanceCategories) do
 			local header = PluginUI.createHeader(insertInstanceList, category)
 			layoutOrder += 1
 			header.LayoutOrder = layoutOrder
@@ -3322,7 +3338,7 @@ function Manager.init(onClose, pluginVersion, connections)
 				end
 			end
 		end
-
+		
 		connections:Insert {
 			Manager.connectInputBegan(onInputBegan),
 			searchbar.FocusLost:Connect(function(_, input)
@@ -3752,6 +3768,33 @@ function Manager.init(onClose, pluginVersion, connections)
 			groupAs("Model")
 		end)
 	end
+	
+	local ungroupAction do
+		ungroupAction = createPluginAction(
+			getId("Jexplorer_ContextMenu_Ungroup", true), "Ungroup", "Ungroups the selected Instances."
+		)
+		ungroupAction.Triggered:Connect(function()
+			local target = state.ContextTarget
+			if not target then return end
+			
+			local inst = world:get(target, components.Instance)
+			if not inst then return end
+
+			local parent = inst.Parent
+
+			local entities = {}
+
+			for _, child in inst:GetChildren() do
+				child.Parent = parent
+				local ent = instanceToEntity[child]
+				if ent then table.insert(entities, ent) end
+			end
+			
+			inst.Parent = nil
+			updateVirtualScroller()
+			setSelection(world, entities, true)
+		end)
+	end
 
 	Manager.PluginActions = {
 		OpenVersionHistory = openVersionHistoryAction,
@@ -3779,6 +3822,8 @@ function Manager.init(onClose, pluginVersion, connections)
 
 		GroupAsModel = groupAsModelAction,
 		GroupAsFolder = groupAsFolderAction,
+		
+		Ungroup = ungroupAction,
 
 		Tab_EditName = tabEditName
 	}
@@ -3802,6 +3847,7 @@ function Manager.init(onClose, pluginVersion, connections)
 			"GroupAsFolder",
 			"GroupAsModel",
 			"HideClass",
+			"Ungroup",
 
 			"---",
 
@@ -4400,6 +4446,10 @@ function Manager.init(onClose, pluginVersion, connections)
 				copySelection(world)
 			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.V) then
 				pasteCopiedInstances(world)
+			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.Z) then
+				ChangeHistoryService:Undo()
+			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.Y) then
+				ChangeHistoryService:Redo()
 			end
 		end),
 		Manager.connectInputEnded(function(input)
@@ -4538,6 +4588,7 @@ function Manager.init(onClose, pluginVersion, connections)
 
 			-- Small delay to prevent frame drops
 			task.wait(1/60) -- Reduced from 1/30 for smoother performance
+			
 			updateVirtualScroller()
 			profileend()
 		end),

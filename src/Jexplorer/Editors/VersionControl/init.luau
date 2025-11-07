@@ -11,11 +11,11 @@ local studioSettings = settings().Studio
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local PluginUI = require(utilities.PluginUI)
 local GitAPI = require(utilities.GitAPI)
-local InstanceUtility = require(utilities.InstanceUtility)
+local InstanceUtility = require(utilities.Small.InstanceUtility)
 local parse = require(utilities.Luaup.parse)
 local visit = require(utilities.Luaup.visit)
 
@@ -478,12 +478,12 @@ function VersionControl.init(_m)
 	local connections = state.Connections
 	local instances = connections:Extend("Destroy")
 	
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "VersionControl", "Version Control")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "VersionControl", "Version Control")
 	VersionControl.Widget = widget
 	Manager.Style:Link(widget)
 	
 	do
-		local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "VersionHistory", "Instance Version History")
+		local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "VersionHistory", "Instance Version History")
 		VersionControl.InstanceHistoryWidget = widget
 		Manager.Style:Link(widget)
 		
@@ -491,7 +491,7 @@ function VersionControl.init(_m)
 		VersionControl.InstanceHistoryUIList = list
 	end
 	do
-		local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "VersionViewer", "Instance Version Viewer")
+		local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "VersionViewer", "Instance Version Viewer")
 		VersionControl.VersionViewerWidget = widget
 		Manager.Style:Link(widget)
 
@@ -499,7 +499,7 @@ function VersionControl.init(_m)
 		VersionControl.VersionViewerUIList = list
 	end
 	do
-		local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "SourceViewer", "Source Viewer", 
+		local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "SourceViewer", "Source Viewer", 
 			DockWidgetPluginGuiInfo.new(
 				Enum.InitialDockState.Float,
 				false,

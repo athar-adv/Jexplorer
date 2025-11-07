@@ -5,7 +5,7 @@ local main = script.Parent.Parent.Parent
 local utilities = main.Utilities
 
 local PluginUI = require(utilities.PluginUI)
-local InstanceUtility = require(utilities.InstanceUtility)
+local InstanceUtility = require(utilities.Small.InstanceUtility)
 
 local rawindex = InstanceUtility.rawindex
 

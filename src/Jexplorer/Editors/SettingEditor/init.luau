@@ -5,12 +5,12 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local main = script.Parent.Parent
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local Types = require(main.Types)
 local PluginUI = require(utilities.PluginUI)
 local Style = require(utilities.Style)
-local DefaultSettings = require(utilities.DefaultSettings)
+local DefaultSettings = require(utilities.Defaults.DefaultSettings)
 local JDF = require(utilities.JDF)
 
 local getId = PluginUI.getId
@@ -90,10 +90,9 @@ function SettingEditor.init(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local jexplorerUi = state.JExplorerUI
-	local topbar = jexplorerUi.Topbar
 	local connections = state.Connections
 
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "SettingEditor", "Setting Editor")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "SettingEditor", "Setting Editor")
 	SettingEditor.Widget = widget
 	Manager.Style:Link(widget)
 

@@ -6,10 +6,10 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
 local PluginUI = require(utilities.PluginUI)
-local InstanceUtility = require(utilities.InstanceUtility)
+local InstanceUtility = require(utilities.Small.InstanceUtility)
+local UITemplates = require(utilities.UITemplates)
 
 local Types = require(main.Types)
 
@@ -46,7 +46,7 @@ function ContextMenuEditor.init(Manager)
 	local connections = state.Connections
 	local instances = connections:Extend("Destroy")
 
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "ContextMenuEditor", "Context Menu Editor")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "ContextMenuEditor", "Context Menu Editor")
 	ContextMenuEditor.Widget = widget
 	Manager.Style:Link(widget)
 	
@@ -85,8 +85,16 @@ function ContextMenuEditor.init(Manager)
 		clone.Source = current.Source
 		clone.Parent = plugin
 		
-		local configs: ContextMenuConfigs = (require::any)(clone)
-
+		local returnval: ContextMenuConfigs | (Plugin, Types.Manager) -> ContextMenuConfigs = (require::any)(clone)
+		local configs
+		if type(returnval) == "function" then
+			configs = returnval(plugin, Manager)
+		elseif type(returnval) == "table" then
+			configs = returnval
+		else
+			error("ContextMenu module must return (Plugin, Manager) -> ContextMenuConfigs or ContextMenuConfigs.")
+		end
+		
 		for name, info in configs.Actions do
 			local action = plugin:CreatePluginAction(
 				tostring(os.clock()), info.Text, info.Tooltip, info.Icon

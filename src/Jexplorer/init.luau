@@ -3,7 +3,7 @@
 
 --[[
 	JExplorer
-	This plugin is distributed under the MIT license (2025).
+	This plugin is distributed under the MIT license (2025). 
 	
 	Author: athar_adv
 ]]
@@ -13,13 +13,13 @@ local VERSION = "b0.22"
 
 local utilities = script.Utilities
 local editors = script.Editors
-local ui = script.UI
+--local ui = script.UI
 
 local Jecs = require(script.Jecs)
 local Manager = require(script.Manager)
 
 local PluginUI = require(utilities.PluginUI)
-local Group = require(utilities.Group)
+local Group = require(utilities.Vendor.Group)
 local JState = require(utilities.JState)
 local Types = require(script.Types)
 
@@ -65,10 +65,10 @@ local jexplorerApi: Types.Jexplorer = {
 	PropertyEditor = require(editors.PropertyEditor),
 	
 	Dependencies = {
-		Selector = require(utilities.Selector),
+		Selector = require(utilities.Small.Selector),
 		Style = require(utilities.Style),
 		PluginUI = require(utilities.PluginUI),
-		ClassIcon = require(utilities.ClassIcon),
+		ClassIcon = require(utilities.Small.ClassIcon),
 		JDF = require(utilities.JDF),
 		JState = JState,
 		GitAPI = require(utilities.GitAPI)
@@ -84,10 +84,6 @@ local jexplorerApi: Types.Jexplorer = {
 }
 
 shared.Jexplorer = jexplorerApi
-
-plugin.Name = "Jexplorer_PluginSession"
-plugin.Parent = game
-
 Manager.init(onClose, VERSION, connections)
 
 onLoadEvent:Fire()

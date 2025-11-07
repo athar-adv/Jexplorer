@@ -12,11 +12,12 @@ local InstanceVisibilityEditor = require(editors.InstanceVisibilityEditor)
 
 local Style = require(utilities.Style)
 local JDF = require(utilities.JDF)
-local Selector = require(utilities.Selector)
-local DefaultStyle = require(utilities.DefaultStyle)
-local DefaultSettings = require(utilities.DefaultSettings)
-local DefaultOrder = require(utilities.DefaultOrder)
-local DefaultInvisClasses = require(utilities.DefaultInvisibleClasses)
+local Selector = require(utilities.Small.Selector)
+
+local DefaultStyle = require(utilities.Defaults.DefaultStyle)
+local DefaultSettings = require(utilities.Defaults.DefaultSettings)
+local DefaultOrder = require(utilities.Defaults.DefaultOrder)
+local DefaultInvisClasses = require(utilities.Defaults.DefaultInvisibleClasses)
 
 local Types = require(main.Types)
 

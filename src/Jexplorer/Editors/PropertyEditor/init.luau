@@ -6,11 +6,11 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local PropertyFrame = require(script.PropertyFrame)
 local xyz = require(script.xyz)
-local InstanceUtility = require(utilities.InstanceUtility)
+local InstanceUtility = require(utilities.Small.InstanceUtility)
 local VersionControl = require(script.Parent.VersionControl)
 local PluginUI = require(utilities.PluginUI)
 
@@ -404,7 +404,7 @@ function PropertyEditor.init(_m)
 	toggleButton.ClickableWhenViewportHidden = true
 
 	local widget, mainframe = PluginUI.createEditorWidget(
-		ui.EditorFrame, "PropertyEditor", "",
+		UITemplates.EditorFrame(), "PropertyEditor", "",
 		DockWidgetPluginGuiInfo.new(
 			Enum.InitialDockState.Right,
 			false,

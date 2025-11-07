@@ -8,15 +8,15 @@ local StudioService = game:GetService('StudioService')
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
-local ui = main.UI
 
+local UITemplates = require(utilities.UITemplates)
 local Types = require(main.Types)
 
 local PluginUI = require(utilities.PluginUI)
 local Style = require(utilities.Style)
 local JDF = require(utilities.JDF)
-local Selector = require(utilities.Selector)
-local InstanceUtility = require(utilities.InstanceUtility)
+local Selector = require(utilities.Small.Selector)
+local InstanceUtility = require(utilities.Small.InstanceUtility)
 local JState = require(utilities.JState)
 
 local getId = PluginUI.getId
@@ -40,7 +40,7 @@ function StyleEditor.init(Manager)
 	local topbar = jexplorerUi.Topbar
 	
 	local connections = state.Connections
-	local widget, mainframe = PluginUI.createEditorWidget(ui.EditorFrame, "StyleEditor", "Style Editor")
+	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "StyleEditor", "Style Editor")
 	StyleEditor.Widget = widget
 	sheet:Link(widget)
 	
