@@ -56,7 +56,7 @@ aside {
   padding: 1rem 0; /* remove side padding from aside */
   box-sizing: border-box;
   flex-shrink: 0;
-  position: stick;
+  position: sticky;
   top: 0;
 }
 
