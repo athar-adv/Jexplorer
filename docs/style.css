@@ -71,7 +71,7 @@ nav {
   padding: 0 1rem;
 }
 
-nav a {
+a .button {
   color: #ccc;
   text-decoration: none;
   display: block;
@@ -79,8 +79,9 @@ nav a {
   border-radius: 4px;
 }
 
-nav a:hover,
-nav a.active {
+a .button :hover,
+a .button .active 
+{
   background: #333;
   color: #fff;
 }
