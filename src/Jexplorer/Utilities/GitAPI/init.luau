@@ -793,7 +793,7 @@ function GitAPI.batchOverwrite(
 			cleanPath = string.gsub(cleanPath, "/+$", "")
 			if cleanPath ~= "" then
 				-- Store full path
-				local fullPath = path ~= "" and `{path}/{cleanPath}` or cleanPath
+				local fullPath = cleanPath
 				targetPaths[fullPath] = true
 			end
 		end
@@ -807,11 +807,10 @@ function GitAPI.batchOverwrite(
 		-- Ensure paths are prefixed with the base path if needed
 		local cleanPath = string.gsub(file.path, "^/+", "")
 		cleanPath = string.gsub(cleanPath, "/+$", "")
-
+		
 		if cleanPath ~= "" then
-			local fullPath = path ~= "" and `{path}/{cleanPath}` or cleanPath
 			table.insert(operations, {
-				path = fullPath,
+				path = cleanPath,
 				content = file.content,
 				mode = file.mode,
 				type = file.type
