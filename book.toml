@@ -1,0 +1,8 @@
+[book]
+authors = ["athar_adv"]
+language = "en"
+src = "docs_md"
+title = "Jexplorer Docs"
+
+[build]
+build-dir = "docs"
