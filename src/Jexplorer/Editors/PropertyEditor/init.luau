@@ -3,6 +3,8 @@
 
 local plugin = script:FindFirstAncestorOfClass("Plugin")
 
+local ReflectionService = game:GetService("ReflectionService")
+
 local main = script.Parent.Parent
 
 local utilities = main.Utilities
@@ -27,7 +29,7 @@ local typeToPropModule = {}
 for _, v in script.PropertyFrames:GetChildren() do
 	local name = v.Name
 	local module = (require::any)(v)
-	local split = string.split(name, "|")
+	local split = string.split(name, "_")
 	for _, part in split do
 		typeToPropModule[part] = module
 	end
@@ -59,12 +61,12 @@ local function getCommonProperties(instances: {Instance}): {[any]: any}
 	if #instances == 1 then
 		-- Single instance, return all its properties
 		local inst = instances[1]
-		return Manager.APIMap[inst.ClassName] or {}
+		return ReflectionService:GetPropertiesOfClass(inst.ClassName)
 	end
 
 	-- Multiple instances - find intersection of properties
 	local commonProps = {}
-	local firstInstanceProps = Manager.APIMap[instances[1].ClassName]
+	local firstInstanceProps = ReflectionService:GetPropertiesOfClass(instances[1].ClassName)
 
 	if not firstInstanceProps then
 		return {}
@@ -76,7 +78,7 @@ local function getCommonProperties(instances: {Instance}): {[any]: any}
 
 		-- Check if this property exists in all other instances
 		for i = 2, #instances do
-			local instanceProps = Manager.APIMap[instances[i].ClassName]
+			local instanceProps = ReflectionService:GetPropertiesOfClass(instances[i].ClassName)
 			if not instanceProps or not instanceProps[propName] then
 				isCommon = false
 				break
@@ -128,7 +130,12 @@ function PropertyEditor.updateProperties(instances)
 	local props = getCommonProperties(instances)
 	local categories = {}
 	for k, v in props do
-		local item = {name = k, type = v.Type, writable = v.Writable, readable = v.Readable}
+		local item = {
+			name = k,
+			type = v.Type.EngineType,
+			writable = v.Permits.Write and SecurityCapabilities.fromCurrent():Contains(v.Permits.Write) or false,
+			readable = v.Permits.Read and SecurityCapabilities.fromCurrent():Contains(v.Permits.Read) or false,
+		}
 		if not categories[v.Category] then
 			categories[v.Category] = {}
 		end
