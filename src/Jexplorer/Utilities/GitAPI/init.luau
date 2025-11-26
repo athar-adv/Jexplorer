@@ -28,6 +28,8 @@ type GitRepoItem = {
 	url: string
 }
 
+local NULL = "NULL"
+
 export type FileOperation = {
 	path: string,
 	content: string?,  -- nil for delete operations
@@ -217,7 +219,12 @@ function GitAPI.getRepoContent(authToken: LuaSecret, repoId: string, branch: str
 	)
 end
 
-function GitAPI.getFileContentsInFolder(authToken: LuaSecret, repoId: string, branch: string, path: string, nocache: boolean?): {APIResult<GitRepoItem & {content: string}>}
+type contents = {
+	{Type: "File", Result: APIResult<GitRepoItem & {content: string}>} |
+	{Type: "Folder", Result: APIResult<GitRepoItem>}
+}
+
+function GitAPI.getFileContentsInFolder(authToken: LuaSecret, repoId: string, branch: string, path: string, nocache: boolean?, _contents: contents?): contents
 	LuaSecret.assert_is(authToken)
 	
 	local authType = authToken:GetProperty("AuthType")
@@ -228,7 +235,7 @@ function GitAPI.getFileContentsInFolder(authToken: LuaSecret, repoId: string, br
 	local n = #contents.value
 	local finished = 0
 	
-	local finalContents = {}
+	local finalContents = _contents or {}
 	for _, child: any in contents.value do
 		task.spawn(function()
 			local success, response: any = pcall(function()
@@ -242,21 +249,205 @@ function GitAPI.getFileContentsInFolder(authToken: LuaSecret, repoId: string, br
 			if not success then return end
 			
 			local apiResult = HttpService:JSONDecode(response)
+			--Is a folder
+			if not apiResult.content then
+				table.insert(finalContents,
+					{
+						Type = "Folder",
+						Result = APIResult.new(
+							success,
+							200,
+							"OK",
+							child
+						)
+					}
+				)
+				return
+			end
 			child.content = Base64.from(apiResult.content)
 			
 			table.insert(finalContents,
-				APIResult.new(
-					success,
-					200,
-					"OK",
-					child
-				)
+				{
+					Type = "File",
+					Result = APIResult.new(
+						success,
+						200,
+						"OK",
+						child
+					)
+				}
 			)
 		end)
 	end
 	
 	repeat task.wait() until finished == n
 	return finalContents
+end
+
+function GitAPI.getFileOpsForInstances(root: Instance): {FileOperation}
+	local operations: {FileOperation} = {}
+	
+	local function getFileExtension(instance: Instance): string
+		if instance:IsA("ModuleScript") then
+			return "luau"
+		elseif instance:IsA("Script") then
+			return "server.luau"
+		elseif instance:IsA("LocalScript") then
+			return "client.luau"
+		end
+		return "luau"
+	end
+
+	local function hasLuaSourceContainerChildren(instance: Instance): boolean
+		for _, child in instance:GetChildren() do
+			if child:IsA("LuaSourceContainer") or child:IsA("Folder") then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function countLuaSourceContainers(parent: Instance): number
+		local count = 0
+		for _, child in parent:GetChildren() do
+			if child:IsA("LuaSourceContainer") then
+				count += 1
+			end
+		end
+		return count
+	end
+
+	local function processInstance(instance: Instance, currentPath: string, isRoot: boolean)
+		-- Skip non-LuaSourceContainer and non-Folder instances
+		if not (instance:IsA("LuaSourceContainer") or instance:IsA("Folder")) then
+			return
+		end
+
+		if instance:IsA("LuaSourceContainer") then
+			local hasChildren = hasLuaSourceContainerChildren(instance)
+			local source = (instance :: any).Source
+
+			if hasChildren then
+				-- Create folder with init.luau inside
+				local folderPath = currentPath ~= "" 
+					and `{currentPath}/{instance.Name}` 
+					or instance.Name
+
+				table.insert(operations, {
+					path = `{folderPath}/init.{getFileExtension(instance)}`,
+					content = source,
+					mode = "100644",
+					type = "blob"
+				})
+
+				-- Process children
+				for _, child in instance:GetChildren() do
+					processInstance(child, folderPath, false)
+				end
+			else
+				-- Check if this is a direct child of root with no siblings
+				if isRoot and countLuaSourceContainers(instance.Parent or root) == 1 then
+					-- Name it init.luau
+					local filePath = currentPath ~= ""
+						and `{currentPath}/init.{getFileExtension(instance)}`
+						or `init.{getFileExtension(instance)}`
+
+					table.insert(operations, {
+						path = filePath,
+						content = source,
+						mode = "100644",
+						type = "blob"
+					})
+				else
+					-- Regular file
+					local filePath = currentPath ~= ""
+						and `{currentPath}/{instance.Name}.{getFileExtension(instance)}`
+						or `{instance.Name}.{getFileExtension(instance)}`
+
+					table.insert(operations, {
+						path = filePath,
+						content = source,
+						mode = "100644",
+						type = "blob"
+					})
+				end
+			end
+
+		elseif instance:IsA("Folder") then
+			-- Process folder children
+			local folderPath = currentPath ~= ""
+				and `{currentPath}/{instance.Name}`
+				or instance.Name
+
+			for _, child in instance:GetChildren() do
+				processInstance(child, folderPath, false)
+			end
+		end
+	end
+
+	-- Start processing from root's children
+	for _, child in root:GetChildren() do
+		processInstance(child, "src", true)
+	end
+
+	return operations
+end
+
+do
+	local function getExtension(path: string): string
+		return path:match(".-%.([%w_]+)") or ""
+	end
+	
+	local function getBaseName(path: string): string
+		return path:match("(.-)%.") or ""
+	end
+
+	-- Recursive function to build instance tree
+	function GitAPI.reconstructInstances(authToken, repoId: string, branch: string, path: string, parent: Instance?)
+		local contents = GitAPI.getFileContentsInFolder(authToken, repoId, branch, path)
+
+		for _, item in contents do
+			if item.Type == "File" then
+				local result = item.Result:Unwrap()
+				local ext = getExtension(result.name)
+				local baseName = getBaseName(result.name)
+				local instance: any
+
+				-- Create appropriate instance based on file type
+				if ext == "lua" or ext == "luau" then
+					instance = Instance.new("ModuleScript")
+					instance.Name = baseName
+					instance.Source = result.content -- Content is already decoded by GitAPI
+				elseif ext == "server" then
+					instance = Instance.new("Script")
+					instance.Name = baseName
+					instance.Source = result.content
+
+				elseif ext == "client" then
+					instance = Instance.new("LocalScript")
+					instance.Name = baseName
+					instance.Source = result.content
+				end
+
+				if parent then
+					instance.Parent = parent
+				end
+
+			elseif item.Type == "Folder" then
+				local result = item.Result:Unwrap()
+				-- Create folder and recurse
+				local folder = Instance.new("Folder")
+				folder.Name = result.name
+
+				if parent then
+					folder.Parent = parent
+				end
+
+				-- Recursively process subfolder
+				GitAPI.reconstructInstances(authToken, repoId, branch, result.path, folder)
+			end
+		end
+	end
 end
 
 function GitAPI.getLatestBranchInfo(authToken: LuaSecret, repoId: string, branch: string): APIResult<GitBranchInfo>
@@ -418,31 +609,31 @@ function GitAPI.batchCreateOrUpdate(
 	local latestCommitSha = branchInfo.commit.sha
 	local baseTreeSha = branchInfo.commit.commit.tree.sha
 	
-	local treeItems = {}
+	local treeItems: {any} = {}
 	for _, file in files do
 		if not file.path or file.path == "" then
 			continue
 		end
-		
+
 		local cleanPath = string.gsub(file.path, "^/+", "")
 		cleanPath = string.gsub(cleanPath, "/+$", "")
 
 		if cleanPath == "" then continue end
 
-		local item = {
-			path = cleanPath,
-			mode = file.mode or "100644",
-			type = file.type or "blob"
-		}
-
-		if file.content then
-			item.content = file.content
+		if file.content == nil then
+			table.insert(treeItems, {
+				path = cleanPath,
+				mode = "100644",
+				sha = NULL     -- placeholder
+			})
+		else
+			table.insert(treeItems, {
+				path = cleanPath,
+				mode = file.mode or "100644",
+				type = file.type or "blob",
+				content = file.content
+			})
 		end
-		table.insert(treeItems, item)
-	end
-
-	if #treeItems == 0 then
-		return APIResult.new(false, 400, "No valid files to process after filtering")
 	end
 	
 	local createTreeUrl = `https://api.github.com/repos/{repoId}/git/trees`
@@ -460,7 +651,7 @@ function GitAPI.batchCreateOrUpdate(
 				["Accept"] = "application/vnd.github.v3+json",
 				["Content-Type"] = "application/json"
 			},
-			Body = HttpService:JSONEncode(requestBody)
+			Body = HttpService:JSONEncode(requestBody):gsub(`"{NULL}"`, "null")
 		})
 	end)
 
@@ -549,6 +740,94 @@ function GitAPI.batchCreateOrUpdate(
 	)
 end
 
+function GitAPI.batchOverwrite(
+	authToken: LuaSecret,
+	repoId: string,
+	branch: string,
+	path: string,
+	files: {FileOperation},
+	commitMessage: string?
+): APIResult
+	LuaSecret.assert_is(authToken)
+
+	local authType = authToken:GetProperty("AuthType")
+	assert(authType == "fine_grained", EXPECTED_FG:format("GitAPI.batchOverwrite"))
+
+	-- Get all existing files in the folder
+	local existingContents = GitAPI.getFileContentsInFolder(authToken, repoId, branch, path)
+
+	-- Build a set of paths that should exist after the operation
+	local targetPaths = {}
+	for _, file in files do
+		if file.path and file.path ~= "" then
+			local cleanPath = string.gsub(file.path, "^/+", "")
+			cleanPath = string.gsub(cleanPath, "/+$", "")
+			if cleanPath ~= "" then
+				-- Store relative path if base path is specified
+				local fullPath = path ~= "" and `{path}/{cleanPath}` or cleanPath
+				targetPaths[fullPath] = true
+			end
+		end
+	end
+
+	-- Prepare operations: updates + deletes
+	local operations: {FileOperation} = {}
+
+	-- Add all the files to create/update
+	for _, file in files do
+		table.insert(operations, file)
+	end
+
+	-- Add delete operations for files not in the target set
+	for _, item in existingContents do
+		if item.Type == "File" then
+			local result = item.Result:Unwrap()
+			if not targetPaths[result.path] then
+				-- This file exists remotely but wasn't provided, mark for deletion
+				table.insert(operations, {
+					path = result.path,
+					content = nil -- nil means delete in batchCreateOrUpdate
+				})
+			end
+		elseif item.Type == "Folder" then
+			-- Recursively handle folders
+			local result = item.Result:Unwrap()
+			local folderContents = GitAPI.getFileContentsInFolder(authToken, repoId, branch, result.path)
+
+			-- Check if any files in this folder should be kept
+			local keepFolder = false
+			for targetPath in pairs(targetPaths) do
+				if string.sub(targetPath, 1, #result.path + 1) == result.path .. "/" then
+					keepFolder = true
+					break
+				end
+			end
+
+			if not keepFolder then
+				-- Delete all files in this folder
+				for _, folderItem in folderContents do
+					if folderItem.Type == "File" then
+						local fileResult = folderItem.Result:Unwrap()
+						table.insert(operations, {
+							path = fileResult.path,
+							content = nil
+						})
+					end
+				end
+			end
+		end
+	end
+
+	-- Execute the batch operation
+	return GitAPI.batchCreateOrUpdate(
+		authToken,
+		repoId,
+		branch,
+		operations,
+		commitMessage or `Overwrite contents of '{path}'`
+	)
+end
+
 -- Convenience function for creating multiple files
 function GitAPI.createMultipleFiles(
 	authToken: LuaSecret,
@@ -587,6 +866,124 @@ function GitAPI.deleteMultipleFiles(
 	end
 
 	return GitAPI.batchCreateOrUpdate(authToken, repoId, branch, operations, commitMessage)
+end
+
+function GitAPI.revertLastCommit(
+	authToken: LuaSecret,
+	repoId: string,
+	branch: string,
+	commitMessage: string?
+): APIResult<{
+	commitSha: string,
+	revertedCommitSha: string,
+	commit: typeof(((nil :: any) :: GitBranchInfo).commit.commit)
+}?>
+	LuaSecret.assert_is(authToken)
+
+	local authType = authToken:GetProperty("AuthType")
+	assert(authType == "fine_grained", EXPECTED_FG:format("GitAPI.revertLastCommit"))
+
+	-- Get the latest commit
+	local branchInfo = GitAPI.getLatestBranchInfo(authToken, repoId, branch):Unwrap()
+	local latestCommitSha = branchInfo.commit.sha
+	local parentCommits = branchInfo.commit.parents
+
+	if #parentCommits == 0 then
+		return APIResult.new(false, 400, "Cannot revert initial commit (no parent)")
+	end
+
+	local parentCommitSha = parentCommits[1].sha
+
+	-- Get the tree from the parent commit (the state before the last commit)
+	local parentCommitUrl = `https://api.github.com/repos/{repoId}/git/commits/{parentCommitSha}`
+	local parentSuccess, parentResponse = pcall(function()
+		return HttpService:RequestAsync({
+			Url = parentCommitUrl,
+			Method = "GET",
+			Headers = {
+				["Authorization"] = token(authToken, authType),
+				["Accept"] = "application/vnd.github.v3+json"
+			}
+		})
+	end)
+
+	if not parentSuccess or not parentResponse.Success then
+		return APIResult.new(
+			false,
+			parentResponse and parentResponse.StatusCode or 500,
+			"Failed to fetch parent commit"
+		)
+	end
+
+	local parentCommitData = HttpService:JSONDecode(parentResponse.Body)
+	local parentTreeSha = parentCommitData.tree.sha
+
+	-- Create a new commit with the parent's tree (effectively reverting)
+	local createCommitUrl = `https://api.github.com/repos/{repoId}/git/commits`
+	local commitSuccess, commitResponse = pcall(function()
+		return HttpService:RequestAsync({
+			Url = createCommitUrl,
+			Method = "POST",
+			Headers = {
+				["Authorization"] = token(authToken, authType),
+				["Accept"] = "application/vnd.github.v3+json",
+				["Content-Type"] = "application/json"
+			},
+			Body = HttpService:JSONEncode({
+				message = commitMessage or `Revert "{branchInfo.commit.commit.message}"`,
+				tree = parentTreeSha,
+				parents = {latestCommitSha}
+			})
+		})
+	end)
+
+	if not commitSuccess or not commitResponse.Success then
+		local errorMsg = "Failed to create revert commit"
+		if commitResponse and commitResponse.Body then
+			local success, errorData = pcall(function() 
+				return HttpService:JSONDecode(commitResponse.Body) 
+			end)
+			if success and errorData.message then
+				errorMsg = errorData.message
+			end
+		end
+		return APIResult.new(
+			false,
+			commitResponse and commitResponse.StatusCode or 500,
+			errorMsg
+		)
+	end
+
+	local commitData = HttpService:JSONDecode(commitResponse.Body)
+	local newCommitSha = commitData.sha
+
+	-- Update the branch reference to point to the new commit
+	local updateRefUrl = `https://api.github.com/repos/{repoId}/git/refs/heads/{branch}`
+	local refSuccess, refResponse = pcall(function()
+		return HttpService:RequestAsync({
+			Url = updateRefUrl,
+			Method = "PATCH",
+			Headers = {
+				["Authorization"] = token(authToken, authType),
+				["Accept"] = "application/vnd.github.v3+json",
+				["Content-Type"] = "application/json"
+			},
+			Body = HttpService:JSONEncode({
+				sha = newCommitSha
+			})
+		})
+	end)
+	
+	return APIResult.new(
+		refResponse.Success,
+		refResponse.StatusCode,
+		refResponse.StatusMessage,
+		refResponse.Success and {
+			commitSha = newCommitSha,
+			revertedCommitSha = latestCommitSha,
+			commit = branchInfo.commit.commit
+		} or nil
+	)
 end
 
 return GitAPI

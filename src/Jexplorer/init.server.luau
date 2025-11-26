@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "b0.22"
+local VERSION = "pr1"
 
 local utilities = script.Utilities
 local editors = script.Editors
@@ -20,18 +20,20 @@ local Manager = require(script.Manager)
 
 local PluginUI = require(utilities.PluginUI)
 local Group = require(utilities.Vendor.Group)
-local JState = require(utilities.JState)
+local SavedState = require(utilities.SavedState)
 local Types = require(script.Types)
 
 local connections = Group.new("Disconnect")
 
+local finished_init = false
 local function onClose()
-	plugin.Parent = nil
+	Manager.Storage:Destroy()
 	shared.Jexplorer.__close:Fire()
 	
-	if JState.Initialized and Manager.getSetting("SaveOnClose") then
-		JState.save()
+	if finished_init and Manager.getSetting("SaveOnClose") then
+		Manager.saveState()
 	end
+	plugin:Destroy()
 	connections:Free()
 end
 
@@ -69,8 +71,8 @@ local jexplorerApi: Types.Jexplorer = {
 		Style = require(utilities.Style),
 		PluginUI = require(utilities.PluginUI),
 		ClassIcon = require(utilities.Small.ClassIcon),
-		JDF = require(utilities.JDF),
-		JState = JState,
+		UDF = require(utilities.UDF),
+		SavedState = SavedState,
 		GitAPI = require(utilities.GitAPI)
 	},
 	
@@ -87,3 +89,4 @@ shared.Jexplorer = jexplorerApi
 Manager.init(onClose, VERSION, connections)
 
 onLoadEvent:Fire()
+finished_init = true
