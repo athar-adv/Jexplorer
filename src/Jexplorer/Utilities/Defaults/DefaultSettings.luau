@@ -5,6 +5,28 @@ local Style = require(script.Parent.Parent.Style)
 local var = Style.var
 
 return {
+	InternalBehavior = {
+		FlushCycleInterval = {
+			Type = "number",
+			Display = "Queue Flush Cycle Interval",
+			Default = 1/30
+		},
+		FrameReuseCycleInterval = {
+			Type = "number",
+			Display = "ExplorerFrame Reuse & HierarchyCache Rebuild Cycle Interval",
+			Default = 1/30
+		},
+		EntityCleanupCycleInterval = {
+			Type = "number",
+			Display = "ExplorerEntity Cleanup Cycle Interval",
+			Default = 0.5
+		},
+		EntityCreationCycleInterval = {
+			Type = "number",
+			Display = "ExplorerEntity Creation Cycle Interval",
+			Default = 0.5
+		}
+	},
 	ExpandBehavior = {
 		AutoExpandOnSelect = {
 			Type = "boolean",
@@ -61,61 +83,6 @@ return {
 			Display = "Non-smooth Scroll Threshold",
 			Default = 1,
 		},
-		--VirtualScrollingEnabled = {
-		--	Type = "boolean",
-		--	Display = "Virtual Scrolling Enabled",
-		--	Default = true,
-		--	OnChange = function(Manager, newValue)
-		--		local state = Manager.WidgetState
-		--		local components = Manager.Components
-				
-		--		local ui = script.Parent.Parent.UI
-		--		local jexplorerUi = state.JExplorerUI
-				
-		--		local world = state.World
-
-		--		if not newValue then
-		--			if not jexplorerUi.InstanceTree:FindFirstChildOfClass("UIListLayout") then
-		--				local list = Instance.fromExisting(ui.UIListLayout)
-		--				list.Parent = jexplorerUi.InstanceTree
-		--			end
-		--			if not ui.InstanceFrame.Children.List:FindFirstChildOfClass("UIListLayout") then
-		--				local list = Instance.fromExisting(ui.UIListLayout)
-		--				list.Parent = ui.InstanceFrame.Children.List
-		--			end
-		--			for _, v in jexplorerUi.InstanceTree:GetDescendants() do
-		--				if v.Name == "List" and not v:FindFirstChildOfClass("UIListLayout") then
-		--					local list = Instance.fromExisting(ui.UIListLayout)
-		--					list.Parent = v
-		--				end
-		--			end
-		--			for _, entity in Manager.getVisibleEntities(world, {}) do
-		--				local frame: Types.InstanceFrame? = world:get(entity, components.Frame)
-		--				if not frame then
-		--					local frame = Manager.getInstanceFrame()
-		--					world:set(entity, components.Frame, frame)
-		--					frame:Assign(entity, world:parent(entity))
-		--					frame.Instance.Children.List.Size = UDim2.fromScale(1, 1)
-		--				else
-		--					frame:Assign(entity, world:parent(entity))
-		--					frame.Instance.Children.List.Size = UDim2.fromScale(1, 1)
-		--				end
-		--			end
-		--		else
-		--			if jexplorerUi.InstanceTree:FindFirstChildOfClass("UIListLayout") then
-		--				jexplorerUi.InstanceTree.UIListLayout:Destroy()
-		--			end
-		--			if ui.InstanceFrame.Children.List:FindFirstChildOfClass("UIListLayout") then
-		--				ui.InstanceFrame.Children.List.UIListLayout:Destroy()
-		--			end
-		--			for _, v in jexplorerUi.InstanceTree:GetDescendants() do
-		--				if v:IsA("UIListLayout") then 
-		--					v:Destroy()
-		--				end
-		--			end
-		--		end
-		--	end
-		--},
 		VirtualScrollFrameBuffer = {
 			Type = "number",
 			Display = "Virtual Scrolling Instance Frame Buffer",

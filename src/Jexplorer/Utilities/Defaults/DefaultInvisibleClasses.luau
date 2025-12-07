@@ -1,4 +1,5 @@
 return {
+	"ReflectionService",
 	"BadgeService",
 	"ChangeHistoryService",
 	"Chat",

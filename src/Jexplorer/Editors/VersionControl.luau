@@ -359,6 +359,11 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 	if Manager.getSetting("AutosaveInstChanged") then
 		local currentHour = os.time() // 3600
 		local versions = VersionControl.Versions[id]
+		if not versions then
+			versions = {}
+			VersionControl.Versions[id] = versions
+		end
+		
 		local latestVersion = versions[#versions]
 		
 		if latestVersion and latestVersion.timestamp.UnixTimestamp // 3600 == currentHour then

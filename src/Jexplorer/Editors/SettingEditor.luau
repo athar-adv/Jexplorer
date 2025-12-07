@@ -125,6 +125,12 @@ function SettingEditor.init(Manager)
 			Visible = true,
 			Parent = mainframe.Items
 		}, "Saving Behavior"),
+		
+		InternalBehavior = PluginUI.createDropDownItemList({
+			Name = "InternalBehavior",
+			Visible = true,
+			Parent = mainframe.Items
+		}, "Internal Behavior"),
 	}
 	
 	for behaviorName, list in DefaultSettings do

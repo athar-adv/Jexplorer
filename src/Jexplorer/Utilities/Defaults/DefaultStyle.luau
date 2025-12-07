@@ -275,12 +275,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			Image = assert(ClassIcon.getIcon("PackageLink"), "PackageLink icon not found!").Image
 		}),
 		
-		rule("ClientRunContextIcon", "[$RunContext=Client] > #Main > #ClassIcon", 1, {
+		rule("ClientRunContextIcon", `{Selector.getTaggedPropertySelector("RunContext", "Client")} > #Main > #ClassIcon`, 1, {
 			Image = "rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/LocalScript.png",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.new(16, 16)
 		}),
-		rule("PluginRunContextIcon", `[$RunContext=Plugin] > #Main > #ClassIcon`, 1, {
+		rule("PluginRunContextIcon", `{Selector.getTaggedPropertySelector("RunContext", "Plugin")} > #Main > #ClassIcon`, 1, {
 			Image = "rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Attachment.png",
 			ImageRectOffset = Vector2.new(16, 0),
 			ImageRectSize = Vector2.new(-16, 16)

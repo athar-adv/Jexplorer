@@ -24,13 +24,13 @@ type ContextMenuConfigs = {
 		{
 			Id: string,
 			Priority: number,
-			Condition: (manager: Types.Manager, target: Types.InstanceEntity) -> boolean,
+			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
 			Contents: {any}
 		}
 	},
 	Actions: {
 		[string]: {
-			Callback: (manager: Types.Manager, target: Types.InstanceEntity) -> (),
+			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -> (),
 			Text: string,
 			Tooltip: string,
 			Icon: string?

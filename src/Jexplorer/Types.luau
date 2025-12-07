@@ -70,29 +70,29 @@ export type WidgetState = {
 	QueryWorld: World,
 	
 	Connections: Group.Group,
-	Entities: {InstanceEntity},
+	Entities: {ExplorerEntity},
 	Widget: DockWidgetPluginGui,
-	CurrentSelection: {InstanceEntity},
-	Favorited: {InstanceEntity},
+	CurrentSelection: {ExplorerEntity},
+	Favorited: {ExplorerEntity},
 	Tabs: {Tab},
 	RepoProxies: {RepoProxy},
 	HierarchyVersion: number,
 	SavedState: SavedState,
 	
-	LastSelectedEntity: InstanceEntity?,
-	ContextTarget: InstanceEntity?,
+	LastSelectedEntity: ExplorerEntity?,
+	ContextTarget: ExplorerEntity?,
 	
-	CurrentlyRenaming: InstanceEntity?,
+	CurrentlyRenaming: ExplorerEntity?,
 	CurrentlyInserting: {Instance}?,
 	CurrentDrag: {
 		Connections: Group.Group,
 		Frame: typeof(ui.DragFrame),
-		Entities: {InstanceEntity}
+		Entities: {ExplorerEntity}
 	}?,
 	
 	JExplorerUI: typeof(ui.JExplorerUi),
 	DefaultInstanceActionsArray: {any},
-	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: InstanceEntity, instance: Instance) -> boolean, Priority: number}},
+	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu}
 }
 export type StudioIconResult = {
@@ -113,7 +113,7 @@ export type Tab = {
 	RemoveButton: GuiButton?,
 	NameBox: TextBox,
 	
-	Roots: {InstanceEntity},
+	Roots: {ExplorerEntity},
 	Name: string,
 	
 	Toggle: () -> (),
@@ -129,10 +129,10 @@ export type RepoProxy = {
 export type InstanceFrame = {
 	Instance: typeof(ui.InstanceFrame),
 	Connections: Group.Group,
-	CurrentEntity: InstanceEntity?,
+	CurrentEntity: ExplorerEntity?,
 	TagsToRemove: {string},
 	
-	Assign: (InstanceFrame, entity: InstanceEntity?, parent: InstanceEntity?) -> (),
+	Assign: (InstanceFrame, entity: ExplorerEntity?, parent: ExplorerEntity?) -> (),
 	ToggleSelection: (InstanceFrame, selected: boolean) -> (),
 	Reuse: (InstanceFrame) -> ()
 }
@@ -144,7 +144,7 @@ export type PropertyItem = {
 }
 
 export type World = Jecs.World
-export type InstanceEntity = Jecs.Id
+export type ExplorerEntity = Jecs.Id
 export type QueryEntity = Jecs.Id
 
 type Components = {
@@ -164,11 +164,11 @@ type Components = {
 	Instance: Jecs.Id<Instance>,
 	Frame: Jecs.Id<InstanceFrame>,
 	Connections: Jecs.Id<Group.Group>,
-	FavoriteProxy: Jecs.Id<InstanceEntity>,
-	FavoriteProxySource: Jecs.Id<InstanceEntity>,
+	FavoriteProxy: Jecs.Id<ExplorerEntity>,
+	FavoriteProxySource: Jecs.Id<ExplorerEntity>,
 	ScriptErrors: Jecs.Id<{string}>,
 	ScriptWarns: Jecs.Id<{string}>,
-	QueryLinkedEntities: Jecs.Id<{InstanceEntity}>,
+	QueryLinkedEntities: Jecs.Id<{ExplorerEntity}>,
 	LinkedQueryEntity: Jecs.Id<QueryEntity>,
 	ParentTabs: Jecs.Id<{[Tab]: boolean}>,
 }
@@ -189,28 +189,28 @@ export type Manager = {
 		Favorited: "JEXP_ABSTRACT_Favorited"
 	},
 	Style: Style.Style,
-	InstanceToEntity: {[Instance]: InstanceEntity},
+	InstanceToEntity: {[Instance]: ExplorerEntity},
 	FrameToInstanceFrame: {[Instance]: InstanceFrame},
 	
-	SelectionChanged: Signal<{InstanceEntity}>,
+	SelectionChanged: Signal<{ExplorerEntity}>,
 	
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> (),
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> (),
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
 	getInstanceFrame: () -> InstanceFrame,
-	getOrCreateInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
-	registerTab: (name: string, roots: {InstanceEntity}, createDeleteButton: boolean, registerIntoTabsArray: boolean) -> Tab,
+	getOrCreateInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
+	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, registerIntoTabsArray: boolean) -> Tab,
 	
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 	
-	createVirtualEntity: (options: {ClassName: string, Name: string, ChildAmount: number, ClassIcon: StudioIconResult, PropTags: {Jecs.Id}, Parent: InstanceEntity?}, extra: {[string]: any}) -> InstanceEntity,
-	createInstanceEntity: (instance: Instance, parent: InstanceEntity?, dontSetInInstanceToEntity: boolean?) -> InstanceEntity?,
+	createVirtualEntity: (options: {ClassName: string, Name: string, ChildAmount: number, ClassIcon: StudioIconResult, PropTags: {Jecs.Id}, Parent: ExplorerEntity?}, extra: {[string]: any}) -> ExplorerEntity,
+	createInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
 	
 	createContextMenu: (id: string, contents: {any}, title: string?, icon: string?) -> ContextMenu,
-	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: InstanceEntity) -> boolean, priority: number) -> (),
+	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
 	
-	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, InstanceEntity?, Tab?),
+	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, ExplorerEntity?, Tab?),
 	
 	onTagAdded: (inst: Instance, callback: (tag: string) -> ()) -> RBXScriptConnection,
 	onTagRemoved: (inst: Instance, callback: (tag: string) -> ()) -> RBXScriptConnection,
@@ -226,15 +226,15 @@ export type Manager = {
 	
 	setInstanceFramePoolTarget: (n: number) -> (),
 	fillInstanceFramePoolToLimit: () -> (),
-	addEntitiesToSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
-	setEntitiesAsSelection: (world: World, entities: {InstanceEntity}, updateSelection: boolean) -> (),
+	addEntitiesToSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -> (),
+	setEntitiesAsSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 	updateVirtualScroller: () -> (),
 	updateSelectionVisuals: (updateSelection: boolean) -> (),
 	updateExpandedVisuals: (update: boolean, expandedCt: Jecs.Id?) -> (),
-	updateCollapsedVisuals: (update: boolean, expandedCt: Jecs.Id?) -> (),
+	updateCollapsedVisuals: (update: boolean) -> (),
 	
-	ChildOf: (ent: InstanceEntity) -> Jecs.Pair<Jecs.Id, InstanceEntity>,	
-	init: (onClose: () -> (), pluginVersion: string, connections: Group.Group) -> (),
+	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,	
+	init: (onClose: () -> (), connections: Group.Group, widget: DockWidgetPluginGui) -> (),
 	
 	saveState: () -> SavedState,
 	loadState: (state: SavedState) -> ({
@@ -321,7 +321,7 @@ export type InstanceVisibilityEditor = Editor & {
 	InvisibleClasses: {[string]: boolean},
 	InvisibleInstances: {[Instance]: boolean},
 	
-	setVisible: (className: string, visible: boolean) -> (),
+	setInvisible: (className: string, invisible: boolean) -> (),
 }
 
 export type PropertyEditor = Editor & {

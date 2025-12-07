@@ -3284,7 +3284,7 @@ return {
 	create_edge_for_remove = create_edge_for_remove,
 	archetype_traverse_add = archetype_traverse_add :: (World, Id, Archetype) -> Archetype,
 	archetype_traverse_remove = archetype_traverse_remove :: (World, Id, Archetype) -> Archetype,
-	bulk_insert = ecs_bulk_insert :: (World, Entity, { Id }, { any }) -> (),
+	bulk_insert = ecs_bulk_insert :: (World, Entity, { any }, { any }) -> (),
 	bulk_remove = ecs_bulk_remove :: (World, Entity, { Id }) -> (),
 
 	entity_move = entity_move :: (EntityIndex, Entity, Record, Archetype) -> (),
@@ -3316,4 +3316,8 @@ return {
 	ECS_META_RESET = ECS_META_RESET,
 	ECS_COMBINE = ECS_COMBINE :: (number, number) -> Entity,
 	ECS_ENTITY_MASK = ECS_ENTITY_MASK,
+	_WORLD = {
+		has = WORLD_HAS :: (World, Entity, Id) -> boolean,
+		get = WORLD_GET :: (World, Entity, ...Id) -> ...any
+	}
 }
