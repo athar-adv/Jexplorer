@@ -68,6 +68,7 @@ type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
 export type WidgetState = {
 	World: World,
 	QueryWorld: World,
+	FrameWorld: World,
 	
 	Connections: Group.Group,
 	Entities: {ExplorerEntity},
@@ -126,16 +127,17 @@ export type RepoProxy = {
 	
 	Remove: () -> ()
 }
-export type InstanceFrame = {
-	Instance: typeof(ui.InstanceFrame),
-	Connections: Group.Group,
-	CurrentEntity: ExplorerEntity?,
-	TagsToRemove: {string},
+--export type InstanceFrame = {
+--	Instance: typeof(ui.InstanceFrame),
+--	Connections: Group.Group,
+--	CurrentEntity: ExplorerEntity?,
+--	TagsToRemove: {string},
 	
-	Assign: (InstanceFrame, entity: ExplorerEntity?, parent: ExplorerEntity?) -> (),
-	ToggleSelection: (InstanceFrame, selected: boolean) -> (),
-	Reuse: (InstanceFrame) -> ()
-}
+--	Assign: (InstanceFrame, entity: ExplorerEntity?, parent: ExplorerEntity?) -> (),
+--	ToggleSelection: (InstanceFrame, selected: boolean) -> (),
+--	Reuse: (InstanceFrame) -> ()
+--}
+export type ExplorerFrame = Jecs.Id
 export type PropertyItem = {
 	name: string,
 	type: string,
@@ -146,6 +148,16 @@ export type PropertyItem = {
 export type World = Jecs.World
 export type ExplorerEntity = Jecs.Id
 export type QueryEntity = Jecs.Id
+export type FrameState = {
+	isLMBActive: boolean,
+	tagsToRemove: {string},
+	hasBeenSelected: boolean,
+	shouldDeselect: boolean,
+	lastClickTime: number,
+	packageIconConn: RBXScriptConnection?,
+	lastPackageIconPos: number,
+	isAssigning: boolean
+}
 
 type Components = {
 	Selected: Jecs.Id,
@@ -162,7 +174,10 @@ type Components = {
 	DisplayTopLevel: Jecs.Id,
 	
 	Instance: Jecs.Id<Instance>,
-	Frame: Jecs.Id<InstanceFrame>,
+	Frame: Jecs.Id<ExplorerFrame>,
+	Entity: Jecs.Id<ExplorerEntity>,
+	FrameState: Jecs.Id<FrameState>,
+	
 	Connections: Jecs.Id<Group.Group>,
 	FavoriteProxy: Jecs.Id<ExplorerEntity>,
 	FavoriteProxySource: Jecs.Id<ExplorerEntity>,
@@ -190,7 +205,7 @@ export type Manager = {
 	},
 	Style: Style.Style,
 	InstanceToEntity: {[Instance]: ExplorerEntity},
-	FrameToInstanceFrame: {[Instance]: InstanceFrame},
+	FrameToInstanceFrame: {[Instance]: ExplorerFrame},
 	
 	SelectionChanged: Signal<{ExplorerEntity}>,
 	
@@ -198,9 +213,9 @@ export type Manager = {
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> (),
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
-	getInstanceFrame: () -> InstanceFrame,
+	getExplorerFrame: () -> ExplorerFrame,
 	getOrCreateInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
-	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, registerIntoTabsArray: boolean) -> Tab,
+	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
 	
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 	
@@ -235,6 +250,7 @@ export type Manager = {
 	
 	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,	
 	init: (onClose: () -> (), connections: Group.Group, widget: DockWidgetPluginGui) -> (),
+	frameOf: (frame: ExplorerFrame) -> typeof(main.__legacy.UI.InstanceFrame)?,
 	
 	saveState: () -> SavedState,
 	loadState: (state: SavedState) -> ({

@@ -15,7 +15,7 @@ local Migrations = require("@self/Migrations")
 export type SavedState = Types.SavedState
 
 local SavedState = {
-	data_version = 10
+	data_version = 13
 }
 
 function SavedState._migrate(state: any, manager: Types.Manager): SavedState
@@ -51,7 +51,8 @@ function SavedState._migrate(state: any, manager: Types.Manager): SavedState
 			warn(string.format("Missing migration function: v%d_to_v%d", version, version + 1))
 		end
 	end
-
+	
+	state.data_version = SavedState.data_version
 	print(string.format("Migration complete: now at v%d", state.data_version))
 	return state
 end

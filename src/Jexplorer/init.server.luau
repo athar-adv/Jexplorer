@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "pr2"
+local VERSION = "pr2.2"
 
 local utilities = script.Utilities
 local editors = script.Editors
@@ -109,7 +109,7 @@ end
 
 local jexplorerWidget
 while true do
-	success, jexplorerWidget = pcall(plugin.CreateDockWidgetPluginGui, plugin,
+	success, jexplorerWidget = pcall(plugin.CreateDockWidgetPluginGuiAsync, plugin,
 		getId("Jexplorer"), DockWidgetPluginGuiInfo.new(
 			Enum.InitialDockState.Left,
 			false,

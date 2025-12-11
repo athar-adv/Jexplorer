@@ -19,12 +19,12 @@ return {
 		EntityCleanupCycleInterval = {
 			Type = "number",
 			Display = "ExplorerEntity Cleanup Cycle Interval",
-			Default = 0.5
+			Default = 0.25
 		},
 		EntityCreationCycleInterval = {
 			Type = "number",
 			Display = "ExplorerEntity Creation Cycle Interval",
-			Default = 0.5
+			Default = 1/30
 		}
 	},
 	ExpandBehavior = {

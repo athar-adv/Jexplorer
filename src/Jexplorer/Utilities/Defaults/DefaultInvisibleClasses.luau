@@ -1,4 +1,12 @@
 return {
+	"InstanceExtensionsService",
+	"MicroProfilerService",
+	"ModerationService",
+	"RecommendationService",
+	"RemoteCommandService",
+	"SlimContentProvider",
+	"StudioTestService",
+	"UniqueIdLookupService",
 	"ReflectionService",
 	"BadgeService",
 	"ChangeHistoryService",

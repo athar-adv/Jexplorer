@@ -42,7 +42,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["TabBarSize"] = UDim2.new(1, 0, 0, 20),
 		["ScrollbarWidthOffset"] = 12,
 		["IndentWidth"] = 20,
-		["QueryInputTextSize"] = 11
+		["QueryInputTextSize"] = 11,
+		["DownArrowImage"] = var "$BackgroundColor.R > 0.5 ? 'rbxasset://studio_svg_textures/Shared/Navigation/Light/Standard/DropdownArrow.png' : 'rbxasset://studio_svg_textures/Shared/Navigation/Dark/Standard/DropdownArrow.png'",
+		["LegacyDownArrowImage"] = var "$BackgroundColor.R > 0.5 ? 'rbxasset://studio_svg_textures/Shared/Navigation/Light/Standard/ArrowDown.png' : 'rbxasset://studio_svg_textures/Shared/Navigation/Dark/Standard/ArrowDown.png'",
 	}
 	local defaultRules = {
 		rule("UniversalProps", "GuiObject", 0, {
@@ -76,7 +78,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		),
 		rule("ArrowStyle",
 			getClassTagSlctr(".JEXP_Arrow", "ImageLabel", "ImageButton"), 1, {
-				Image = "rbxassetid://11552476728",
+				Image = "$DownArrowImage",
 				ImageColor3 = "$MonochromeColor",
 				Size = "$IconSizeOffset"
 			}

@@ -385,7 +385,10 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 	local frame = world:get(entity, components.Frame)
 	if not frame then return end
 	
-	frame.Instance.Main.PendingChanges.Visible = true
+	local frameInst = Manager.frameOf(frame)
+	if frameInst then
+		frameInst.Main.PendingChanges.Visible = true
+	end
 end
 
 function VersionControl.appendPendingChanges(inst)
@@ -413,7 +416,10 @@ function VersionControl.appendPendingChanges(inst)
 		
 		local frame = world:get(entity, components.Frame)
 		if frame then
-			frame.Instance.Main.PendingChanges.Visible = false
+			local frameInst = Manager.frameOf(frame)
+			if frameInst then
+				frameInst.Main.PendingChanges.Visible = false
+			end
 		end
 	end
 	
@@ -445,7 +451,10 @@ function VersionControl.createPendingChanges(inst)
 		
 		local frame = world:get(entity, components.Frame)
 		if frame then
-			frame.Instance.Main.PendingChanges.Visible = false
+			local frameInst = Manager.frameOf(frame)
+			if frameInst then
+				frameInst.Main.PendingChanges.Visible = false
+			end
 		end
 	end
 	

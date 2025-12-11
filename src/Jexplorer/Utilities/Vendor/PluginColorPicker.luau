@@ -1036,58 +1036,60 @@ function PluginColorPicker:UpdateTheme()
 
 	-- do a mf buttons and main buttons..... 
 
-	self.Background.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
+	pcall(function()
+		self.Background.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
 
-	self.Background.OKButton.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonBorder)
-	self.Background.CancelButton.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonBorder)
-	self.Background.OKButton.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Button)
-	self.Background.CancelButton.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Button)
-	self.Background.OKButton.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonText)
-	self.Background.CancelButton.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonText)
+		self.Background.OKButton.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonBorder)
+		self.Background.CancelButton.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonBorder)
+		self.Background.OKButton.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Button)
+		self.Background.CancelButton.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Button)
+		self.Background.OKButton.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonText)
+		self.Background.CancelButton.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.ButtonText)
 
-	self.Background.Hex.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder)
-	self.Background.Hex.UIStroke.Color = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
-	self.Background.Hex.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBackground)
-	self.Background.Hex.Textbox.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainText)
+		self.Background.Hex.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder)
+		self.Background.Hex.UIStroke.Color = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
+		self.Background.Hex.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBackground)
+		self.Background.Hex.Textbox.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainText)
 
-	self.Background.ValueChoose.Cursor.ImageColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.TitlebarText)
+		self.Background.ValueChoose.Cursor.ImageColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.TitlebarText)
 
-	if self.focusedTextbox then
-		self.focusedTextbox.BorderColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder, Enum.StudioStyleGuideModifier.Selected)
-	end
-
-	for _, topBorder in ipairs(self.topBorders) do
-		topBorder.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Dark)
-	end
-
-	for _, bottomBorder in ipairs(self.bottomBorders) do
-		bottomBorder.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Light)
-	end
-
-	for _, textboxInfo in ipairs(self.textboxes) do
-
-		local textboxBackground = textboxInfo.textboxBackground
-		local textbox = textboxBackground.Textbox
-
-		textboxBackground.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBackground)
-		textboxBackground.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder)
-		textboxBackground.TextLabel.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.TitlebarText)
-		textbox.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainText)
-
-		if textboxBackground.Name == 'Hex' then continue end
-
-		if textboxInfo.savedValue == '0' then
-			textboxBackground.DownArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Disabled)
-		else
-			textboxBackground.DownArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Default)
+		if self.focusedTextbox then
+			self.focusedTextbox.BorderColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder, Enum.StudioStyleGuideModifier.Selected)
 		end
 
-		if textboxInfo.savedValue == textboxInfo.maxValue then
-			textboxBackground.UpArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Disabled)
-		else
-			textboxBackground.UpArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Default)
+		for _, topBorder in ipairs(self.topBorders) do
+			topBorder.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Dark)
 		end
-	end
+
+		for _, bottomBorder in ipairs(self.bottomBorders) do
+			bottomBorder.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.Light)
+		end
+
+		for _, textboxInfo in ipairs(self.textboxes) do
+
+			local textboxBackground = textboxInfo.textboxBackground
+			local textbox = textboxBackground.Textbox
+
+			textboxBackground.BackgroundColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBackground)
+			textboxBackground.BorderColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.InputFieldBorder)
+			textboxBackground.TextLabel.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.TitlebarText)
+			textbox.TextColor3 = currentTheme:GetColor(Enum.StudioStyleGuideColor.MainText)
+
+			if textboxBackground.Name == 'Hex' then continue end
+
+			if textboxInfo.savedValue == '0' then
+				textboxBackground.DownArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Disabled)
+			else
+				textboxBackground.DownArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Default)
+			end
+
+			if textboxInfo.savedValue == textboxInfo.maxValue then
+				textboxBackground.UpArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Disabled)
+			else
+				textboxBackground.UpArrow.ImageColor3 = studioSettings.Theme:GetColor(Enum.StudioStyleGuideColor.SubText, Enum.StudioStyleGuideModifier.Default)
+			end
+		end
+	end)
 end
 
 function PluginColorPicker:Prompt(startingColor : Color3?)
