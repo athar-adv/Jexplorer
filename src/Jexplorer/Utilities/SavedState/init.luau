@@ -57,8 +57,9 @@ function SavedState._migrate(state: any, manager: Types.Manager): SavedState
 	return state
 end
 
-function SavedState._serialize_rules(source: {Style.Rule}, destination: any)
+function SavedState._serialize_rules(source: {Style.Rule}, destination: any, excludedTag: string?)
 	for _, rule in source do
+		if excludedTag and rule:HasTag(excludedTag) then continue end
 		local subrules = {}
 		if #rule.ChildRules > 0 then
 			SavedState._serialize_rules(rule.ChildRules, subrules)

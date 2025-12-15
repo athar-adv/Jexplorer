@@ -20,6 +20,8 @@ local GitAPI = require(utilities.GitAPI)
 local InstanceUtility = require(utilities.Small.InstanceUtility)
 local parse = require(utilities.Luaup.parse)
 local visit = require(utilities.Luaup.visit)
+local ItemGroup = require(utilities.Vendor.ItemGroup)
+local cleanup = ItemGroup.cleanup
 
 local rawindex = InstanceUtility.rawindex
 
@@ -675,7 +677,7 @@ function VersionControl.init(_m)
 	local topbar = jexplorerUi.Topbar
 	
 	local connections = state.Connections
-	local instances = connections:Extend("Destroy")
+	local instances = connections:extend(cleanup.destroy)
 	
 	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "VersionControl", "Version Control")
 	VersionControl.Widget = widget
@@ -758,7 +760,7 @@ function VersionControl.init(_m)
 		loadingText:AddTag("JEXP_Text")
 		loadingText.TextSize = 14
 		loadingText.BackgroundTransparency = 1
-		Manager.WidgetState.Connections:Extend(task.cancel, {
+		Manager.WidgetState.Connections:extend(task.cancel, {
 			task.spawn(function()
 				while true do
 					loadingText.Text = "Loading, please wait."

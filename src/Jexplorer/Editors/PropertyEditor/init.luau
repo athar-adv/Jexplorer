@@ -15,6 +15,8 @@ local xyz = require(script.xyz)
 local InstanceUtility = require(utilities.Small.InstanceUtility)
 local VersionControl = require(script.Parent.VersionControl)
 local PluginUI = require(utilities.PluginUI)
+local ItemGroup = require(utilities.Vendor.ItemGroup)
+local cleanup = ItemGroup.cleanup
 
 local Types = require(main.Types)
 
@@ -402,7 +404,7 @@ function PropertyEditor.init(_m)
 	local topbar = jexplorerUi.Topbar
 	
 	local connections = state.Connections
-	local instances = connections:Extend("Destroy")
+	local instances = connections:extend(cleanup.destroy)
 
 	local toggleButton = Manager.Toolbar:CreateButton(
 		getId("ToggleProperties"), "Toggle the properties widget visibility",
@@ -448,14 +450,8 @@ function PropertyEditor.init(_m)
 	end)
 	
 	PropertyEditor.SetNilMenu = setNilMenu
-
-	connections:Insert {
-		function()
-			for _, v in instanceConnections do
-				v:Disconnect()
-			end
-		end,
-	}
+	
+	connections:add_many(instanceConnections)
 end 
 
 return PropertyEditor

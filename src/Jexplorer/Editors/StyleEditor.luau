@@ -17,6 +17,8 @@ local Style = require(utilities.Style)
 local JDF = require(utilities.UDF)
 local Selector = require(utilities.Small.Selector)
 local InstanceUtility = require(utilities.Small.InstanceUtility)
+local ItemGroup = require(utilities.Vendor.ItemGroup)
+local cleanup = ItemGroup.cleanup
 
 local getId = PluginUI.getId
 local rule = Style.rule
@@ -467,17 +469,15 @@ function StyleEditor.init(Manager)
 	rulesDropdown.Backdrop.Parent = mainframe.Items
 	tokensDropdown.Backdrop.Parent = mainframe.Items
 	
-	connections:Insert {
+	connections:add_many({
 		sheet.RuleAdded:Connect(function(newRule)
 			createStyleRuleDropdown(newRule)
-		end),
-	}
+		end) :: any,
+	})
 	
-	local instances = connections:Extend("Destroy")
+	local instances = connections:extend(cleanup.destroy)
 	
-	instances:Insert {
-		stylePropertyResetMenu
-	}
+	instances:add(stylePropertyResetMenu)
 end
 
 return StyleEditor

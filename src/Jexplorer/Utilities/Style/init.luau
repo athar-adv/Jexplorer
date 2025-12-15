@@ -42,6 +42,11 @@ export type Rule = {
 	Sheet: Style,
 	ChildRules: {Rule},
 	ParentRule: Rule?,
+	Tags: {[string]: boolean},
+	
+	AddTag: (Rule, string) -> (),
+	HasTag: (Rule, string) -> boolean,
+	RemoveTag: (Rule, string) -> (),
 	
 	RawProperties: {[string]: any},
 	AppliedProperties: {[string]: any},
@@ -229,6 +234,18 @@ end
 
 local RuleMethods = {} :: Rule
 (RuleMethods::any).__index = RuleMethods
+
+function RuleMethods:AddTag(tag)
+	self.Tags[tag] = true
+end
+
+function RuleMethods:HasTag(tag)
+	return self.Tags[tag] == true
+end
+
+function RuleMethods:RemoveTag(tag)
+	self.Tags[tag] = nil
+end
 
 function RuleMethods:SetProperty(k, v)
 	local realProps = self.AppliedProperties
@@ -426,6 +443,7 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		RawProperties = props,
 		AppliedProperties = realProps,
 		ChildRules = childrenRules,
+		Tags = {},
 		
 		PropertyChanged = SimpleSignal.new(),
 		RuleAdded = SimpleSignal.new(),
