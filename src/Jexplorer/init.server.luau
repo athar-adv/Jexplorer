@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "pr2.3"
+local VERSION = "pr2.2"
 
 local utilities = script.Utilities
 local editors = script.Editors
@@ -19,12 +19,11 @@ local Jecs = require(script.Jecs)
 local Manager = require(script.Manager)
 
 local PluginUI = require(utilities.PluginUI)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local Group = require(utilities.Vendor.Group)
 local SavedState = require(utilities.SavedState)
 local Types = require(script.Types)
-local cleanup = ItemGroup.cleanup
 
-local connections = ItemGroup.create(cleanup.disconnect)
+local connections = Group.new("Disconnect")
 
 local finished_init = false
 local function onClose()
@@ -37,14 +36,14 @@ local function onClose()
 		Manager.saveState()
 	end 
 	plugin:Destroy()
-	connections:free()
+	connections:Free()
 end
 
-connections:add_many({
+connections:Insert {
 	plugin.Unloading:Connect(onClose),
 	plugin.Destroying:Connect(onClose),
 	script.Destroying:Connect(onClose)
-})
+}
 
 local function getevent(name: string): BindableEvent
 	local ev

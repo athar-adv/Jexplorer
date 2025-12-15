@@ -10,8 +10,6 @@ local utilities = main.Utilities
 local UITemplates = require(utilities.UITemplates)
 local PluginUI = require(utilities.PluginUI)
 local ClassIcon = require(utilities.Small.ClassIcon)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
-local cleanup = ItemGroup.cleanup
 local Types = require(main.Types)
 
 local items = {}
@@ -39,7 +37,7 @@ function InstanceVisibilityEditor.init(Manager)
 	local topbar = jexplorerUi.Topbar
 
 	local connections = state.Connections
-	local instances = connections:extend(cleanup.destroy)
+	local instances = connections:Extend("Destroy")
 
 	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "InstanceVisibilityEditor", "Instance Visibility Editor")
 	InstanceVisibilityEditor.Widget = widget

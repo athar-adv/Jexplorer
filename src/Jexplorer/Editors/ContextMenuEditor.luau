@@ -10,8 +10,6 @@ local utilities = main.Utilities
 local PluginUI = require(utilities.PluginUI)
 local InstanceUtility = require(utilities.Small.InstanceUtility)
 local UITemplates = require(utilities.UITemplates)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
-local cleanup = ItemGroup.cleanup
 
 local Types = require(main.Types)
 
@@ -95,7 +93,7 @@ function ContextMenuEditor.init(Manager)
 	local topbar = jexplorerUi.Topbar
 
 	local connections = state.Connections
-	local instances = connections:extend(cleanup.destroy)
+	local instances = connections:Extend("Destroy")
 
 	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "ContextMenuEditor", "Context Menu Editor")
 	ContextMenuEditor.Widget = widget

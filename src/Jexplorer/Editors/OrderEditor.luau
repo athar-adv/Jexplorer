@@ -15,8 +15,6 @@ local Types = require(main.Types)
 local JDF = require(utilities.UDF)
 local PluginUI = require(utilities.PluginUI)
 local ClassIcon = require(utilities.Small.ClassIcon)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
-local cleanup = ItemGroup.cleanup
 
 local getId = PluginUI.getId
 
@@ -37,7 +35,7 @@ function OrderEditor.init(Manager)
 	local topbar = jexplorerUi.Topbar
 
 	local connections = state.Connections
-	local instances = connections:extend(cleanup.destroy)
+	local instances = connections:Extend("Destroy")
 	
 	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "OrderEditor", "Order Editor")
 	OrderEditor.Widget = widget
