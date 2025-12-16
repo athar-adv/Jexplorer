@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Usage Guide - Jexplorer Docs</title>
+        <title>Setting Editor - Jexplorer Docs</title>
 
 
         <!-- Custom HTML head -->
@@ -175,18 +175,71 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="usage-guide"><a class="header" href="#usage-guide">Usage Guide</a></h1>
-<p>A surface-level guide on how to use Jexplorers most basic and essential features</p>
+                        <h1 id="the-setting-editor"><a class="header" href="#the-setting-editor">The Setting Editor</a></h1>
+<p>The setting editor is a way for you to edit internal conditions &amp; values.</p>
+<p>The following are a list of settings which are present inside the setting editor, including the dropdown theyre located inside:</p>
+<h2 id="expand-behavior"><a class="header" href="#expand-behavior">Expand Behavior</a></h2>
+<pre><code>### [bool] Auto Expand Ancestors on Select Unexpanded Instance
+    If all ancestors to an instance should be expanded if you select one with unexpanded ancestors.
+</code></pre>
+<h2 id="internal-behavior"><a class="header" href="#internal-behavior">Internal Behavior</a></h2>
+<pre><code>### [float] ExplorerEntity Creation Cycle Interval
+    The interval at which [ExplorerEntities](../scripting_api/internal_types.md) are created in bulk.
+
+### [float] Queue Flush Cycle Interval
+    The interval at which several internal queues are flushed, such as [ExplorerFrame](../scripting_api/internal_types.md) assignment, child added/removed actions, etc.
+
+### [float] ExplorerFrame Reuse &amp; HierarchyCache Rebuild Cycle Interval
+    The interval at which [ExplorerFrames](../scripting_api/internal_types.md) are reused and the internal entity hierarchy caches are rebuilt
+
+### [float] ExplorerEntity Cleanup Cycle Interval
+    The interval at which [ExplorerEntities](../scripting_api/internal_types.md) are deleted and cleaned up.
+</code></pre>
+<h2 id="saving-behavior"><a class="header" href="#saving-behavior">Saving Behavior</a></h2>
+<pre><code>### [bool] Autosave Instance Changes
+    If instance changes will be automatically saved by the internal version tracking system on an hourly basis.
+
+### [bool] Save On Close
+    If the SavedStateInstance of the plugin will be saved on close, or if it needs to be manually saved using the "Save State" button inside the dropdown menu.
+</code></pre>
+<h2 id="scrolling-behavior"><a class="header" href="#scrolling-behavior">Scrolling Behavior</a></h2>
+<pre><code>### [float] Virtual Scrolling Scroll Settle Time
+    How long after you've stopped scrolling until the plugin will start reusing ExplorerFrames
+
+### [float] Non-smooth Scroll Step
+    How much you will scroll up/down per scroll step if you have SmoothScrolling disabled.
+
+### [bool] Smooth Scroll Enabled
+    If the plugin will use a custom fixed-step scrolling or Roblox's smooth scrolling for ScrollingFrames.
+
+### [float] Non-smooth Scroll Threshold
+    How much you need to move your scrolling wheel before scrolling starts if you have SmoothSccrolling disabled
+
+### [float] Virtual Scrolling Instance Frame Buffer
+    How much space of unreusable ExplorerFrames is left around the margins of the viewport to make reuse less visible
+
+### [float] Virtual Frame Reuse Cooldown
+    Cooldown for how often ExplorerFrames are allowed to be reused.
+</code></pre>
+<h2 id="select-behavior"><a class="header" href="#select-behavior">Select Behavior</a></h2>
+<pre><code>### [float] Cooldown to Double Click to Rename
+    How much time needs to be inbetween 2 clicks at max in order to trigger rename
+
+### [float] Cooldown to Double Click to Open Script
+    How much time needs to be inbetween 2 clicks at max in order to trigger open script on LuaSourceContainer ExplorerFrames
+
+### [bool] Property Editor Updated On Selection Change
+    If the property editor should be updated on selection change (default is false because currently it causes lag due to unreused property frames)</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../formats_and_languages/jel.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../editors/init.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../usage_guide/dropdown_menu.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../editors/context_menu_editor.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -196,11 +249,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../formats_and_languages/jel.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../editors/init.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../usage_guide/dropdown_menu.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../editors/context_menu_editor.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

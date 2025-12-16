@@ -1,0 +1,467 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Context Menu Editor - Jexplorer Docs</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Jexplorer Docs</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="the-context-menu-editor"><a class="header" href="#the-context-menu-editor">The Context Menu Editor</a></h1>
+<p>The context menu editor is the editor you use to customize/add context menus inside Jexplorer.</p>
+<p>The way this works is by using a custom ModuleScript that returns <code>ContextMenuConfigs</code>, whose structure is this:</p>
+<pre><code class="language-luau">type ModuleReturn = ((Plugin, Manager) -&gt; ContextMenuConfigs) | ContextMenuConfigs
+
+type ContextMenuConfigs = {
+	Menus: {
+		{
+			Id: string,
+			Priority: number,
+			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; boolean,
+			Contents: {any} | (createInterface: () -&gt; ContextMenuInterface) -&gt; {any},
+            DefaultActionsName: string?,
+		}
+	},
+	Actions: {
+		[string]: {
+			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; (),
+			Text: string,
+			Tooltip: string,
+			Icon: string?
+		}
+	}
+}
+
+type ContextMenuInterface = {
+	GetMenuContents: () -&gt; {any},
+	GetSubMenu: (name: string) -&gt; ContextMenuInterface,
+	
+	Remove: (idx: number) -&gt; (),
+	Insert: (idx: number, v: any) -&gt; (),
+	
+	FindAction: (name: string) -&gt; number,
+	FindSubMenu: (name: string) -&gt; number
+}
+</code></pre>
+<p>A few things need to be clarified:</p>
+<p>The contents of the array <code>ContextMenuConfigs::Menus::value_type::Contents</code> are as follows:</p>
+<ul>
+<li>Any string for the name of a registered PluginAction, created within <code>ContextMenuConfigs::Actions</code></li>
+<li>The string "---", specifying a seperator</li>
+<li>The mixed table <code>{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs::Menus::value_type::Contents)}</code> specifies a submenu</li>
+</ul>
+<p>Heres an example value for Contents:</p>
+<pre><code class="language-luau">{
+    "MyAction1",
+    "MyAction2",
+
+    "---"
+    {
+        Id = "Menu.More",
+        Title = "More",
+        {
+            "Cool1",
+            "Cool2",
+
+            "---",
+
+            "Cool3"
+        }
+    },
+
+    "---",
+    "LastAction"
+}
+</code></pre>
+<p>Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying <code>ContextMenuConfigs::Menus::value_type::Contents</code> as a function that accepts a <code>createInterface</code> function that can be called to get a <code>ContextMenuInterface</code>.</p>
+<p>This <code>ContextMenuInterface</code> will contain the default context menu you specified in the <code>DefaultActionsName</code> field.</p>
+<p>Everything else should be clear enough for you to understand.
+If it isn't, heres an example of an extensive ContextMenuConfigs module i made for my game:</p>
+<pre><code class="language-luau">local function apply_surface_type(manager, type)
+	local state = manager.WidgetState
+	local components = manager.Components
+	local world = state.World
+
+	for _, ent in state.CurrentSelection do
+		local inst = world:get(ent, components.Instance)
+		if not inst then continue end
+		if not inst:IsA("BasePart") then continue end
+
+		for _, v in Enum.NormalId:GetEnumItems() do
+			local prop = `{v.Name}Surface`
+			inst[prop] = type
+		end
+	end
+end
+
+local function insert_contents(createInterface, actionName)
+	local interface = createInterface()
+
+	if actionName then
+		interface.Insert(
+			interface.FindAction("InsertFromFile"),
+			actionName
+		)
+	end
+	return interface.GetMenuContents()
+end
+
+local function insert_system(manager, target, src)
+	local state = manager.WidgetState
+	local world = state.World
+
+	local inst = world:get(target, manager.Components.Instance)
+	if not inst then return end
+
+	local module = Instance.new("ModuleScript")
+	module.Name = "(System) "
+	module.Source = src
+	module.Parent = inst
+
+	local ent = manager.getOrCreateInstanceEntity(module, target)
+	manager.setEntitiesAsSelection(world, {ent}, true)
+	
+	if not world:has(target, manager.Components.Expanded) then
+		--manager.toggleExpand(world, parent, true, true)
+		world:add(target, manager.Components.Expanded)
+		manager.updateExpandedVisuals(false)
+	end
+	
+	state.HierarchyVersion += 1
+	manager.updateVirtualScroller()
+
+	game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(module)
+end
+
+return {
+	Menus = {
+		{
+			Id = "InstanceMenu_Client",
+			Priority = 0.5, -- Above instance but not above service
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ReplicatedStorage.Client and inst.Name == "Systems") or inst:IsDescendantOf(game.ReplicatedStorage.Client.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Client")
+			end,
+		},
+		{
+			Id = "InstanceMenu_Shared",
+			Priority = 0.5,
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ReplicatedStorage.Shared and inst.Name == "Systems") or inst:IsDescendantOf(game.ReplicatedStorage.Shared.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Shared")
+			end,
+		},
+		{
+			Id = "InstanceMenu_Server",
+			Priority = 0.5,
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ServerStorage.Server and inst.Name == "Systems") or inst:IsDescendantOf(game.ServerStorage.Server.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Server")
+			end,
+		},
+		{
+			Id = "BasePartMenu",
+			Priority = 2, -- Above service and default
+			Condition = function(_, _, inst)
+				return inst:IsA("BasePart")
+			end,
+			Contents = function(createInterface)
+				local interface = createInterface()
+				interface.Insert(
+					interface.FindSubMenu("Menu.ConvertInto") + 1,
+					{
+						Id = "SurfaceTypes",
+						Title = "Surface Types",
+						{
+							"Studs",
+							"Inlets",
+							"StudsAndInlets"
+						}
+					}
+				)
+				return interface.GetMenuContents()
+			end,
+		}
+	},
+	Actions = {
+		Studs = {
+			Text = "Studs",
+			Tooltip = "Turns all selected parts into stud surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Studs)
+			end,
+		},
+		Inlets = {
+			Text = "Inlets",
+			Tooltip = "Turns all selected parts into inlet surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Inlet)
+			end,
+		},
+		StudsAndInlets = {
+			Text = "Studs and Inlets",
+			Tooltip = "Turns all selected parts into universal surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Universal)
+			end,
+		},
+		InsertSystem_Client = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\n\nlocal shared = ReplicatedStorage.Shared\nlocal client = ReplicatedStorage.Client\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\nlocal client_constants = require(client.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		},
+		InsertSystem_Server = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerStorage = game:GetService(\"ServerStorage\")\n\nlocal shared = ReplicatedStorage.Shared\nlocal server = ServerStorage.Server\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\nlocal server_constants = require(server.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		},
+		InsertSystem_Shared = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\n\nlocal shared = ReplicatedStorage.Shared\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		}
+	}
+}
+</code></pre>
+<h2 id="the-context-menu-editor-widget"><a class="header" href="#the-context-menu-editor-widget">The Context Menu Editor Widget</a></h2>
+<p>Now that you have a config file specifying your custom context menus, you need to specify how Jexplorer should access it.</p>
+<p>Open the context menu editor widget in the jexplorer dropdown menu and you'll see 2 fields, "Module Name" and "Source Changed Refresh Delay".</p>
+<p>"Module Name" is what the name of your ModuleScript returning the <code>ContextMenuConfigs</code> is. SO if your module is named "ContextMenu", you should set "Module Name" to "ContextMenu".</p>
+<p>This value supports non-alphanumeric characters so you can also do stuff like ".contextmenu"</p>
+<p>"Source Changed Refresh Delay" is how often the internal context menus should be refreshed anytime you change the source of your module that contains the <code>ContextMenuConfigs</code>, since it's updated automatically.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../editors/setting_editor.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../editors/style_editor.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../editors/setting_editor.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../editors/style_editor.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

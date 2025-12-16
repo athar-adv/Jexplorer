@@ -226,12 +226,815 @@
 <tr><td><code>[font_asset] (WEIGHT) (STYLE) (ASSET ID)</code></td><td>FontFace</td><td><code>[font_asset] Light Italic ROBLOX_ID</code></td></tr>
 <tr><td><code>[font_family] (WEIGHT) (STYLE) (FAMILY NAME)</code></td><td>FontFace</td><td><code>[font_family] Light Normal SourceSans</code></td></tr>
 </tbody></table>
+</div><div style="break-before: page; page-break-before: always;"></div><h1 id="jexplorer-expression-language"><a class="header" href="#jexplorer-expression-language">Jexplorer Expression Language</a></h1>
+<p>JEL is a language used in Jexplorer made to make using computed expressions, mostly for usage in Styes, possible.</p>
+<h2 id="operators"><a class="header" href="#operators">Operators:</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Symbol</th><th>Alias</th><th>Description</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>+, -, *, /, //, %, ^</code></td><td><code>Math</code></td><td>The usual arithmetic and geometric operators in luau, you should know what these do.</td><td><code>1 + (-1)</code></td></tr>
+<tr><td><code>()</code></td><td><code>Parentheses</code></td><td>Explicitly specifies an expression and computes it before anything else.</td><td><code>(1 + 1)</code></td></tr>
+<tr><td><code>$</code></td><td><code>Variable</code></td><td>Uses the value of the variable assigned to the name.</td><td><code>$MyVar + 1</code></td></tr>
+<tr><td><code>==</code></td><td><code>Equality</code></td><td>Checks if both operands are equal.</td><td><code>$MyVar == 1</code></td></tr>
+<tr><td><code>!=</code></td><td><code>Inequality</code></td><td>Checks if both operands are inequal.</td><td><code>$MyVar != 2</code></td></tr>
+<tr><td><code>&lt;</code></td><td><code>Less than</code></td><td>Checks if the first operand is less than the 2nd operand.</td><td><code>$MyVar &lt; 5</code></td></tr>
+<tr><td><code>&gt;</code></td><td><code>More than</code></td><td>Checks if the first operand is more than the 2nd operand.</td><td><code>5 &gt; $MyVar</code></td></tr>
+<tr><td><code>&lt;=</code></td><td><code>Less than or equal to</code></td><td>Checks if the first operand is less than or equal to the 2nd operand.</td><td><code>5 &gt;= 5</code></td></tr>
+<tr><td><code>&gt;=</code></td><td><code>More than or equal to</code></td><td>Checks if the first operand is more than or equal to the 2nd operand.</td><td><code>4 &gt;= 2</code></td></tr>
+<tr><td><code>? :</code></td><td><code>Ternary</code></td><td>Uses the 2nd operand if the 1st operand is truthy, and the 3rd operand if not.</td><td><code>$MyVar &lt; 5 ? 25 : 10</code></td></tr>
+<tr><td><code>''</code></td><td><code>String Constructor</code></td><td>Constructs a string.</td><td><code>'Helllo Worldddlldld'</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="functions"><a class="header" href="#functions">Functions:</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Signature</th><th>Description</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>rgb(r: number, g: number, b: number) -&gt; color3</code></td><td>Constructs a <code>color3</code> from 3 rgb number values.</td><td><code>$MyVar + rgb(1, 2, 3)</code></td></tr>
+<tr><td><code>hex(hexstr: string) -&gt; color3</code></td><td>Constructs a <code>color3</code> from a hex string.</td><td><code>hex('#ff00ff')</code></td></tr>
+<tr><td><code>udim(scale: number, offset: number) -&gt; udim</code></td><td>Constructs a <code>udim</code> from a scale and offset value.</td><td><code>udim(0.5, 10)</code></td></tr>
+<tr><td><code>udim2(xscale: number, xoffset: number, yscale: number, yoffset: number) -&gt; udim2</code></td><td>Constructs a <code>udim2</code> from a scale and offset value for both the x and y axis respectively.</td><td><code>udim2(0.5, 0, 0, 10)</code></td></tr>
+<tr><td><code>vec3(x: number, y: number, z: number) -&gt; vector3</code></td><td>Constructs a <code>vector3</code> from x, y and z number values.</td><td><code>vec3(0.5, 1, -2)</code></td></tr>
+<tr><td><code>vec2(x: number, y: number) -&gt; vector2</code></td><td>Constructs a <code>vector2</code> from x and y number values.</td><td><code>vec2(0.5, 1)</code></td></tr>
+<tr><td><code>min(...number) -&gt; number</code></td><td>Returns the smallest number out of a tuple of numbers.</td><td><code>min(1, 2, 3, 4)</code> returns 1</td></tr>
+<tr><td><code>max(...number) -&gt; number</code></td><td>Returns the biggest number out of a tuple of numbers.</td><td><code>max(1, 2, 3, 4)</code> returns 4</td></tr>
+<tr><td><code>floor(x: number)</code></td><td>Returns the smallest integer to x.</td><td><code>floor(0.5)</code> returns 0</td></tr>
+<tr><td><code>ceil(x: number)</code></td><td>Returns the largest integer to x.</td><td><code>ceil(0.5)</code> returns 1</td></tr>
+<tr><td><code>round(x: number)</code></td><td>Returns the closest integer to x.</td><td><code>round(0.5)</code> returns 1 but <code>round(0.4)</code> returns 0</td></tr>
+<tr><td><code>clamp(x: number, min: number, max: number)</code></td><td>Returns the value clamped to more than or equal to min and less than or equal to max.</td><td><code>clamp(5, 1, 3)</code> returns 3.</td></tr>
+</tbody></table>
 </div><div style="break-before: page; page-break-before: always;"></div><h1 id="usage-guide"><a class="header" href="#usage-guide">Usage Guide</a></h1>
 <p>A surface-level guide on how to use Jexplorers most basic and essential features</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="the-dropdown-menu"><a class="header" href="#the-dropdown-menu">The Dropdown Menu</a></h1>
+<p>The dropdown menu is the menu accessible by clicking the little downwards-pointing arrow on the top left corner of the plugin widget.</p>
+<p>(the arrow)
+<img src="usage_guide/../images/dropdown_menu_arrow.png" alt="img" /></p>
+<p>It allows you to open the widgets for all of Jexplorer's Editors and also displays a few utility buttons such as for resetting certain state or refreshing the virtual scroller.</p>
+<p>(the menu)
+<img src="usage_guide/../images/dropdown_menu.png" alt="img" /></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="selecting-instances-in-jexplorer"><a class="header" href="#selecting-instances-in-jexplorer">Selecting Instances in Jexplorer</a></h1>
+<p>Selecting instances works basically the same way as Roblox's default explorer.</p>
+<p>Left click to deselect the current selection and select a new instance,</p>
+<p>control + left click to toggle selection on an instance,</p>
+<p>shift + left click to select all instances inbetween the just-selected one and your last selected one.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="reparenting-instances-using-drag-and-drop"><a class="header" href="#reparenting-instances-using-drag-and-drop">Reparenting Instances Using Drag and Drop</a></h1>
+<p>To start dragging instances, you can hold left click on one of the instances that's in your current selection and move your mouse to create a drag frame.</p>
+<p>(Drag frame.)
+<img src="usage_guide/../images/drag_frame_hover.png" alt="img" /></p>
+<p>Keep holding left click until you've found the instance you wanna reparent your selection into, then "drop" the drag frame into your desired instance by releasing left click while your mouse is hovered above it.</p>
+<p>This will reparent all instances within your current selection into the instance you just dropped into.</p>
+<p><img src="usage_guide/../images/dropped_drag_instances.png" alt="img" /></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="using-the-search-bar"><a class="header" href="#using-the-search-bar">Using the Search Bar</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="making-custom-explorer-icons"><a class="header" href="#making-custom-explorer-icons">Making Custom Explorer Icons</a></h1>
+<p>Before reading this page, you should read the page about the <a href="usage_guide/../editors/style_editor.html">style editor</a> first.</p>
+<p>To make a custom explorer icon, you must first open the style editor, then click the "+" button inside the main "Rules" dropdown.</p>
+<p>(click the "+" button here, the one opposite of "StyleRules")
+<img src="usage_guide/../images/style_rules_bar.png" alt="img" /></p>
+<p>Once you've clicked the "+" button, a little menu should appear in the main Jexplorer widget prompting you to input a "Selector" and "Priority".</p>
+<p><img src="usage_guide/../images/create_style_rule_menu.png" alt="img" /></p>
+<p>To make a custom explorer icon, input this macro as "Selector", input your desired values:</p>
+<p><code>@icon(Name?, Class?)</code></p>
+<p>Example usage:</p>
+<p><code>@icon(Scripts, Folder)</code>
+<code>@icon(nil, Part)</code>
+<code>@icon(Character, nil)</code></p>
+<p>If both arguments are provided, the icon will only be applied to instances whose names and ClassNames match the provided arguments.</p>
+<p>Else it'll only apply if it matches the one you provided, either name or ClassName.</p>
+<p>Once you've input the "Selector", now input "Priority" as anything above 0 (the default priority for explorer icons is 0, anything above it and you'll be overriding the default ones)</p>
+<p>Finally, click "Create" to create your new StyleRule.</p>
+<p>Once you've done this, scroll down to the very bottom of the StyleRules list and you'll see a new dropdown with the name "CustomStyle"</p>
+<p>Open the dropdown and you'll see that some fields are already filled out, such as <code>Image</code>, <code>ImageRectSize</code> and <code>ImageRectOffset</code>. The one we are interested in is <code>Image</code></p>
+<p><img src="usage_guide/../images/custom_style.png" alt="img" /></p>
+<p>To import your very own explorer icon for this style, simply click the little folder icon next to <code>Image</code>. This will prompt you to insert a png/jpg/jpeg file, which will be used as the explorer icon for the style.</p>
+<p><img src="usage_guide/../images/prompt_input_image_icon.png" alt="img" /></p>
+<p>Once you've imported your image, the new explorer icon should instantly apply to all instances who fit the arguments you passed into <code>@icon()</code>! (In this example, all instances named "Folder" regardless of ClassName will have the "lebron shooting into heaven from hell" meme explorer icon applied!)</p>
+<p><img src="usage_guide/../images/custom_explorer_icons.png" alt="img" /></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tabs"><a class="header" href="#tabs">Tabs</a></h1>
+<p>Tabs are a way for you to configure the root instances (or so called "services") that are displayed within your Jexplorer widget.</p>
+<p>To add a new tab, simply click the "+" button on the very top left of the Jexplorer widget, this will add a new tab called "Tab".</p>
+<p>To add new top-level instances to your new tab, simply click the "+" button inside it.
+This will redirect you to the "All" tab, where you can select all the instances you want as top-level instances in your new tab, and click <code>Enter</code> to add them to your tab and go back to it.</p>
+<p>To switch between tabs, simply click between them in the tab bar which is on the very top of the Jexplorer widget.</p>
+<p>Another way to add instances into your tab is to drag-and-drop it into the tab button itself</p>
+<p>To remove an instance from your tab, use the "Remove from Tab" context menu action which is located at the very bottom for the default Instance context menus.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="editors"><a class="header" href="#editors">Editors</a></h1>
 <p>All the editors you can use to modify/add to Jexplorers behavior.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="the-setting-editor"><a class="header" href="#the-setting-editor">The Setting Editor</a></h1>
+<p>The setting editor is a way for you to edit internal conditions &amp; values.</p>
+<p>The following are a list of settings which are present inside the setting editor, including the dropdown theyre located inside:</p>
+<h2 id="expand-behavior"><a class="header" href="#expand-behavior">Expand Behavior</a></h2>
+<pre><code>### [bool] Auto Expand Ancestors on Select Unexpanded Instance
+    If all ancestors to an instance should be expanded if you select one with unexpanded ancestors.
+</code></pre>
+<h2 id="internal-behavior"><a class="header" href="#internal-behavior">Internal Behavior</a></h2>
+<pre><code>### [float] ExplorerEntity Creation Cycle Interval
+    The interval at which [ExplorerEntities](../scripting_api/internal_types.md) are created in bulk.
+
+### [float] Queue Flush Cycle Interval
+    The interval at which several internal queues are flushed, such as [ExplorerFrame](../scripting_api/internal_types.md) assignment, child added/removed actions, etc.
+
+### [float] ExplorerFrame Reuse &amp; HierarchyCache Rebuild Cycle Interval
+    The interval at which [ExplorerFrames](../scripting_api/internal_types.md) are reused and the internal entity hierarchy caches are rebuilt
+
+### [float] ExplorerEntity Cleanup Cycle Interval
+    The interval at which [ExplorerEntities](../scripting_api/internal_types.md) are deleted and cleaned up.
+</code></pre>
+<h2 id="saving-behavior"><a class="header" href="#saving-behavior">Saving Behavior</a></h2>
+<pre><code>### [bool] Autosave Instance Changes
+    If instance changes will be automatically saved by the internal version tracking system on an hourly basis.
+
+### [bool] Save On Close
+    If the SavedStateInstance of the plugin will be saved on close, or if it needs to be manually saved using the "Save State" button inside the dropdown menu.
+</code></pre>
+<h2 id="scrolling-behavior"><a class="header" href="#scrolling-behavior">Scrolling Behavior</a></h2>
+<pre><code>### [float] Virtual Scrolling Scroll Settle Time
+    How long after you've stopped scrolling until the plugin will start reusing ExplorerFrames
+
+### [float] Non-smooth Scroll Step
+    How much you will scroll up/down per scroll step if you have SmoothScrolling disabled.
+
+### [bool] Smooth Scroll Enabled
+    If the plugin will use a custom fixed-step scrolling or Roblox's smooth scrolling for ScrollingFrames.
+
+### [float] Non-smooth Scroll Threshold
+    How much you need to move your scrolling wheel before scrolling starts if you have SmoothSccrolling disabled
+
+### [float] Virtual Scrolling Instance Frame Buffer
+    How much space of unreusable ExplorerFrames is left around the margins of the viewport to make reuse less visible
+
+### [float] Virtual Frame Reuse Cooldown
+    Cooldown for how often ExplorerFrames are allowed to be reused.
+</code></pre>
+<h2 id="select-behavior"><a class="header" href="#select-behavior">Select Behavior</a></h2>
+<pre><code>### [float] Cooldown to Double Click to Rename
+    How much time needs to be inbetween 2 clicks at max in order to trigger rename
+
+### [float] Cooldown to Double Click to Open Script
+    How much time needs to be inbetween 2 clicks at max in order to trigger open script on LuaSourceContainer ExplorerFrames
+
+### [bool] Property Editor Updated On Selection Change
+    If the property editor should be updated on selection change (default is false because currently it causes lag due to unreused property frames)</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="the-context-menu-editor"><a class="header" href="#the-context-menu-editor">The Context Menu Editor</a></h1>
+<p>The context menu editor is the editor you use to customize/add context menus inside Jexplorer.</p>
+<p>The way this works is by using a custom ModuleScript that returns <code>ContextMenuConfigs</code>, whose structure is this:</p>
+<pre><code class="language-luau">type ModuleReturn = ((Plugin, Manager) -&gt; ContextMenuConfigs) | ContextMenuConfigs
+
+type ContextMenuConfigs = {
+	Menus: {
+		{
+			Id: string,
+			Priority: number,
+			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; boolean,
+			Contents: {any} | (createInterface: () -&gt; ContextMenuInterface) -&gt; {any},
+            DefaultActionsName: string?,
+		}
+	},
+	Actions: {
+		[string]: {
+			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; (),
+			Text: string,
+			Tooltip: string,
+			Icon: string?
+		}
+	}
+}
+
+type ContextMenuInterface = {
+	GetMenuContents: () -&gt; {any},
+	GetSubMenu: (name: string) -&gt; ContextMenuInterface,
+	
+	Remove: (idx: number) -&gt; (),
+	Insert: (idx: number, v: any) -&gt; (),
+	
+	FindAction: (name: string) -&gt; number,
+	FindSubMenu: (name: string) -&gt; number
+}
+</code></pre>
+<p>A few things need to be clarified:</p>
+<p>The contents of the array <code>ContextMenuConfigs::Menus::value_type::Contents</code> are as follows:</p>
+<ul>
+<li>Any string for the name of a registered PluginAction, created within <code>ContextMenuConfigs::Actions</code></li>
+<li>The string "---", specifying a seperator</li>
+<li>The mixed table <code>{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs::Menus::value_type::Contents)}</code> specifies a submenu</li>
+</ul>
+<p>Heres an example value for Contents:</p>
+<pre><code class="language-luau">{
+    "MyAction1",
+    "MyAction2",
+
+    "---"
+    {
+        Id = "Menu.More",
+        Title = "More",
+        {
+            "Cool1",
+            "Cool2",
+
+            "---",
+
+            "Cool3"
+        }
+    },
+
+    "---",
+    "LastAction"
+}
+</code></pre>
+<p>Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying <code>ContextMenuConfigs::Menus::value_type::Contents</code> as a function that accepts a <code>createInterface</code> function that can be called to get a <code>ContextMenuInterface</code>.</p>
+<p>This <code>ContextMenuInterface</code> will contain the default context menu you specified in the <code>DefaultActionsName</code> field.</p>
+<p>Everything else should be clear enough for you to understand.
+If it isn't, heres an example of an extensive ContextMenuConfigs module i made for my game:</p>
+<pre><code class="language-luau">local function apply_surface_type(manager, type)
+	local state = manager.WidgetState
+	local components = manager.Components
+	local world = state.World
+
+	for _, ent in state.CurrentSelection do
+		local inst = world:get(ent, components.Instance)
+		if not inst then continue end
+		if not inst:IsA("BasePart") then continue end
+
+		for _, v in Enum.NormalId:GetEnumItems() do
+			local prop = `{v.Name}Surface`
+			inst[prop] = type
+		end
+	end
+end
+
+local function insert_contents(createInterface, actionName)
+	local interface = createInterface()
+
+	if actionName then
+		interface.Insert(
+			interface.FindAction("InsertFromFile"),
+			actionName
+		)
+	end
+	return interface.GetMenuContents()
+end
+
+local function insert_system(manager, target, src)
+	local state = manager.WidgetState
+	local world = state.World
+
+	local inst = world:get(target, manager.Components.Instance)
+	if not inst then return end
+
+	local module = Instance.new("ModuleScript")
+	module.Name = "(System) "
+	module.Source = src
+	module.Parent = inst
+
+	local ent = manager.getOrCreateInstanceEntity(module, target)
+	manager.setEntitiesAsSelection(world, {ent}, true)
+	
+	if not world:has(target, manager.Components.Expanded) then
+		--manager.toggleExpand(world, parent, true, true)
+		world:add(target, manager.Components.Expanded)
+		manager.updateExpandedVisuals(false)
+	end
+	
+	state.HierarchyVersion += 1
+	manager.updateVirtualScroller()
+
+	game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(module)
+end
+
+return {
+	Menus = {
+		{
+			Id = "InstanceMenu_Client",
+			Priority = 0.5, -- Above instance but not above service
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ReplicatedStorage.Client and inst.Name == "Systems") or inst:IsDescendantOf(game.ReplicatedStorage.Client.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Client")
+			end,
+		},
+		{
+			Id = "InstanceMenu_Shared",
+			Priority = 0.5,
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ReplicatedStorage.Shared and inst.Name == "Systems") or inst:IsDescendantOf(game.ReplicatedStorage.Shared.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Shared")
+			end,
+		},
+		{
+			Id = "InstanceMenu_Server",
+			Priority = 0.5,
+			Condition = function(_, _, inst)
+				return (inst.Parent == game.ServerStorage.Server and inst.Name == "Systems") or inst:IsDescendantOf(game.ServerStorage.Server.Systems)
+			end,
+			Contents = function(createInterface)
+				return insert_contents(createInterface, "InsertSystem_Server")
+			end,
+		},
+		{
+			Id = "BasePartMenu",
+			Priority = 2, -- Above service and default
+			Condition = function(_, _, inst)
+				return inst:IsA("BasePart")
+			end,
+			Contents = function(createInterface)
+				local interface = createInterface()
+				interface.Insert(
+					interface.FindSubMenu("Menu.ConvertInto") + 1,
+					{
+						Id = "SurfaceTypes",
+						Title = "Surface Types",
+						{
+							"Studs",
+							"Inlets",
+							"StudsAndInlets"
+						}
+					}
+				)
+				return interface.GetMenuContents()
+			end,
+		}
+	},
+	Actions = {
+		Studs = {
+			Text = "Studs",
+			Tooltip = "Turns all selected parts into stud surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Studs)
+			end,
+		},
+		Inlets = {
+			Text = "Inlets",
+			Tooltip = "Turns all selected parts into inlet surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Inlet)
+			end,
+		},
+		StudsAndInlets = {
+			Text = "Studs and Inlets",
+			Tooltip = "Turns all selected parts into universal surfaces.",
+			Callback = function(manager)
+				apply_surface_type(manager, Enum.SurfaceType.Universal)
+			end,
+		},
+		InsertSystem_Client = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\n\nlocal shared = ReplicatedStorage.Shared\nlocal client = ReplicatedStorage.Client\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\nlocal client_constants = require(client.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		},
+		InsertSystem_Server = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\nlocal ServerStorage = game:GetService(\"ServerStorage\")\n\nlocal shared = ReplicatedStorage.Shared\nlocal server = ServerStorage.Server\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\nlocal server_constants = require(server.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		},
+		InsertSystem_Shared = {
+			Text = "Insert System...",
+			Tooltip = "Inserts an ECS system.",
+			Icon = "rbxassetid://72574623675660",
+			Callback = function(manager, target)
+				insert_system(manager, target, "--!strict\n\nlocal ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\n\nlocal shared = ReplicatedStorage.Shared\n\nlocal jecs = require(shared.Jecs)\nlocal components = require(shared.Components)\nlocal types = require(shared.Types)\nlocal shared_constants = require(shared.Constants)\n\nreturn function(world: jecs.World, scheduler: types.Scheduler)\n\nend")
+			end,
+		}
+	}
+}
+</code></pre>
+<h2 id="the-context-menu-editor-widget"><a class="header" href="#the-context-menu-editor-widget">The Context Menu Editor Widget</a></h2>
+<p>Now that you have a config file specifying your custom context menus, you need to specify how Jexplorer should access it.</p>
+<p>Open the context menu editor widget in the jexplorer dropdown menu and you'll see 2 fields, "Module Name" and "Source Changed Refresh Delay".</p>
+<p>"Module Name" is what the name of your ModuleScript returning the <code>ContextMenuConfigs</code> is. SO if your module is named "ContextMenu", you should set "Module Name" to "ContextMenu".</p>
+<p>This value supports non-alphanumeric characters so you can also do stuff like ".contextmenu"</p>
+<p>"Source Changed Refresh Delay" is how often the internal context menus should be refreshed anytime you change the source of your module that contains the <code>ContextMenuConfigs</code>, since it's updated automatically.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="the-style-editor"><a class="header" href="#the-style-editor">The Style Editor</a></h1>
+<p>The style editor allows you to edit internal style &amp; tokens and also create your own custom ones.</p>
+<h2 id="creating-a-stylerule"><a class="header" href="#creating-a-stylerule">Creating a StyleRule</a></h2>
+<p>Creating a StyleRule is very simple, simply click the "+" button on the "StyleRules" dropdown header and it'll open a menu in the main Jexplorer widget prompting you to input a Selector and a Priority in order to create a custom style.</p>
+<p>Once you click the Create button, a new style called CustomStyle will appear in the bottom of the StyleRules list.</p>
+<h2 id="removing-a-stylerule"><a class="header" href="#removing-a-stylerule">Removing a StyleRule</a></h2>
+<p>To remove a StyleRule, simply click the "-" button in its dropdown header.</p>
+<h2 id="adding-a-subrule"><a class="header" href="#adding-a-subrule">Adding a Subrule</a></h2>
+<p>To add a StyleRule inside another StyleRule, click the button with the StyleRule icon inside the dropdown header of your parent StyleRule (its next to the "+" button) and it'll open the StyleRule creation menu in the Jexplorer widget, just like creating top-level StyleRules.</p>
+<h2 id="adding-a-token"><a class="header" href="#adding-a-token">Adding a Token</a></h2>
+<p>To add a token (which is just a reusable value, to learn more you should check out the Roblox Styling API docs since the concepts are 1:1 applicable here) you can click the "+" button in the "Tokens" dropdown header, which is below the "StyleRules" one.</p>
+<p>This will open a menu in the Jexplorer widget prompting you to input a name and a value, and this will be your token which can be used in any StyleRule inside the style editor.</p>
+<h2 id="removing-a-token"><a class="header" href="#removing-a-token">Removing a Token</a></h2>
+<p>To remove a token, again just click the "-" button beside it.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="version-control"><a class="header" href="#version-control">Version Control</a></h1>
+<p>The version control editor is a way to sync your scripts in Roblox Studio with a GitHub repo via Jexplorer.</p>
+<p>There are 2 dropdowns, Tokens and Repos.</p>
+<h2 id="the-tokens-dropdown"><a class="header" href="#the-tokens-dropdown">The Tokens Dropdown</a></h2>
+<p>The tokens dropdown is where you store your <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens">github fine-grained personal access tokens</a> to your repos.</p>
+<p>To create a new token, simply click the "+" button in the header of the dropdown and edit your tokens name and value.</p>
+<p>Each repository should ideally have its own fine-grained token stored in here, though 1 universal token is also an option.</p>
+<p>To use a token for all actions done via the version control widget, simply click the cursor button in your token, next to the delete button which has a "-" symbol. This will highlight the button blue and that indicates your token is being equipped</p>
+<p>Once you've equipped a token, you can perform actions such as push, pull, etc in the Repos dropdown.</p>
+<h2 id="the-repos-dropdown"><a class="header" href="#the-repos-dropdown">The Repos Dropdown</a></h2>
+<p>The repos dropdown is where you store your individual GitHub repository proxies.
+To create a new repo proxy, simply click the "+" button in the dropdown's header and select the root instance for the source of your repo.</p>
+<p>This will create a new repo proxy dropdown which you can expand to reveal several options, these being:</p>
+<ul>
+<li>Root: Instance</li>
+<li>RepoId: string (your-user-name/your-repo-name)</li>
+<li>Branch: string (default: main)</li>
+<li>Path: string (the path you wanna push to/pull from, default: src)</li>
+<li>Push: Dropdown
+<ul>
+<li>CommitMsg: string (the commit message you wanna use for the push)</li>
+<li>PushOverwrite: Button (pushes to the repo's source and overwrites existing contents with the new one inside the root instance)</li>
+<li>PushUpdate: Button (pushes to the repo's source and updates existing contents with the new one inside the root instance)</li>
+</ul>
+</li>
+<li>RevertLastCommit: Button (reverts the last commit made to the branch)</li>
+<li>Pull: Button (pulls the contents of the repo's source into your root instance)</li>
+</ul>
+<p>RepoId and CommitMsg are really the only ones you usually need to edit, though if you wanna change the root instance you can click, drag and drop the Root value to select a new one, similar to how you select Instance type properties in Roblox's Properties widget.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="the-order-editor"><a class="header" href="#the-order-editor">The Order Editor</a></h1>
+<p>The order editor allows you to configure the order specific classes are sorted in using a list of drag-and-droppable frames representing each class.</p>
+<p>To add a new class simply click the "+" button in the dropdown header, and to remove one click the "-" button in the class header.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="instance-visibility-editor"><a class="header" href="#instance-visibility-editor">Instance Visibility Editor</a></h1>
+<p>The instance visibility editor is the editor you use to trigger the visibility of certain classes in the Jexplorer widget.</p>
+<p>You can input a JSON indicating if an instance class is invisible or not, or you can use the dropdown list where you can click on a specific class to toggle visibility for it.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scripting-api"><a class="header" href="#scripting-api">Scripting API</a></h1>
 <p>The outwards-facing scripting API Jexplorer exposes for developers to modify the plugins behavior to their hearts content.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="internal-jexplorer-types"><a class="header" href="#internal-jexplorer-types">Internal Jexplorer Types</a></h1>
+<h2 id="explorerentity"><a class="header" href="#explorerentity">ExplorerEntity</a></h2>
+<pre><code>An internal representation of instances in your game, is a JECS entity.
+</code></pre>
+<h2 id="explorerframe"><a class="header" href="#explorerframe">ExplorerFrame</a></h2>
+<pre><code>A visual representation for ExplorerEntities in the Jexplorer widget.
+</code></pre>
+<h2 id="framestate"><a class="header" href="#framestate">FrameState</a></h2>
+<pre><code>Used for storing miscallaneous state of `ExplorerFrames.`
+Type:
+
+```luau
+export type FrameState = {
+    isLMBActive: boolean,
+    tagsToRemove: {string},
+    hasBeenSelected: boolean,
+    shouldDeselect: boolean,
+    lastClickTime: number,
+    packageIconConn: RBXScriptConnection?,
+    lastPackageIconPos: number,
+    isAssigning: boolean
+}
+```
+</code></pre>
+<h2 id="tab"><a class="header" href="#tab">Tab</a></h2>
+<pre><code>An internal representation of [tabs](../usage_guide/tabs.md).
+Type:
+
+```luau
+export type Tab = {
+    TabFrame: GuiObject,
+    Button: GuiButton,
+    InsertButton: GuiButton,
+    RemoveButton: GuiButton?,
+    NameBox: TextBox,
+
+    Roots: {ExplorerEntity},
+    Name: string,
+
+    Toggle: () -&gt; (),
+    Remove: () -&gt; (),
+}
+```
+</code></pre>
+<h2 id="savedstate"><a class="header" href="#savedstate">SavedState</a></h2>
+<pre><code>An internal representation of saveable, serialized state.
+Type:
+
+```luau
+type Array&lt;T&gt; = {T}
+type InstanceId = string
+type UDFValue = string
+type PlaceId = string
+
+export type SerializedStyleRule = {
+    display_name: string,
+    selector: string,
+    priority: number,
+    props: {[string]: UDFValue},
+    rules: {SerializedStyleRule}
+}
+export type SavedState = {
+    repo_proxies: {
+        [PlaceId]: Array&lt;{
+            display_name: string,
+            repo_id: string,
+            root_inst_id: InstanceId
+        }&gt;
+    },
+    tabs: {
+        [PlaceId]: Array&lt;{
+            display_name: string,
+            inst_ids: {InstanceId}
+        }&gt;
+    },
+    display_order: {
+        default_order: number,
+        class_order: {string}
+    },
+    data_version: number,
+    invisible: {[string]: boolean},
+    settings: {[string]: UDFValue},
+    style: {
+        rules: {SerializedStyleRule},
+        tokens: {[string]: UDFValue}
+    },
+    versions: {
+        [PlaceId]: {
+            [string]: {
+                {
+                    timestamp: typeof(DateTime.now():ToUniversalTime()),
+                    props: {[string]: UDFValue},
+                }
+            }
+        }
+    },
+}
+```
+</code></pre>
+<h2 id="contextmenu"><a class="header" href="#contextmenu">ContextMenu</a></h2>
+<pre><code>An internal representation of Context Menus.
+Type:
+
+```luau
+export type ContextMenu = {
+    Actions: {PluginAction},
+    Menu: PluginMenu,
+    SubMenus: {ContextMenu},
+    UnprocessedContents: {any},
+    Id: string
+}
+```
+</code></pre>
+<h2 id="repoproxy"><a class="header" href="#repoproxy">RepoProxy</a></h2>
+<pre><code>An internal representation of the Version Control Editor's GitHub repository proxies.
+Types:
+
+```luau
+export type RepoProxy = {
+    DisplayName: string,
+    RepoId: string,
+    Root: Instance,
+
+    Remove: () -&gt; ()
+}
+```
+</code></pre>
+<h2 id="manager"><a class="header" href="#manager">Manager</a></h2>
+<pre><code>The main module for handling most of everything in Jexplorer.
+Heres the type for it and related objects:
+
+```luau
+type Components = {
+    Selected: Jecs.Id,
+    Expanded: Jecs.Id,
+    AncestryLocked: Jecs.Id,
+    ArrowInvisible: Jecs.Id,
+    QueryAncestor: Jecs.Id,
+    QueryExpanded: Jecs.Id,
+    QueryInvisible: Jecs.Id,
+    Invisible: Jecs.Id,
+    IsQueried: Jecs.Id,
+    PendingChanges: Jecs.Id,
+    Deleted: Jecs.Id,
+    DisplayTopLevel: Jecs.Id,
+
+    Instance: Jecs.Id&lt;Instance&gt;,
+    Frame: Jecs.Id&lt;ExplorerFrame&gt;,
+    Entity: Jecs.Id&lt;ExplorerEntity&gt;,
+    FrameState: Jecs.Id&lt;FrameState&gt;,
+
+    Connections: Jecs.Id&lt;ItemGroup&lt;RBXScriptConnection&gt;&gt;,
+    FavoriteProxy: Jecs.Id&lt;ExplorerEntity&gt;,
+    FavoriteProxySource: Jecs.Id&lt;ExplorerEntity&gt;,
+    ScriptErrors: Jecs.Id&lt;{string}&gt;,
+    ScriptWarns: Jecs.Id&lt;{string}&gt;,
+    QueryLinkedEntities: Jecs.Id&lt;{ExplorerEntity}&gt;,
+    LinkedQueryEntity: Jecs.Id&lt;QueryEntity&gt;,
+    ParentTabs: Jecs.Id&lt;{[Tab]: boolean}&gt;,
+}
+
+export type WidgetState = {
+    World: World,
+    QueryWorld: World,
+    FrameWorld: World,
+
+    Connections: ItemGroup&lt;RBXScriptConnection&gt;,
+    Entities: {ExplorerEntity},
+    Widget: DockWidgetPluginGui,
+    CurrentSelection: {ExplorerEntity},
+    Favorited: {ExplorerEntity},
+    Tabs: {Tab},
+    RepoProxies: {RepoProxy},
+    HierarchyVersion: number,
+    SavedState: SavedState,
+
+    LastSelectedEntity: ExplorerEntity?,
+    ContextTarget: ExplorerEntity?,
+
+    CurrentlyRenaming: ExplorerEntity?,
+    CurrentlyInserting: {Instance}?,
+    CurrentDrag: {
+        Connections: ItemGroup&lt;RBXScriptConnection&gt;,
+        Frame: typeof(ui.DragFrame),
+        Entities: {ExplorerEntity}
+    }?,
+
+    JExplorerUI: typeof(ui.JExplorerUi),
+    DefaultInstanceActionsArray: {any},
+    InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -&gt; boolean, Priority: number}},
+    MiscContextMenus: {[string]: ContextMenu}
+}
+
+export type Manager = {
+    Jecs: typeof(Jecs),
+    WidgetState: WidgetState,
+    Components: Components,
+    Toolbar: PluginToolbar,
+    Storage: Folder,
+
+    PluginActions: {[string]: PluginAction},
+
+    ItemLists: {
+        InsertInstance: PluginUI.ItemList
+    },
+    AbstractEntClasses: {
+        Favorited: "JEXP_ABSTRACT_Favorited"
+    },
+    Style: Style.Style,
+    InstanceToEntity: {[Instance]: ExplorerEntity},
+    FrameToInstanceFrame: {[Instance]: ExplorerFrame},
+
+    SelectionChanged: Signal&lt;{ExplorerEntity}&gt;,
+
+    connectInputBegan: (fn: (input: InputObject) -&gt; ()) -&gt; RBXScriptConnection,
+    connectInputEnded: (fn: (input: InputObject) -&gt; ()) -&gt; RBXScriptConnection,
+    isKeyDown: (key: Enum.KeyCode) -&gt; (boolean),
+    isInputActive: (input: Enum.UserInputType) -&gt; (boolean),
+    getExplorerFrame: () -&gt; ExplorerFrame,
+    getOrCreateInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -&gt; ExplorerEntity,
+    registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -&gt; Tab,
+
+    getPropertyTag: (world: World, propName: string) -&gt; Jecs.Id,
+
+    createVirtualEntity: (options: {ClassName: string, Name: string, ChildAmount: number, ClassIcon: StudioIconResult, PropTags: {Jecs.Id}, Parent: ExplorerEntity?}, extra: {[string]: any}) -&gt; ExplorerEntity,
+    createInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -&gt; ExplorerEntity,
+
+    createContextMenu: (id: string, contents: {any}, title: string?, icon: string?) -&gt; ContextMenu,
+    registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -&gt; boolean, priority: number) -&gt; (),
+
+    getEntityAt: (x: number, y: number, filteredParent: Instance?) -&gt; (Instance?, ExplorerEntity?, Tab?),
+
+    onTagAdded: (inst: Instance, callback: (tag: string) -&gt; ()) -&gt; RBXScriptConnection,
+    onTagRemoved: (inst: Instance, callback: (tag: string) -&gt; ()) -&gt; RBXScriptConnection,
+
+    getInstId: (instance: Instance) -&gt; string,
+    getInstFromId: (id: string) -&gt; Instance?,
+
+    getSetting: (name: string) -&gt; any,
+    setSetting: (name: string, value: any) -&gt; (),
+
+    getDragInfo: (inst: Instance, propName: string) -&gt; any,
+    unpackDragInfo: (dragInfo: any) -&gt; (Instance, string),
+
+    setInstanceFramePoolTarget: (n: number) -&gt; (),
+    fillInstanceFramePoolToLimit: () -&gt; (),
+    addEntitiesToSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -&gt; (),
+    setEntitiesAsSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -&gt; (),
+    updateVirtualScroller: () -&gt; (),
+    updateSelectionVisuals: (updateSelection: boolean) -&gt; (),
+    updateExpandedVisuals: (update: boolean, expandedCt: Jecs.Id?) -&gt; (),
+    updateCollapsedVisuals: (update: boolean) -&gt; (),
+
+    ChildOf: (ent: ExplorerEntity) -&gt; Jecs.Pair&lt;Jecs.Id, ExplorerEntity&gt;,	
+    init: (onClose: () -&gt; (), connections: ItemGroup&lt;RBXScriptConnection&gt;, widget: DockWidgetPluginGui) -&gt; (),
+    frameOf: (frame: ExplorerFrame) -&gt; typeof(main.__legacy.UI.InstanceFrame)?,
+
+    saveState: () -&gt; SavedState,
+    loadState: (state: SavedState) -&gt; ({
+        style: () -&gt; Style.Style,
+        versions: () -&gt; {
+            [string]: {
+                {
+                    timestamp: DateTime,
+                    props: {[string]: any},
+                }
+            }
+        },
+        tabs: () -&gt; (),
+        repo_proxies: () -&gt; (),
+        settings: () -&gt; (),
+        order: () -&gt; (),
+        invisible: () -&gt; (),
+    }, SavedState)
+}
+```
+</code></pre>
+<h2 id="editors--public-facing-api"><a class="header" href="#editors--public-facing-api">Editors &amp; Public Facing API</a></h2>
+<pre><code>```luau
+type Editor = {
+    Widget: DockWidgetPluginGui,
+
+    init: (Manager) -&gt; (),
+}
+
+export type StyleEditor = Editor &amp; {
+
+}
+
+export type SettingEditor = Editor &amp; {
+    Configs: {[string]: any},
+
+    getSetting: (Manager: Manager, name: string) -&gt; any,
+    setSetting: (Manager: Manager, name: string, value: any) -&gt; (),
+    createSetting: (list: PluginUI.ItemList, settingName: string, displayName: string, valueType: string, defaultValue: any, onChange: ((newValue: any) -&gt; ())?) -&gt; (),
+}
+
+export type OrderEditor = Editor &amp; {
+    ClassPriorities: {string},
+    DefaultPriority: number,
+    PriorityVersion: number
+}
+
+export type VersionControl = Editor &amp; {
+    InstanceHistoryWidget: DockWidgetPluginGui,
+    InstanceHistoryUIList: PluginUI.ItemList,
+
+    VersionViewerWidget: DockWidgetPluginGui,
+    VersionViewerUIList: PluginUI.ItemList,
+
+    SourceViewerWidget: DockWidgetPluginGui,
+    SourceViewerMainframe: typeof(ui.EditorFrame),
+
+    Token: GitAPI.LuaSecret?,
+    RepoId: string,
+    Versions: {
+        [string]: {
+            {
+                timestamp: DateTime,
+                props: {[string]: any},
+            }
+        }
+    },
+    PendingChanges: {
+        [string]: {
+            [string]: any
+        }
+    },
+
+    openSourceViewer: (src: string) -&gt; (),
+    showInstanceHistoryWidget: (inst: Instance) -&gt; (),
+    createInstanceVersion: (inst: Instance, changedProp: string, newValue: any) -&gt; boolean,
+    appendInstanceVersion: (inst: Instance, changedProp: string, newValue: any) -&gt; boolean,
+
+    addPendingChange: (inst: Instance, changedProp: string, newValue: any) -&gt; (),
+    appendPendingChanges: (inst: Instance) -&gt; boolean,
+    createPendingChanges: (inst: Instance) -&gt; boolean,
+
+    createRepoProxy: (display_name: string, repo_id: string, root: Instance, register_into_proxies_array: boolean) -&gt; ()
+}
+
+export type InstanceVisibilityEditor = Editor &amp; {
+    InvisibleClasses: {[string]: boolean},
+    InvisibleInstances: {[Instance]: boolean},
+
+    setInvisible: (className: string, invisible: boolean) -&gt; (),
+}
+
+export type PropertyEditor = Editor &amp; {
+    PropertyList: PluginUI.ItemList,
+
+    CurrentSetNilTarget: {{inst: Instance, name: string}}?,
+    SetNilMenu: PluginMenu,
+
+    updateProperties: (instances: {Instance}) -&gt; ()
+}
+
+export type ContextMenuEditor = Editor &amp; {
+
+}
+
+export type Jexplorer = {
+    Manager: Manager,
+    StyleEditor: StyleEditor,
+    SettingEditor: SettingEditor,
+    OrderEditor: OrderEditor,
+    VersionControl: VersionControl,
+    PropertyEditor: PropertyEditor,
+
+    Dependencies: {[string]: any},
+
+    OnLoad: RBXScriptSignal,
+    OnClose: RBXScriptSignal,
+    ModifyIconStep: RBXScriptSignal
+}
+```
+`export type Jexplorer` is the type for `shared.Jexplorer`.</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><p>--tbd--</p>
 
                     </main>
 

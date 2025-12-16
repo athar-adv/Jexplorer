@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Usage Guide - Jexplorer Docs</title>
+        <title>Version Control - Jexplorer Docs</title>
 
 
         <!-- Custom HTML head -->
@@ -175,18 +175,45 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="usage-guide"><a class="header" href="#usage-guide">Usage Guide</a></h1>
-<p>A surface-level guide on how to use Jexplorers most basic and essential features</p>
+                        <h1 id="version-control"><a class="header" href="#version-control">Version Control</a></h1>
+<p>The version control editor is a way to sync your scripts in Roblox Studio with a GitHub repo via Jexplorer.</p>
+<p>There are 2 dropdowns, Tokens and Repos.</p>
+<h2 id="the-tokens-dropdown"><a class="header" href="#the-tokens-dropdown">The Tokens Dropdown</a></h2>
+<p>The tokens dropdown is where you store your <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#fine-grained-personal-access-tokens">github fine-grained personal access tokens</a> to your repos.</p>
+<p>To create a new token, simply click the "+" button in the header of the dropdown and edit your tokens name and value.</p>
+<p>Each repository should ideally have its own fine-grained token stored in here, though 1 universal token is also an option.</p>
+<p>To use a token for all actions done via the version control widget, simply click the cursor button in your token, next to the delete button which has a "-" symbol. This will highlight the button blue and that indicates your token is being equipped</p>
+<p>Once you've equipped a token, you can perform actions such as push, pull, etc in the Repos dropdown.</p>
+<h2 id="the-repos-dropdown"><a class="header" href="#the-repos-dropdown">The Repos Dropdown</a></h2>
+<p>The repos dropdown is where you store your individual GitHub repository proxies.
+To create a new repo proxy, simply click the "+" button in the dropdown's header and select the root instance for the source of your repo.</p>
+<p>This will create a new repo proxy dropdown which you can expand to reveal several options, these being:</p>
+<ul>
+<li>Root: Instance</li>
+<li>RepoId: string (your-user-name/your-repo-name)</li>
+<li>Branch: string (default: main)</li>
+<li>Path: string (the path you wanna push to/pull from, default: src)</li>
+<li>Push: Dropdown
+<ul>
+<li>CommitMsg: string (the commit message you wanna use for the push)</li>
+<li>PushOverwrite: Button (pushes to the repo's source and overwrites existing contents with the new one inside the root instance)</li>
+<li>PushUpdate: Button (pushes to the repo's source and updates existing contents with the new one inside the root instance)</li>
+</ul>
+</li>
+<li>RevertLastCommit: Button (reverts the last commit made to the branch)</li>
+<li>Pull: Button (pulls the contents of the repo's source into your root instance)</li>
+</ul>
+<p>RepoId and CommitMsg are really the only ones you usually need to edit, though if you wanna change the root instance you can click, drag and drop the Root value to select a new one, similar to how you select Instance type properties in Roblox's Properties widget.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../formats_and_languages/jel.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../editors/style_editor.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../usage_guide/dropdown_menu.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../editors/order_editor.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -196,11 +223,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../formats_and_languages/jel.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../editors/style_editor.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../usage_guide/dropdown_menu.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../editors/order_editor.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>
