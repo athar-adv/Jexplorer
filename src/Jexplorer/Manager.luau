@@ -3076,7 +3076,8 @@ function Manager.createContextMenu(id, actions, title, icon)
 		Actions = pluginActions,
 		SubMenus = subMenus,
 		Menu = menu,
-		Id = id
+		Id = id,
+		UnprocessedContents = table.clone(actions)
 	}
 end
 
@@ -5366,7 +5367,11 @@ function Manager.loadState(savedState)
 					if #r.rules > 0 then
 						deserialize_rules(r.rules, props)
 					end
-					table.insert(destination, rule(r.display_name, r.selector, r.priority, props))
+					local newrule = rule(r.display_name, r.selector, r.priority, props)
+					for _, tag in r.tags do
+						newrule:AddTag(tag)
+					end
+					table.insert(destination, newrule)
 				end
 			end
 			deserialize_rules(savedState.style.rules, rules)

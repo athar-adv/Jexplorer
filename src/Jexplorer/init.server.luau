@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "pr2.3"
+local VERSION = "pr3"
 
 local utilities = script.Utilities
 local editors = script.Editors

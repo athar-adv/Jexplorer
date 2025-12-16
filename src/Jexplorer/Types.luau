@@ -66,37 +66,6 @@ export type SavedState = {
 
 type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
 type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
-export type WidgetState = {
-	World: World,
-	QueryWorld: World,
-	FrameWorld: World,
-
-	Connections: ItemGroup<RBXScriptConnection>,
-	Entities: {ExplorerEntity},
-	Widget: DockWidgetPluginGui,
-	CurrentSelection: {ExplorerEntity},
-	Favorited: {ExplorerEntity},
-	Tabs: {Tab},
-	RepoProxies: {RepoProxy},
-	HierarchyVersion: number,
-	SavedState: SavedState,
-
-	LastSelectedEntity: ExplorerEntity?,
-	ContextTarget: ExplorerEntity?,
-
-	CurrentlyRenaming: ExplorerEntity?,
-	CurrentlyInserting: {Instance}?,
-	CurrentDrag: {
-		Connections: ItemGroup<RBXScriptConnection>,
-		Frame: typeof(ui.DragFrame),
-		Entities: {ExplorerEntity}
-	}?,
-
-	JExplorerUI: typeof(ui.JExplorerUi),
-	DefaultInstanceActionsArray: {any},
-	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
-	MiscContextMenus: {[string]: ContextMenu}
-}
 export type StudioIconResult = {
 	Image: string,
 	ImageRectOffset: Vector2,
@@ -106,6 +75,7 @@ export type ContextMenu = {
 	Actions: {PluginAction},
 	Menu: PluginMenu,
 	SubMenus: {ContextMenu},
+	UnprocessedContents: {any},
 	Id: string
 }
 export type Tab = {
@@ -187,6 +157,38 @@ type Components = {
 	QueryLinkedEntities: Jecs.Id<{ExplorerEntity}>,
 	LinkedQueryEntity: Jecs.Id<QueryEntity>,
 	ParentTabs: Jecs.Id<{[Tab]: boolean}>,
+}
+
+export type WidgetState = {
+	World: World,
+	QueryWorld: World,
+	FrameWorld: World,
+
+	Connections: ItemGroup<RBXScriptConnection>,
+	Entities: {ExplorerEntity},
+	Widget: DockWidgetPluginGui,
+	CurrentSelection: {ExplorerEntity},
+	Favorited: {ExplorerEntity},
+	Tabs: {Tab},
+	RepoProxies: {RepoProxy},
+	HierarchyVersion: number,
+	SavedState: SavedState,
+
+	LastSelectedEntity: ExplorerEntity?,
+	ContextTarget: ExplorerEntity?,
+
+	CurrentlyRenaming: ExplorerEntity?,
+	CurrentlyInserting: {Instance}?,
+	CurrentDrag: {
+		Connections: ItemGroup<RBXScriptConnection>,
+		Frame: typeof(ui.DragFrame),
+		Entities: {ExplorerEntity}
+	}?,
+
+	JExplorerUI: typeof(ui.JExplorerUi),
+	DefaultInstanceActionsArray: {any},
+	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
+	MiscContextMenus: {[string]: ContextMenu}
 }
 
 export type Manager = {

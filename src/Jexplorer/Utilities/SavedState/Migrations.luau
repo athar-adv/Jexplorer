@@ -45,6 +45,7 @@ migrations = {
 	v10_to_v11 = noop,
 	v11_to_v12 = reset_styles,
 	v12_to_v13 = reset_invisible_classes,
+	v13_to_v14 = reset_styles
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

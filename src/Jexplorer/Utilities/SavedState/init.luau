@@ -15,7 +15,7 @@ local Migrations = require("@self/Migrations")
 export type SavedState = Types.SavedState
 
 local SavedState = {
-	data_version = 13
+	data_version = 14
 }
 
 function SavedState._migrate(state: any, manager: Types.Manager): SavedState
@@ -74,6 +74,13 @@ function SavedState._serialize_rules(source: {Style.Rule}, destination: any, exc
 					props[k] = UDF.to(v)
 				end
 				return props
+			end)(),
+			tags = (function()
+				local tags = {}
+				for tag in rule.Tags do
+					table.insert(tags, tag)
+				end
+				return tags
 			end)(),
 			rules = subrules
 		})

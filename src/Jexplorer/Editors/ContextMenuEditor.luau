@@ -27,7 +27,8 @@ type ContextMenuConfigs = {
 			Id: string,
 			Priority: number,
 			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
-			Contents: {any}
+			Contents: {any},
+			DefaultActionsName: string?,
 		}
 	},
 	Actions: {
@@ -173,7 +174,12 @@ function ContextMenuEditor.init(Manager)
 		for name, info in configs.Menus do
 			if typeof(info.Contents) == "function" then
 				info.Contents = info.Contents(function()
-					local tbl = table.clone(state.DefaultInstanceActionsArray)
+					local tbl
+					if info.DefaultActionsName and state.InstanceContextMenus[info.DefaultActionsName] then
+						tbl = table.clone(state.InstanceContextMenus[info.DefaultActionsName].Menu.UnprocessedContents)
+					else
+						tbl = {}
+					end
 					return createCtxMenuInterface(tbl)
 				end)
 			end
