@@ -119,7 +119,8 @@ local function callFunc(name, args)
 	if name == "rgb" then return Color3.fromRGB(unpackArgs(3)) end
 	if name == "hex" then
 		local v = unpackArgs(1)
-		return Color3.fromRGB(bit32.rshift(v, 16), bit32.band(bit32.rshift(v, 8), 0xFF), bit32.band(v, 0xFF))
+		--return Color3.fromRGB(bit32.rshift(v, 16), bit32.band(bit32.rshift(v, 8), 0xFF), bit32.band(v, 0xFF))
+		return Color3.fromHex(v)
 	end
 	if name == "udim2" then return UDim2.new(unpackArgs(4)) end
 	if name == "udim" then return UDim.new(unpackArgs(2)) end

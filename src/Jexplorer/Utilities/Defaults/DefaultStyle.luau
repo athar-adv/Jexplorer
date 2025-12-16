@@ -6,7 +6,7 @@ local ClassIcon = require(script.Parent.Parent.Small.ClassIcon)
 local Types = require(script.Parent.Parent.Parent.Types)
 local InstClasses = require(script.Parent.Parent.Info.InstClasses)
 
-local rule = Style.rule
+local _rule = Style.rule
 local var = Style.var
 local cloned = Style.cloned
 
@@ -46,6 +46,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["DownArrowImage"] = var "$BackgroundColor.R > 0.5 ? 'rbxasset://studio_svg_textures/Shared/Navigation/Light/Standard/DropdownArrow.png' : 'rbxasset://studio_svg_textures/Shared/Navigation/Dark/Standard/DropdownArrow.png'",
 		["LegacyDownArrowImage"] = var "$BackgroundColor.R > 0.5 ? 'rbxasset://studio_svg_textures/Shared/Navigation/Light/Standard/ArrowDown.png' : 'rbxasset://studio_svg_textures/Shared/Navigation/Dark/Standard/ArrowDown.png'",
 	}
+	
+	local function rule(...)
+		local newrule = _rule(...)
+		newrule:AddTag("Default")
+		return newrule
+	end
 	local defaultRules = {
 		rule("UniversalProps", "GuiObject", 0, {
 			BorderSizePixel = 0,

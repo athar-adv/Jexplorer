@@ -14,7 +14,7 @@ local Types = require(main.Types)
 
 local PluginUI = require(utilities.PluginUI)
 local Style = require(utilities.Style)
-local JDF = require(utilities.UDF)
+local UDF = require(utilities.UDF)
 local Selector = require(utilities.Small.Selector)
 local InstanceUtility = require(utilities.Small.InstanceUtility)
 local ItemGroup = require(utilities.Vendor.ItemGroup)
@@ -63,17 +63,17 @@ function StyleEditor.init(Manager)
 		reset.Triggered:Connect(function()
 			if not currentResetTarget then return end
 			if currentResetTarget.type == "styledProperty" then
-				currentResetTarget.box.Text = JDF.to(currentResetTarget.defaultValue)
+				currentResetTarget.box.Text = UDF.to(currentResetTarget.defaultValue)
 				currentResetTarget.inst:SetProperty(currentResetTarget.name, currentResetTarget.defaultValue)
 			elseif currentResetTarget.type == "ruleProperty" then
-				currentResetTarget.box.Text = JDF.to(currentResetTarget.defaultValue)
+				currentResetTarget.box.Text = UDF.to(currentResetTarget.defaultValue)
 				newindex(
 					currentResetTarget.inst,
 					currentResetTarget.name,
 					currentResetTarget.defaultValue
 				)
 			elseif currentResetTarget.type == "token" then
-				currentResetTarget.box.Text = JDF.to(currentResetTarget.defaultValue)
+				currentResetTarget.box.Text = UDF.to(currentResetTarget.defaultValue)
 				currentResetTarget.inst:SetToken(currentResetTarget.name, currentResetTarget.defaultValue, true)
 			end
 			currentResetTarget = nil
@@ -90,7 +90,7 @@ function StyleEditor.init(Manager)
 
 	-- WARNING: YOU HAVE TO PASS A RULE IF K IS "Image" OR "Texture"
 	local function createStylePropertyBox(dropdown: any, k: string, defaultValue: any, callback: ((string) -> ())?, rule: Style.Rule?)
-		local defaultStr = JDF.to(defaultValue)
+		local defaultStr = UDF.to(defaultValue)
 		local box
 		box = PluginUI.createAttributeBox(dropdown, k, defaultStr, callback or function(newValue)
 			assert(rule, "unexpected error: style rule not found while creating style property box")
@@ -103,7 +103,7 @@ function StyleEditor.init(Manager)
 			--	box.ValueBox.Text = defaultStr
 			--	return
 			--end
-			local value = JDF.from(newValue)
+			local value = UDF.from(newValue)
 			rule:SetProperty(k, value)
 		end)
 		
@@ -125,7 +125,7 @@ function StyleEditor.init(Manager)
 		if rule then
 			local conn = rule.PropertyChanged:Connect(function(name, newValue)
 				if name ~= k then return end
-				box:Set(JDF.to(newValue))
+				box:Set(UDF.to(newValue))
 			end);
 			(box.Instance :: GuiObject).InputBegan:Connect(function(input: InputObject)
 				if input.UserInputState ~= Enum.UserInputState.Begin then return end
@@ -163,7 +163,7 @@ function StyleEditor.init(Manager)
 			createStylePropertyItemList:Hide()
 			if not currentCreatingRule then return end
 			local name = nameBox:Get()
-			local defaultValue = JDF.from(defaultValueBox:Get())
+			local defaultValue = UDF.from(defaultValueBox:Get())
 			
 			if not defaultValue then return end
 
@@ -234,14 +234,9 @@ function StyleEditor.init(Manager)
 		local defaultPriority = rule.Rule.Priority
 		local box
 		box = createStylePropertyBox(dropdown, "StyleRule.Selector", defaultSelector, function(newValue)
-			--if newValue == "" then
-			--	rule.Selector = defaultSelector
-			--	box.ValueBox.Text = defaultSelector
-			--	return
-			--end
-			local newSelector, macroType = Selector.parseSelectorMacro(newValue)
+			local newSelector, macroType = Selector.parseSelectorMacro(UDF.from(newValue))
 			if newSelector then
-				box:Set(newSelector)
+				box:Set(UDF.to(newSelector))
 				rule.Rule.Selector = newSelector
 			else
 				rule.Rule.Selector = newValue
@@ -263,10 +258,10 @@ function StyleEditor.init(Manager)
 		box = createStylePropertyBox(dropdown, "StyleRule.Priority", defaultPriority, function(newValue)
 			--if newValue == "" then
 			--	rule.Priority = defaultPriority
-			--	box.ValueBox.Text = JDF.to(defaultPriority)
+			--	box.ValueBox.Text = UDF.to(defaultPriority)
 			--	return
 			--end
-			local newValue = JDF.from(newValue)
+			local newValue = UDF.from(newValue)
 			assert(type(newValue) == "number", "number expected for stylerule.priority")
 			rule.Rule.Priority = newValue
 		end)
@@ -301,13 +296,13 @@ function StyleEditor.init(Manager)
 		end)
 		
 		local createRulePos = UDim2.fromScale(0.85, 0.5)
-		--if not JState.DefaultRules[rule] then
-		--	PluginUI.createDeleteButton(header, function()
-		--		rule:Destroy()
-		--		dropdown:Destroy()
-		--	end)
-		--	createRulePos = UDim2.fromScale(0.8, 0.5)
-		--end
+		if not rule:HasTag("Default") then
+			PluginUI.createDeleteButton(header, function()
+				rule:Destroy()
+				dropdown:Destroy()
+			end)
+			createRulePos = UDim2.fromScale(0.8, 0.5)
+		end
 		local createRule = PluginUI.createInsertButtonWithImage(header, "rbxassetid://85474028895485", function()
 			currentCreatingRule = rule
 			creatingDropdown = dropdown
@@ -376,7 +371,7 @@ function StyleEditor.init(Manager)
 			--	box.ValueBox.Text = defaultStr
 			--	return
 			--end
-			local value = JDF.from(newValue)
+			local value = UDF.from(newValue)
 			if not value then
 				box:Set(defaultStr)
 				return
@@ -386,7 +381,7 @@ function StyleEditor.init(Manager)
 		
 		local conn = sheet.TokenChanged:Connect(function(name, newValue)
 			if name ~= k then return end
-			box:Set(JDF.to(newValue))
+			box:Set(UDF.to(newValue))
 		end)
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
@@ -423,7 +418,7 @@ function StyleEditor.init(Manager)
 			createTokenItemList:Hide()
 			local name = nameBox:Get()
 			local defaultStr = defaultValueBox:Get()
-			local defaultValue = JDF.from(defaultStr)
+			local defaultValue = UDF.from(defaultStr)
 			sheet:SetToken(name, defaultValue, true)
 
 			createTokenAttribute(name, defaultValue, defaultStr)
@@ -439,7 +434,7 @@ function StyleEditor.init(Manager)
 		task.wait(2)
 		for k, v in sheet.Tokens do
 			local defaultValue = v
-			local defaultStr = JDF.to(v)
+			local defaultStr = UDF.to(v)
 
 			createTokenAttribute(k, defaultValue, defaultStr)
 			task.wait(0.5)
