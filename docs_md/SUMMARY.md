@@ -8,7 +8,7 @@
     - [Dropdown Menu](./usage_guide/dropdown_menu.md)
     - [Selecting Instances](./usage_guide/selection.md)
     - [Reparenting Instances Using Drag and Drop](./usage_guide/drag_and_drop.md)
-    - [Using the Search Bar](./query_bar.md)
+    - [Using the Search Bar](./usage_guide/query_bar.md)
     - [Making Custom Explorer Icons](./usage_guide/make_custom_icon.md)
     - [Tabs](./usage_guide/tabs.md)
 - [Editors](./editors/init.md)
