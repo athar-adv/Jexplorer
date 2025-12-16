@@ -1,9 +1,0 @@
-[package]
-name = "athar/jexplorer"
-version = "0.1.0"
-registry = "https://github.com/UpliftGames/wally-index"
-realm = "shared"
-homepage = "https://athar-adv.github.io/Jexplorer"
-repository = "https://github.com/athar-adv/Jexplorer"
-
-[dependencies]
