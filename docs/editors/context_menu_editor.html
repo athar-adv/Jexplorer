@@ -180,23 +180,24 @@
 <p>The way this works is by using a custom ModuleScript that returns <code>ContextMenuConfigs</code>, whose structure is this:</p>
 <pre><code class="language-luau">type ModuleReturn = ((Plugin, Manager) -&gt; ContextMenuConfigs) | ContextMenuConfigs
 
+type ContextMenuConfigs_Menu = {
+	Id: string,
+	Priority: number,
+	Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; boolean,
+	Contents: {any} | (createInterface: () -&gt; ContextMenuInterface) -&gt; {any},
+}
+
+type ContextMenuConfigs_Action = {
+	Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; (),
+	Text: string,
+	Tooltip: string,
+	Icon: string?
+}
+
 type ContextMenuConfigs = {
-	Menus: {
-		{
-			Id: string,
-			Priority: number,
-			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; boolean,
-			Contents: {any} | (createInterface: () -&gt; ContextMenuInterface) -&gt; {any},
-            DefaultActionsName: string?,
-		}
-	},
+	Menus: {ContextMenuConfigs_Menu},
 	Actions: {
-		[string]: {
-			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -&gt; (),
-			Text: string,
-			Tooltip: string,
-			Icon: string?
-		}
+		[string]: ContextMenuConfigs_Action
 	}
 }
 
@@ -212,11 +213,11 @@ type ContextMenuInterface = {
 }
 </code></pre>
 <p>A few things need to be clarified:</p>
-<p>The contents of the array <code>ContextMenuConfigs::Menus::value_type::Contents</code> are as follows:</p>
+<p>The contents of the array <code>ContextMenuConfigs_Menu::Contents</code> are as follows:</p>
 <ul>
 <li>Any string for the name of a registered PluginAction, created within <code>ContextMenuConfigs::Actions</code></li>
 <li>The string "---", specifying a seperator</li>
-<li>The mixed table <code>{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs::Menus::value_type::Contents)}</code> specifies a submenu</li>
+<li>The mixed table <code>{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs_Menu::Contents)}</code> specifies a submenu</li>
 </ul>
 <p>Heres an example value for Contents:</p>
 <pre><code class="language-luau">{
@@ -241,8 +242,8 @@ type ContextMenuInterface = {
     "LastAction"
 }
 </code></pre>
-<p>Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying <code>ContextMenuConfigs::Menus::value_type::Contents</code> as a function that accepts a <code>createInterface</code> function that can be called to get a <code>ContextMenuInterface</code>.</p>
-<p>This <code>ContextMenuInterface</code> will contain the default context menu you specified in the <code>DefaultActionsName</code> field.</p>
+<p>Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying <code>ContextMenuConfigs_Menu::Contents</code> as a function that accepts a <code>createInterface(default: string?)</code> function that can be called to get a <code>ContextMenuInterface</code>.</p>
+<p>This <code>ContextMenuInterface</code> will contain the default context menu you specified as <code>default</code> (usually it is "DefaultInstance" or "Service")</p>
 <p>Everything else should be clear enough for you to understand.
 If it isn't, heres an example of an extensive ContextMenuConfigs module i made for my game:</p>
 <pre><code class="language-luau">local function apply_surface_type(manager, type)
@@ -263,7 +264,7 @@ If it isn't, heres an example of an extensive ContextMenuConfigs module i made f
 end
 
 local function insert_contents(createInterface, actionName)
-	local interface = createInterface()
+	local interface = createInterface("DefaultInstance")
 
 	if actionName then
 		interface.Insert(
@@ -340,11 +341,11 @@ return {
 				return inst:IsA("BasePart")
 			end,
 			Contents = function(createInterface)
-				local interface = createInterface()
+				local interface = createInterface("DefaultInstance")
 				interface.Insert(
 					interface.FindSubMenu("Menu.ConvertInto") + 1,
 					{
-						Id = "SurfaceTypes",
+						Id = "Menu.SurfaceTypes",
 						Title = "Surface Types",
 						{
 							"Studs",

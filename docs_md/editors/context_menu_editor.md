@@ -7,23 +7,24 @@ The way this works is by using a custom ModuleScript that returns `ContextMenuCo
 ```luau
 type ModuleReturn = ((Plugin, Manager) -> ContextMenuConfigs) | ContextMenuConfigs
 
+type ContextMenuConfigs_Menu = {
+	Id: string,
+	Priority: number,
+	Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
+	Contents: {any} | (createInterface: () -> ContextMenuInterface) -> {any},
+}
+
+type ContextMenuConfigs_Action = {
+	Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -> (),
+	Text: string,
+	Tooltip: string,
+	Icon: string?
+}
+
 type ContextMenuConfigs = {
-	Menus: {
-		{
-			Id: string,
-			Priority: number,
-			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
-			Contents: {any} | (createInterface: () -> ContextMenuInterface) -> {any},
-            DefaultActionsName: string?,
-		}
-	},
+	Menus: {ContextMenuConfigs_Menu},
 	Actions: {
-		[string]: {
-			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -> (),
-			Text: string,
-			Tooltip: string,
-			Icon: string?
-		}
+		[string]: ContextMenuConfigs_Action
 	}
 }
 
@@ -41,11 +42,11 @@ type ContextMenuInterface = {
 
 A few things need to be clarified:
 
-The contents of the array `ContextMenuConfigs::Menus::value_type::Contents` are as follows:
+The contents of the array `ContextMenuConfigs_Menu::Contents` are as follows:
 
 - Any string for the name of a registered PluginAction, created within `ContextMenuConfigs::Actions`
 - The string "---", specifying a seperator
-- The mixed table `{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs::Menus::value_type::Contents)}` specifies a submenu
+- The mixed table `{Id: string, Title: string, Icon: string?, [1]: typeof(ContextMenuConfigs_Menu::Contents)}` specifies a submenu
 
 Heres an example value for Contents:
 
@@ -73,9 +74,9 @@ Heres an example value for Contents:
 }
 ```
 
-Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying `ContextMenuConfigs::Menus::value_type::Contents` as a function that accepts a `createInterface` function that can be called to get a `ContextMenuInterface`.
+Now, you may be wondering how to edit default context menus without completely overwriting them, and that's by specifying `ContextMenuConfigs_Menu::Contents` as a function that accepts a `createInterface(default: string?)` function that can be called to get a `ContextMenuInterface`.
 
-This `ContextMenuInterface` will contain the default context menu you specified in the `DefaultActionsName` field.
+This `ContextMenuInterface` will contain the default context menu you specified as `default` (usually it is "DefaultInstance" or "Service")
 
 Everything else should be clear enough for you to understand.
 If it isn't, heres an example of an extensive ContextMenuConfigs module i made for my game:
@@ -99,7 +100,7 @@ local function apply_surface_type(manager, type)
 end
 
 local function insert_contents(createInterface, actionName)
-	local interface = createInterface()
+	local interface = createInterface("DefaultInstance")
 
 	if actionName then
 		interface.Insert(
@@ -176,11 +177,11 @@ return {
 				return inst:IsA("BasePart")
 			end,
 			Contents = function(createInterface)
-				local interface = createInterface()
+				local interface = createInterface("DefaultInstance")
 				interface.Insert(
 					interface.FindSubMenu("Menu.ConvertInto") + 1,
 					{
-						Id = "SurfaceTypes",
+						Id = "Menu.SurfaceTypes",
 						Title = "Surface Types",
 						{
 							"Studs",
