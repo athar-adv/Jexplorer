@@ -7,21 +7,21 @@ local ReflectionService = game:GetService("ReflectionService")
 
 local main = script.Parent.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
+local UITemplates = require(shared.UITemplates)
 local PropertyFrame = require(script.PropertyFrame)
 local xyz = require(script.xyz)
-local InstanceUtility = require(utilities.Small.InstanceUtility)
+local RawInst = require(shared.Small.RawInst)
 local VersionControl = require(script.Parent.VersionControl)
-local PluginUI = require(utilities.PluginUI)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local PluginUI = require(shared.PluginUI)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
 local Types = require(main.Types)
 
-local rawindex = InstanceUtility.rawindex
-local rawnewindex = InstanceUtility.rawnewindex
+local rawindex = RawInst.rawindex
+local rawnewindex = RawInst.rawnewindex
 local getId = PluginUI.getId
 
 local instanceConnections: {RBXScriptConnection} = {}
@@ -445,7 +445,7 @@ function PropertyEditor.init(_m)
 		if not currentTarget then return end
 		
 		for _, v in currentTarget do
-			InstanceUtility.rawnewindex(v.inst, v.name, nil)
+			rawnewindex(v.inst, v.name, nil)
 		end
 	end)
 	

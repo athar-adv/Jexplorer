@@ -25,5 +25,8 @@ return {
 	end,
 	
 	rawindex = index,
-	rawnewindex = newindex
+	rawnewindex = newindex,
+	
+	rbxconnect = game.Destroying.Connect,
+	getpropertychangedsignal = game.GetPropertyChangedSignal
 }

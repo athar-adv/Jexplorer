@@ -4,14 +4,14 @@
 local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local main = script.Parent.Parent
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
+local UITemplates = require(shared.UITemplates)
 local Types = require(main.Types)
-local PluginUI = require(utilities.PluginUI)
-local Style = require(utilities.Style)
-local DefaultSettings = require(utilities.Defaults.DefaultSettings)
-local JDF = require(utilities.UDF)
+local PluginUI = require(shared.PluginUI)
+local Style = require(shared.Style)
+local DefaultSettings = require(shared.Defaults.DefaultSettings)
+local JDF = require(shared.UDF)
 
 local getId = PluginUI.getId
 

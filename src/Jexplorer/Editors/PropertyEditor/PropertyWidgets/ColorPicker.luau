@@ -1,7 +1,7 @@
 --!strict
-local utilities = script.Parent.Parent.Parent.Parent.Utilities
+local shared = script.Parent.Parent.Parent.Parent.Shared
 
-local PluginColorPicker = require(utilities.Vendor.PluginColorPicker)
-local PluginUI = require(utilities.PluginUI)
+local PluginColorPicker = require(shared.Vendor.PluginColorPicker)
+local PluginUI = require(shared.PluginUI)
 
 return PluginColorPicker.new(script:FindFirstAncestorOfClass("Plugin"), PluginUI.getId("JexplorerColor3Picker", true))

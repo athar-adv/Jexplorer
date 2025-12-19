@@ -109,6 +109,21 @@ local function getColorBrightness(color)
 	return (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) * 255
 end
 
+local function valueToString(val)
+	local t = typeof(val)
+	if t == "string" then return val
+	elseif t == "number" then return tostring(val)
+	elseif t == "boolean" then return tostring(val)
+	elseif t == "nil" then return "nil"
+	elseif t == "Vector2" then return `{val.X}, {val.Y}`
+	elseif t == "Vector3" then return `{val.X}, {val.Y}, {val.Z}`
+	elseif t == "Color3" then return `{math.floor(val.R*255)}, {math.floor(val.G*255)}, {math.floor(val.B*255)}`
+	elseif t == "UDim" then return `{val.Scale}, {val.Offset}`
+	elseif t == "UDim2" then return `{val.X.Scale}, {val.X.Offset}, {val.Y.Scale}, {val.Y.Offset}`
+	else return tostring(val)
+	end
+end
+
 local function callFunc(name, args)
 	local function unpackArgs(count)
 		if #args ~= count then error(name .. " expects " .. count .. " arguments") end
@@ -142,7 +157,10 @@ local function evaluateExpression(expr: string, tokens: { [string]: any }): any
 	local pos = 1
 	local parseExpr
 
-	local function peek(n) return expr:sub(pos, pos + (n or 0)) end
+	local function peek(n)
+		n = n or 0
+		return expr:sub(pos, pos + n)
+	end
 	local function nextChar() local c = peek(); pos += 1; return c end
 	local function skipWhitespace() while peek():match("%s") do pos += 1 end end
 	local function match(str) return expr:sub(pos, pos + #str - 1) == str end
@@ -172,10 +190,13 @@ local function evaluateExpression(expr: string, tokens: { [string]: any }): any
 		pos += 1
 		local name = parseIdentifier()
 		local val = tokens[name]
+		while type(val) == "table" and val.__stylevar do
+			val = evaluateExpression(val.__expr, tokens)
+		end
 		--if val == nil then return NULL end
 		return val
 	end
-	
+
 	local function parseNumber()
 		local start = pos
 		while peek():match("[%d%.]") do pos += 1 end
@@ -203,6 +224,14 @@ local function evaluateExpression(expr: string, tokens: { [string]: any }): any
 				elseif escaped == "'" then result = result .. "'"
 				else result = result .. escaped end
 				pos += 1
+			elseif peek(1) == "![" then
+				-- Interpolation syntax: ![$variable] or ![expression]
+				pos += 2 -- Skip "!["
+				local interpolatedValue = parseExpr()
+				skipWhitespace()
+				if peek() ~= "]" then error("Expected ']' to close interpolation") end
+				pos += 1 -- Skip "]"
+				result = result .. valueToString(interpolatedValue)
 			else
 				result = result .. ch
 				pos += 1
@@ -243,7 +272,8 @@ local function evaluateExpression(expr: string, tokens: { [string]: any }): any
 			pos += 1
 			local v = parseFactor() -- Recursively parse the factor to negate
 			return typeNegate(v)
-		elseif peek() == "!" then
+		elseif peek() == "!" and peek(1) ~= "[" then
+			-- Only treat ! as NOT operator if not followed by [
 			pos += 1
 			local v = parseFactor()
 			return not v

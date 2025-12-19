@@ -3275,7 +3275,7 @@ return {
 	id_record_ensure = id_record_ensure :: (World, Id) -> ComponentRecord,
 	component_record = id_record_get :: (World, Id) -> ComponentRecord?,
 	record = ecs_entity_record :: (World, Entity) -> Record,
-
+	
 	archetype_create = archetype_create :: (World, { Id }, string) -> Archetype,
 	archetype_ensure = archetype_ensure :: (World, { Id }) -> Archetype,
 	find_insert = find_insert,

@@ -2,7 +2,7 @@
 --!optimize 2
 
 local PropertyFrame = require("../PropertyFrame")
-local getClampedXY = require("../../../Utilities//Small/GetClampedXY")
+local getClampedXY = require("../../../Shared/Small/GetClampedXY")
 
 return PropertyFrame.create(function(info, list, inst, item, initValue)
 	local enumName = string.match(item.type, "Enum%.(%w+)")

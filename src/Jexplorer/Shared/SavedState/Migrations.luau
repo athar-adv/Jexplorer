@@ -11,7 +11,7 @@ local function reset_styles(self, state, manager)
 	local rules: {Types.SerializedStyleRule} = {}
 	local tokens = {}
 
-	self._serialize_rules(defaultRules, rules)
+	self._serialize_rules(defaultRules, rules, nil, "Default")
 	for k, v in defaultTokens do
 		tokens[k] = UDF.to(v)
 	end
@@ -38,14 +38,16 @@ end
 
 local migrations
 migrations = {
-	v6_to_v7 = reset_styles,
+	v6_to_v7 = noop,
 	v7_to_v8 = noop,
 	v8_to_v9 = noop,
 	v9_to_v10 = reset_internal_behavior_settings,
 	v10_to_v11 = noop,
-	v11_to_v12 = reset_styles,
+	v11_to_v12 = noop,
 	v12_to_v13 = reset_invisible_classes,
-	v13_to_v14 = reset_styles
+	v13_to_v14 = noop,
+	v14_to_v15 = noop,
+	v15_to_v16 = reset_styles
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

@@ -456,6 +456,9 @@ local INSTANCE_INSERT_INFO: {
 
 	-- Scripts
 	["Script"] = {
+		SideEffect = function(inst)
+			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+		end,
 		Props = {
 			Source = "print('Hello World!')\n",
 			Disabled = false,
@@ -463,6 +466,9 @@ local INSTANCE_INSERT_INFO: {
 	},
 
 	["LocalScript"] = {
+		SideEffect = function(inst)
+			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+		end,
 		Props = {
 			Source = "print('Hello World!')\n",
 			Disabled = false,
@@ -470,6 +476,9 @@ local INSTANCE_INSERT_INFO: {
 	},
 
 	["ModuleScript"] = {
+		SideEffect = function(inst)
+			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+		end,
 		Props = {
 			Source = "local module = {}\n\nreturn module\n",
 		}

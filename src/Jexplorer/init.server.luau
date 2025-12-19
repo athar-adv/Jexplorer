@@ -9,18 +9,19 @@
 ]]
 
 if not plugin then return end
-local VERSION = "pr3"
+local VERSION = "pr4"
 
-local utilities = script.Utilities
+local global = shared
+local shared = script.Shared
 local editors = script.Editors
 --local ui = script.UI
 
 local Jecs = require(script.Jecs)
 local Manager = require(script.Manager)
 
-local PluginUI = require(utilities.PluginUI)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
-local SavedState = require(utilities.SavedState)
+local PluginUI = require(shared.PluginUI)
+local ItemGroup = require(shared.Vendor.ItemGroup)
+local SavedState = require(shared.SavedState)
 local Types = require(script.Types)
 local cleanup = ItemGroup.cleanup
 
@@ -31,7 +32,7 @@ local function onClose()
 	if Manager.Storage then
 		Manager.Storage:Destroy()
 	end
-	shared.Jexplorer.__close:Fire()
+	global.Jexplorer.__close:Fire()
 	
 	if finished_init and Manager.getSetting("SaveOnClose") then
 		Manager.saveState()
@@ -48,8 +49,8 @@ connections:add_many({
 
 local function getevent(name: string): BindableEvent
 	local ev
-	if shared.Jexplorer and shared.Jexplorer[name] then
-		ev = shared.Jexplorer[name]
+	if global.Jexplorer and global.Jexplorer[name] then
+		ev = global.Jexplorer[name]
 	else
 		ev = Instance.new("BindableEvent")
 	end
@@ -70,13 +71,13 @@ local jexplorerApi: Types.Jexplorer = {
 	PropertyEditor = require(editors.PropertyEditor),
 	
 	Dependencies = {
-		Selector = require(utilities.Small.Selector),
-		Style = require(utilities.Style),
-		PluginUI = require(utilities.PluginUI),
-		ClassIcon = require(utilities.Small.ClassIcon),
-		UDF = require(utilities.UDF),
+		Selector = require(shared.Small.Selector),
+		Style = require(shared.Style),
+		PluginUI = require(shared.PluginUI),
+		ClassIcon = require(shared.Small.ClassIcon),
+		UDF = require(shared.UDF),
 		SavedState = SavedState,
-		GitAPI = require(utilities.GitAPI)
+		GitAPI = require(shared.GitAPI)
 	},
 	
 	OnLoad = onLoadEvent.Event,
@@ -90,7 +91,7 @@ local jexplorerApi: Types.Jexplorer = {
 
 local getId = PluginUI.getId
 
-shared.Jexplorer = jexplorerApi
+global.Jexplorer = jexplorerApi
 local success
 local pluginToolbar
 while true do

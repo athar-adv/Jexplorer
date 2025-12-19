@@ -7,24 +7,24 @@ local StudioService = game:GetService('StudioService')
 
 local main = script.Parent.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
+local UITemplates = require(shared.UITemplates)
 local Types = require(main.Types)
 
-local PluginUI = require(utilities.PluginUI)
-local Style = require(utilities.Style)
-local UDF = require(utilities.UDF)
-local Selector = require(utilities.Small.Selector)
-local InstanceUtility = require(utilities.Small.InstanceUtility)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local PluginUI = require(shared.PluginUI)
+local Style = require(shared.Style)
+local UDF = require(shared.UDF)
+local Selector = require(shared.Small.Selector)
+local RawInst = require(shared.Small.RawInst)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
 local getId = PluginUI.getId
 local rule = Style.rule
 
-local index = InstanceUtility.index
-local newindex = InstanceUtility.newindex
+local index = RawInst.index
+local newindex = RawInst.newindex
 
 local studioSettings = settings().Studio
 

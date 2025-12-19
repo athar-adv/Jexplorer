@@ -1,9 +1,10 @@
 local StudioService = game:GetService('StudioService')
 
+local JexpTags = require("./JexpTags")
 local format = string.format
 
 local function getTaggedPropertySelector(propName: string, targetedValue: string)
-	return `.JEXP_TAGGED_{propName}_{targetedValue}`
+	return `.{JexpTags.getTaggedPropertyTag(propName, targetedValue)}`
 end
 
 local function getIconSelector(name: string?, class: string?)

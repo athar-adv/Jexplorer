@@ -2,18 +2,18 @@
 --!optimize 2
 
 local main = script.Parent.Parent.Parent
-local utilities = main.Utilities
+local shared = main.Shared
 
-local PluginUI = require(utilities.PluginUI)
-local InstanceUtility = require(utilities.Small.InstanceUtility)
+local PluginUI = require(shared.PluginUI)
+local RawInst = require(shared.Small.RawInst)
 
-local rawindex = InstanceUtility.rawindex
+local rawindex = RawInst.rawindex
 
 local Types = require(main.Types)
 
 local PropertyFrame = {
 	PluginUI = PluginUI,
-	InstanceUtility = InstanceUtility,
+	RawInst = RawInst,
 }
 
 type CallbackInfo = {

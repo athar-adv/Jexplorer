@@ -7,15 +7,15 @@ local RunService = game:GetService("RunService")
 
 local main = script.Parent.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
+local UITemplates = require(shared.UITemplates)
 local Types = require(main.Types)
 
-local JDF = require(utilities.UDF)
-local PluginUI = require(utilities.PluginUI)
-local ClassIcon = require(utilities.Small.ClassIcon)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local JDF = require(shared.UDF)
+local PluginUI = require(shared.PluginUI)
+local ClassIcon = require(shared.Small.ClassIcon)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
 local getId = PluginUI.getId
@@ -158,8 +158,7 @@ function OrderEditor.init(Manager)
 			end
 			
 			OrderEditor.PriorityVersion += 1
-			Manager.WidgetState.HierarchyVersion += 1
-			Manager.updateVirtualScroller()
+			Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
 		end)
 		
 		PluginUI.createDeleteButton(button, function()

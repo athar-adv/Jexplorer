@@ -2,16 +2,16 @@
 
 local main = script.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 local ui = main.__legacy.UI
 
-local PluginUI = require(utilities.PluginUI)
-local Style = require(utilities.Style)
-local GitAPI = require(utilities.GitAPI)
+local PluginUI = require(shared.PluginUI)
+local Style = require(shared.Style)
+local GitAPI = require(shared.GitAPI)
 
-local ItemGroup = require(utilities.Vendor.ItemGroup)
-local SimpleSignal = require(utilities.Vendor.SimpleSignal)
-local ColorPicker = require(utilities.Vendor.PluginColorPicker)
+local ItemGroup = require(shared.Vendor.ItemGroup)
+local SimpleSignal = require(shared.Vendor.SimpleSignal)
+local ColorPicker = require(shared.Vendor.PluginColorPicker)
 
 local Jecs = require(main.Jecs)
 
@@ -64,8 +64,19 @@ export type SavedState = {
 	},
 }
 
-type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
+export type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
 type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
+export type DragInfo_SetInstTypeProperty = {
+	-- Set instance type properties
+	Type: "setproperty",
+	TargetInstance: Instance,
+	PropertyName: string
+}
+export type DragInfo_ReparentInstances = {
+	-- Drag into
+	Type: "reparent",
+	Entities: {ExplorerEntity},
+}
 export type StudioIconResult = {
 	Image: string,
 	ImageRectOffset: Vector2,
@@ -81,7 +92,7 @@ export type ContextMenu = {
 export type Tab = {
 	TabFrame: GuiObject,
 	Button: GuiButton,
-	InsertButton: GuiButton,
+	InsertButton: GuiButton?,
 	RemoveButton: GuiButton?,
 	NameBox: TextBox,
 
@@ -130,7 +141,7 @@ export type FrameState = {
 	isAssigning: boolean
 }
 
-type Components = {
+export type Components = {
 	Selected: Jecs.Id,
 	Expanded: Jecs.Id,
 	AncestryLocked: Jecs.Id,
@@ -171,7 +182,6 @@ export type WidgetState = {
 	Favorited: {ExplorerEntity},
 	Tabs: {Tab},
 	RepoProxies: {RepoProxy},
-	HierarchyVersion: number,
 	SavedState: SavedState,
 
 	LastSelectedEntity: ExplorerEntity?,
@@ -179,24 +189,114 @@ export type WidgetState = {
 
 	CurrentlyRenaming: ExplorerEntity?,
 	CurrentlyInserting: {Instance}?,
-	CurrentDrag: {
-		Connections: ItemGroup<RBXScriptConnection>,
-		Frame: typeof(ui.DragFrame),
-		Entities: {ExplorerEntity}
-	}?,
+	IsDragging: boolean,
 
 	JExplorerUI: typeof(ui.JExplorerUi),
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
-	MiscContextMenus: {[string]: ContextMenu}
+	MiscContextMenus: {[string]: ContextMenu},
+	OnClose: (() -> ())?
+}
+
+export type HierarchyState = {
+	ChildrenMap: {[ExplorerEntity]: {ExplorerEntity}},
+	
+	cleanupEntities: (Manager, {ExplorerEntity}) -> boolean,
+	cleanupEntity: (Manager, ExplorerEntity) -> (),
+	rebuildHierarchyCache: (Manager) -> ({[ExplorerEntity]: {ExplorerEntity}}, {ExplorerEntity}),
+	getFlattenedVisibleEntities: (Manager, invisible: {ExplorerEntity}, isScroller: boolean) -> ({ExplorerEntity}, {[ExplorerEntity]: number}),
+	
+	invalidateEntityStateCache: (ExplorerEntity) -> (),
+	
+	flushEntityCreationQueue: (Manager) -> boolean,
+	queueForEntityCreation: (parent: ExplorerEntity, children: {Instance}) -> (),
+	
+	flushEntityCleanupQueue: (Manager) -> boolean,
+	queueForEntityCleanup: (entity: ExplorerEntity) -> (),
+	
+	flushOnChildAddedQueue: (Manager) -> boolean,
+	queueForOnChildAdded: (new_parent: ExplorerEntity, child: Instance) -> (),
+	
+	flushOnChildRemovedQueue: (Manager) -> boolean,
+	queueForOnChildRemoved: (old_parent: ExplorerEntity, child: Instance) -> (),
+	
+	stepFlushEntityDeletionQueue: (Manager) -> boolean,
+	queueForEntityDeletion: (entity: ExplorerEntity) -> (),
+	
+	getEntitiesBetween: (Manager, e1: ExplorerEntity, e2: ExplorerEntity) -> {ExplorerEntity},
+	
+	flushEntityPropAssignQueue: (Manager) -> (),
+	
+	getOrCreateInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
+	createVirtualEntity: (Manager, options: {
+		ClassName: string,
+		Name: string,
+		ChildAmount: number,
+		ClassIcon: StudioIconResult,
+		PropTags: {Jecs.Id},
+		Parent: ExplorerEntity?
+	}, extra: {[string]: any}) -> ExplorerEntity,
+	createInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
+	
+	deregisterFromQueryWorld: (Manager, entity: ExplorerEntity) -> (),
+	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, tags: {Jecs.Id}) -> (),
+	
+	updateEntityOrder: (Manager, entity: ExplorerEntity) -> (),
+	getChildren: (ExplorerEntity) -> {ExplorerEntity},
+}
+
+export type ExplorerFrameLib = {
+	fillGlobalPoolToLimit: (Manager) -> (),
+	fillLocalPoolToLimit: (Manager) -> (),
+	initializeFrameCaches: (Manager) -> (),
+	
+	getExplorerFrame: (Manager) -> ExplorerFrame,
+	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean) -> (),
+	flushExplorerFrameTagAssignQueue: (Manager) -> boolean,
+	
+	queueForExplorerFrameReuse: (Manager, ExplorerFrame) -> (),
+	flushFrameReuseQueue: (Manager) -> boolean,
+	
+	updateSelectionVisuals: (Manager, updateSelection: boolean) -> (),
+	updateExpandedVisuals: (Manager, expandedCt: Jecs.Id?) -> (),
+	updateCollapsedVisuals: (Manager) -> (),
+}
+
+export type VirtualScroller = {
+	clearHeightCache: (Manager) -> (),
+	invalidateEntityHeightCache: (Manager, ExplorerEntity) -> (),
+	
+	update: (Manager, isScroller: boolean) -> (),
+	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
+	trackScrolling: (Manager) -> (RBXScriptConnection, thread)
+}
+
+export type InsertMenu = {
+	init: (Manager) -> (),
+	show: (Manager, buttonAbsolutePos: Vector2, buttonAbsoluteSize: Vector2) -> (),
+}
+
+export type DeferredTaskScheduler = {
+	HierarchyChildrenMapNeedsUpdate: boolean,
 }
 
 export type Manager = {
-	Jecs: typeof(Jecs),
+	CleanupFns: typeof(ItemGroup.cleanup),
 	WidgetState: WidgetState,
 	Components: Components,
 	Toolbar: PluginToolbar,
 	Storage: Folder,
+	
+	InstTreeAbsoluteSizeY: number,
+	
+	QueryTagMap: {[string]: Jecs.Id},
+	QueryCtMap: {[string]: Jecs.Id},
+	
+	ExplorerFrame: ExplorerFrameLib,
+	HierarchyState: HierarchyState,
+	VirtualScroller: VirtualScroller,
+	InsertMenu: InsertMenu,
+	DeferredTaskScheduler: DeferredTaskScheduler,
 
 	PluginActions: {[string]: PluginAction},
 
@@ -207,23 +307,29 @@ export type Manager = {
 		Favorited: "JEXP_ABSTRACT_Favorited"
 	},
 	Style: Style.Style,
+	AllTab: Tab,
+	
 	InstanceToEntity: {[Instance]: ExplorerEntity},
 	FrameToInstanceFrame: {[Instance]: ExplorerFrame},
-
-	SelectionChanged: Signal<{ExplorerEntity}>,
-
+	
+	ChildAmountCache: {[ExplorerEntity]: number},
+	ClassNameCache: {[ExplorerEntity]: string},
+	NameCache: {[ExplorerEntity]: string},
+	DebugIdToInstance: {[string]: Instance},
+	TabFrameToTab: {[Instance]: Tab},
+	
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
-	getExplorerFrame: () -> ExplorerFrame,
-	getOrCreateInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
+	
 	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
 
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
-
-	createVirtualEntity: (options: {ClassName: string, Name: string, ChildAmount: number, ClassIcon: StudioIconResult, PropTags: {Jecs.Id}, Parent: ExplorerEntity?}, extra: {[string]: any}) -> ExplorerEntity,
-	createInstanceEntity: (instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
+	
+	triggerDuplicateTarget: () -> (),
+	triggerDeleteTarget: () -> (),
+	triggerEscapeTarget: () -> (),
 
 	createContextMenu: (id: string, contents: {any}, title: string?, icon: string?) -> ContextMenu,
 	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
@@ -238,22 +344,32 @@ export type Manager = {
 
 	getSetting: (name: string) -> any,
 	setSetting: (name: string, value: any) -> (),
+	
+	isExplorerEntityInvisible: (entity: ExplorerEntity) -> boolean,
+	isExplorerEntityDeleted: (entity: ExplorerEntity) -> boolean,
+	isExplorerEntityExpanded: (entity: ExplorerEntity) -> boolean,
+	
+	getPropertyComponentsForClass: (World, class: string) -> {Jecs.Id},
+	
+	isInstanceExcluded: (inst: Instance) -> boolean,
+	
+	getSetPropertyDragInfo: (inst: Instance, propName: string) -> any,
+	getDragEntitiesDragInfo: (entities: {ExplorerEntity}) -> any,
+	unpackDragInfo: (dragInfo: any) -> DragInfo_ReparentInstances | DragInfo_SetInstTypeProperty,
+	
+	addExplorerEntitiesToSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
+	setExplorerEntitiesAsSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
+	
+	startDraggingSelected: () -> (),
 
-	getDragInfo: (inst: Instance, propName: string) -> any,
-	unpackDragInfo: (dragInfo: any) -> (Instance, string),
-
-	setInstanceFramePoolTarget: (n: number) -> (),
-	fillInstanceFramePoolToLimit: () -> (),
-	addEntitiesToSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -> (),
-	setEntitiesAsSelection: (world: World, entities: {ExplorerEntity}, updateSelection: boolean) -> (),
-	updateVirtualScroller: () -> (),
-	updateSelectionVisuals: (updateSelection: boolean) -> (),
-	updateExpandedVisuals: (update: boolean, expandedCt: Jecs.Id?) -> (),
-	updateCollapsedVisuals: (update: boolean) -> (),
-
-	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,	
+	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,
+	
 	init: (onClose: () -> (), connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
+	
 	frameOf: (frame: ExplorerFrame) -> typeof(main.__legacy.UI.InstanceFrame)?,
+	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
+	instanceOf: (entity: ExplorerEntity) -> Instance?,
+	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
 
 	saveState: () -> SavedState,
 	loadState: (state: SavedState) -> ({

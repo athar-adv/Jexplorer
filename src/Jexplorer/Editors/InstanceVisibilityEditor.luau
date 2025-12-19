@@ -5,12 +5,12 @@ local ReflectionService = game:GetService("ReflectionService")
 local HttpService = game:GetService("HttpService")
 
 local main = script.Parent.Parent
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
-local PluginUI = require(utilities.PluginUI)
-local ClassIcon = require(utilities.Small.ClassIcon)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local UITemplates = require(shared.UITemplates)
+local PluginUI = require(shared.PluginUI)
+local ClassIcon = require(shared.Small.ClassIcon)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 local Types = require(main.Types)
 
@@ -81,7 +81,7 @@ function InstanceVisibilityEditor.init(Manager)
 			if _invisible == nil then
 				-- Update JSON box with invisible classes
 				jsonBox:Set(HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses))
-				Manager.updateVirtualScroller()
+				Manager.VirtualScroller.update(Manager, false)
 			end
 		end
 
@@ -103,7 +103,7 @@ function InstanceVisibilityEditor.init(Manager)
 	jsonBox = PluginUI.createAttributeBox(list, "Invisible Classes JSON", HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses), function(newValue)
 		if newValue == "" then
 			InstanceVisibilityEditor.InvisibleClasses = {}
-			Manager.updateVirtualScroller()
+			Manager.VirtualScroller.update(Manager, false)
 			return
 		end
 
@@ -116,7 +116,7 @@ function InstanceVisibilityEditor.init(Manager)
 
 			item.toggle(invisible)
 		end
-		Manager.updateVirtualScroller()
+		Manager.VirtualScroller.update(Manager, false)
 	end)
 end
 

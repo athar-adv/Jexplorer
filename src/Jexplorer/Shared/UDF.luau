@@ -36,15 +36,29 @@ function UDF.to(input: any): string
 	elseif typeof(input) == "Font" then
 		local input: Font = input
 		return `[font_asset] {input.Weight.Name} {input.Style.Name} {input.Family}`
+	elseif typeof(input) == "Content" then
+		if input.Uri then
+			return `[content_uri] {input.Uri}`
+		else
+			error("cannot use object as content for udf")
+		end
+	elseif typeof(input) == "Region3" then
+		local min = input.CFrame.Position - input.Size / 2
+		local max = input.CFrame.Position + input.Size / 2
+		return `[region3] {min.X}, {min.Y}, {min.Z}, {max.X}, {max.Y}, {max.Z}`
+	elseif typeof(input) == "Ray" then
+		return `[ray] {input.Origin.X}, {input.Origin.Y}, {input.Origin.Z}, {input.Direction.X}, {input.Direction.Y}, {input.Direction.Z}`
 	end
 	return ""
 end
 
 function UDF.from(input: string): any
-	input = input:gsub("%s", "")
-	local datatype = input:match("%b[]")
+	-- Truncate leading whitespace
+	input = input:match("^%s*(.*)") or input
+
+	-- Check if input starts with a shorthand punctuation
 	local shorthand = input:sub(1, 1)
-	
+
 	if shorthand:match("%p") then
 		local val = input:sub(2)
 		if shorthand == "%" then
@@ -59,15 +73,27 @@ function UDF.from(input: string): any
 			-- Selector macro
 			local value = Selector.parseSelectorMacro(val)
 			assert(value, `'{val}' is not a valid selector macro`)
-
 			return value
 		end
 	end
-	if not datatype then return nil end
-	
+
+	-- Check if input starts with [DATATYPE] format
+	local datatype = input:match("^%b[]")
+
+	if not datatype then 
+		error("Input must start with [DATATYPE] tag or shorthand punctuation")
+	end
+
+	-- Remove whitespace from datatype tag
+	datatype = datatype:gsub("%s", "")
+
+	-- Extract the value after the datatype tag and truncate leading whitespace
 	input = input:sub(#datatype + 1)
+	input = input:match("^%s*(.*)") or input
+
+	-- Remove the brackets from datatype
 	datatype = datatype:sub(2, #datatype - 1)
-	
+
 	if datatype == "str" then
 		return input
 	elseif datatype == "rgb" then
@@ -88,13 +114,13 @@ function UDF.from(input: string): any
 			warn(`[{datatype}] is not a valid enum.`)
 			return
 		end
-		
+
 		local item = (enum::any):FromName(input)
 		if not item then
 			warn(`'{input}' is not a valid member of 'Enum.{datatype}'`)
 			return
 		end
-		
+
 		return item
 	elseif datatype == "num" then
 		return tonumber(input)
@@ -108,7 +134,7 @@ function UDF.from(input: string): any
 		)
 	elseif datatype == "udim2" then
 		local values = string.split(input, ",")
-		
+
 		return UDim2.new(
 			tonumber(values[1]), 
 			tonumber(values[2]),
@@ -135,7 +161,7 @@ function UDF.from(input: string): any
 	elseif datatype == "selector" then
 		local value = Selector.parseSelectorMacro(input)
 		assert(value, `'{input}' is not a valid selector macro`)
-		
+
 		return value
 	elseif datatype == "font_asset" then
 		local values = string.split(input, " ")
@@ -147,8 +173,40 @@ function UDF.from(input: string): any
 		return Font.fromEnum(
 			assert(Enum.Font:FromName(input))
 		)
+	elseif datatype == "content_asset" then
+		return Content.fromAssetId(
+			assert(tonumber(input))
+		)
+	elseif datatype == "content_uri" then
+		return Content.fromUri(input)
+	elseif datatype == "region3" then
+		local values = string.split(input, ",")
+		local min = Vector3.new(
+			tonumber(values[1]),
+			tonumber(values[2]),
+			tonumber(values[3])
+		)
+		local max = Vector3.new(
+			tonumber(values[4]),
+			tonumber(values[5]),
+			tonumber(values[6])
+		)
+		return Region3.new(min, max)
+	elseif datatype == "ray" then
+		local values = string.split(input, ",")
+		local origin = Vector3.new(
+			tonumber(values[1]),
+			tonumber(values[2]),
+			tonumber(values[3])
+		)
+		local direction = Vector3.new(
+			tonumber(values[4]),
+			tonumber(values[5]),
+			tonumber(values[6])
+		)
+		return Ray.new(origin, direction)
 	else
-		error(`[{datatype}] is not a valid datatype for styles.`)
+		error(`[{datatype}] is not a valid datatype tag.`)
 	end
 end
 

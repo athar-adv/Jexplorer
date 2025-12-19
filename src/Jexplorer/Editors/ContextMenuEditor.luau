@@ -5,17 +5,17 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local main = script.Parent.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 
-local PluginUI = require(utilities.PluginUI)
-local InstanceUtility = require(utilities.Small.InstanceUtility)
-local UITemplates = require(utilities.UITemplates)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local PluginUI = require(shared.PluginUI)
+local RawInst = require(shared.Small.RawInst)
+local UITemplates = require(shared.UITemplates)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
 local Types = require(main.Types)
 
-local rawindex = InstanceUtility.rawindex
+local rawindex = RawInst.rawindex
 
 local init = false
 
@@ -28,7 +28,6 @@ type ContextMenuConfigs = {
 			Priority: number,
 			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
 			Contents: {any},
-			DefaultActionsName: string?,
 		}
 	},
 	Actions: {
@@ -173,10 +172,10 @@ function ContextMenuEditor.init(Manager)
 		end
 		for name, info in configs.Menus do
 			if typeof(info.Contents) == "function" then
-				info.Contents = info.Contents(function()
+				info.Contents = info.Contents(function(defaultActionsName: string?)
 					local tbl
-					if info.DefaultActionsName and state.InstanceContextMenus[info.DefaultActionsName] then
-						tbl = table.clone(state.InstanceContextMenus[info.DefaultActionsName].Menu.UnprocessedContents)
+					if defaultActionsName and state.InstanceContextMenus[defaultActionsName] then
+						tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.UnprocessedContents)
 					else
 						tbl = {}
 					end

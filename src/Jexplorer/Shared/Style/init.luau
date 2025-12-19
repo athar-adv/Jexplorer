@@ -18,20 +18,22 @@ export type Style = {
 	Sheet: StyleSheet,
 	Tokens: {[string]: any},
 	AppliedTokens: {[string]: any},
-	
+
 	Links: {StyleLink},
 	Rules: {Rule},
-	
+
 	Link: (Style, gui: Instance) -> StyleLink,
-	
+
 	SetToken: (Style, name: string, value: any, autoUpdate: boolean) -> (),
 	GetToken: (Style, name: string) -> any,
 	UpdateTokens: (Style) -> (),
-	
+
 	AddRules: (Style, rules: {[any]: any}) -> (),
 	FindRule: (Style, selector: string) -> StyleRule?,
+	GetTagged: (Style, tag: string) -> {Rule},
+	GetWithoutTags: (Style, ...string) -> {Rule},
 	Replace: (Style, newStyle: Style) -> (),
-	
+
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
 	RuleRemoved: SimpleSignal.SimpleSignal<Rule>,
 	TokenChanged: SimpleSignal.SimpleSignal<string, any>,
@@ -43,25 +45,27 @@ export type Rule = {
 	ChildRules: {Rule},
 	ParentRule: Rule?,
 	Tags: {[string]: boolean},
-	
+
 	AddTag: (Rule, string) -> (),
 	HasTag: (Rule, string) -> boolean,
 	RemoveTag: (Rule, string) -> (),
-	
+	GetTagged: (Rule, tag: string) -> {Rule},
+	GetWithoutTags: (Rule, ...string) -> {Rule},
+
 	RawProperties: {[string]: any},
 	AppliedProperties: {[string]: any},
-	
+
 	AddRules: (Rule, rules: {Rule}) -> (),
 	SetProperty: (Rule, k: string, value: any) -> (),
 	GetProperty: (Rule, k: string) -> any,
 	GetName: (Rule) -> string,
 	SetName: (Rule, name: string) -> (),
 	Destroy: (Rule) -> (),
-	
+
 	PropertyChanged: SimpleSignal.SimpleSignal<string, any>,
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
 	RuleRemoved: SimpleSignal.SimpleSignal<Rule>,
-	
+
 	init: (Rule, sheet: Style) -> (),
 	__initialized: boolean
 }
@@ -75,7 +79,7 @@ local Style = {
 local function filterRules(style: Style, rules: {[string | number]: any}, tokens: {[string]: any})
 	local sheet = style.Sheet
 	local queuedTokens = {}
-	
+
 	for k, v in rules do
 		if type(k) == "number" then continue end
 		if type(v) == "table" and v.__stylevar then
@@ -90,7 +94,7 @@ local function filterRules(style: Style, rules: {[string | number]: any}, tokens
 		rules[k] = nil
 	end
 	for _, f in queuedTokens do f() end
-	
+
 	local appliedTokens = sheet:GetAttributes()
 	for _, rule in rules do
 		for k, v in rule.RawProperties do
@@ -102,16 +106,17 @@ local function filterRules(style: Style, rules: {[string | number]: any}, tokens
 			end
 		end
 	end
-	
-	for k, rule in rules do
+
+	for k, rule: Rule in rules do
+		if rule.__initialized then continue end
 		rule:init(style)
-		
+
 		for _, v in rule.AppliedProperties do
 			if type(v) ~= "string" then continue end
 			if v:sub(1, 1) ~= "$" then continue end
 			local tokenName = v:sub(2)
 			if sheet:GetAttribute(tokenName) == nil then
-				error(`token '${tokenName}' not found (selector '{rule.Selector}')`)
+				error(`token '${tokenName}' not found (selector '{rule.Rule.Selector}')`)
 			end
 		end
 	end
@@ -157,7 +162,7 @@ end
 function StyleMethods:UpdateTokens()
 	local sheet = self.Sheet
 	local appliedTokens = sheet:GetAttributes()
-	
+
 	for k, v in self.Tokens do
 		if type(v) == "table" and v.__stylevar then
 			local evaluated = eval(v.__expr, appliedTokens)
@@ -168,7 +173,7 @@ function StyleMethods:UpdateTokens()
 			appliedTokens[k] = v
 		end
 	end
-	
+
 	local function updateRulesRecursive(rules: {Rule})
 		for _, ruleTbl in rules do
 			local changed = false
@@ -195,7 +200,7 @@ end
 function StyleMethods:Replace(new: Style)
 	local sheet = self.Sheet
 	new.Sheet.Parent = sheet.Parent
-	
+
 	for _, v in self.Links do
 		v.StyleSheet = new.Sheet
 	end
@@ -232,6 +237,34 @@ function StyleMethods:FindRule(selector)
 	return rule :: StyleRule
 end
 
+function StyleMethods:GetTagged(tag: string): {Rule}
+	local tagged = {}
+	for _, rule in self.Rules do
+		if rule:HasTag(tag) then
+			table.insert(tagged, rule)
+		end
+	end
+	return tagged
+end
+
+function StyleMethods:GetWithoutTags(...: string): {Rule}
+	local excludeTags = {...}
+	local result = {}
+	for _, rule in self.Rules do
+		local hasExcludedTag = false
+		for _, tag in excludeTags do
+			if rule:HasTag(tag) then
+				hasExcludedTag = true
+				break
+			end
+		end
+		if not hasExcludedTag then
+			table.insert(result, rule)
+		end
+	end
+	return result
+end
+
 local RuleMethods = {} :: Rule
 (RuleMethods::any).__index = RuleMethods
 
@@ -247,11 +280,39 @@ function RuleMethods:RemoveTag(tag)
 	self.Tags[tag] = nil
 end
 
+function RuleMethods:GetTagged(tag: string): {Rule}
+	local tagged = {}
+	for _, rule in self.ChildRules do
+		if rule:HasTag(tag) then
+			table.insert(tagged, rule)
+		end
+	end
+	return tagged
+end
+
+function RuleMethods:GetWithoutTags(...: string): {Rule}
+	local excludeTags = {...}
+	local result = {}
+	for _, rule in self.ChildRules do
+		local hasExcludedTag = false
+		for _, tag in excludeTags do
+			if rule:HasTag(tag) then
+				hasExcludedTag = true
+				break
+			end
+		end
+		if not hasExcludedTag then
+			table.insert(result, rule)
+		end
+	end
+	return result
+end
+
 function RuleMethods:SetProperty(k, v)
 	local realProps = self.AppliedProperties
 	local props = self.RawProperties
 	local rule = self.Rule
-	
+
 	if type(v) == "table" and v.__stylevar then
 		local evaluated = eval(v.__expr, self.Sheet.Sheet:GetAttributes())
 		realProps[k] = evaluated
@@ -264,6 +325,30 @@ function RuleMethods:SetProperty(k, v)
 end
 
 function RuleMethods:AddRules(rules)
+	local sheet = self.Sheet
+	local appliedTokens = sheet.Sheet:GetAttributes()
+	for _, rule in rules do
+		for k, v in rule.RawProperties do
+			if type(v) == "table" and v.__stylevar then
+				local evaluated = eval(v.__expr, appliedTokens)
+				rule.AppliedProperties[k] = evaluated
+			else
+				rule.AppliedProperties[k] = v
+			end
+		end
+	end
+
+	for k, rule in rules do
+		rule:init(sheet)
+		for _, v in rule.AppliedProperties do
+			if type(v) ~= "string" then continue end
+			if v:sub(1, 1) ~= "$" then continue end
+			local tokenName = v:sub(2)
+			if sheet.Tokens[tokenName] == nil then
+				error(`token '${tokenName}' not found (selector '{rule.Rule.Selector}')`)
+			end
+		end
+	end
 	for _, v in rules do
 		v.ParentRule = self
 		table.insert(self.ChildRules, v)
@@ -298,7 +383,7 @@ function RuleMethods:Destroy()
 	end
 	local rule = self.Rule
 	local rules = self.Sheet.Rules
-	
+
 	local idx = table.find(rules, self)
 	if idx then
 		local l = #rules
@@ -314,17 +399,17 @@ function RuleMethods:init(sheet)
 	assert(not self.__initialized, `rule '{self:GetName()}' has already been initialized.`)
 	self.__initialized = true
 	self.Sheet = sheet
-	
+
 	local rule = self.Rule
 	local realProps = self.AppliedProperties
 	local props = self.RawProperties
-	
+
 	if not self.ParentRule then
 		rule.Parent = sheet.Sheet
 	else
 		rule.Parent = self.ParentRule.Rule
 	end
-	
+
 	for k, v in props do
 		if type(v) == "table" and v.__stylevar then
 			local evaluated = eval(v.__expr, self.Sheet.Sheet:GetAttributes())
@@ -334,20 +419,20 @@ function RuleMethods:init(sheet)
 		end
 	end
 	rule:SetProperties(realProps)
-	
+
 	local nameMap = {}
 	for _, v in sheet.Rules do
 		nameMap[v:GetName()] = v
 	end
-	
+
 	local rulesToInit: {Rule} = {}
 	local clonesToResolve = {}
-	
+
 	for i, v: any in self.ChildRules do
 		if typeof(v) == "table" and v.__clonedrule then
 			local existing = nameMap[v.__name]
 			assert(existing, `Rule '{v.__name}' does not exist. Cannot use Style.cloned() rule`)
-			
+
 			local cloned = Style.cloneRule(existing)
 			cloned.ParentRule = self
 			clonesToResolve[i] = cloned
@@ -360,7 +445,7 @@ function RuleMethods:init(sheet)
 	for i, cloned in clonesToResolve do
 		self.ChildRules[i] = cloned
 	end
-	
+
 	local appliedTokens = sheet.Sheet:GetAttributes()
 	for _, rule in rulesToInit do
 		for k, v in rule.RawProperties do
@@ -372,7 +457,7 @@ function RuleMethods:init(sheet)
 			end
 		end
 	end
-	
+
 	for k, rule in rulesToInit do
 		rule:init(sheet)
 
@@ -408,7 +493,7 @@ function Style.cloneRule(rule: Rule)
 		table.insert(clonedChildren, Style.cloneRule(v))
 	end
 	cloned:AddRules(clonedChildren)
-	
+
 	return cloned
 end
 
@@ -421,22 +506,22 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 	rule.Priority = priority
 	rule.Name = RULE_NAME_FORMAT:format(selector)
 	rule:SetAttribute("Name", name)
-	
+
 	local arrayPart = {}
 	local childrenRules = {}
 	for i, v in ipairs(props::any) do
 		table.insert(arrayPart, i)
 		table.insert(childrenRules, v)
 	end
-	
+
 	for _, i in arrayPart do
 		props[i] = nil
 	end
-	
+
 	rule:GetPropertyChangedSignal("Selector"):Connect(function()
 		rule.Name = RULE_NAME_FORMAT:format(rule.Selector)
 	end)
-	
+
 	local realProps = {}
 	local ruleTbl = setmetatable({
 		Rule = rule,
@@ -444,18 +529,18 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		AppliedProperties = realProps,
 		ChildRules = childrenRules,
 		Tags = {},
-		
+
 		PropertyChanged = SimpleSignal.new(),
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new()
 	} :: Rule, RuleMethods) :: any
-	
+
 	return ruleTbl
 end
 
 function Style.create(rules: {[any]: any}): Style
 	local sheet = Instance.new("StyleSheet")
-	
+
 	local tokens = {}
 	local style = setmetatable({
 		Sheet = sheet,
@@ -468,13 +553,13 @@ function Style.create(rules: {[any]: any}): Style
 		RuleRemoved = SimpleSignal.new(),
 		TokenChanged = SimpleSignal.new(),
 	} :: Style, StyleMethods) :: any
-	
+
 	filterRules(style, rules, tokens)
-	
+
 	for _, v in rules do
 		sheet:InsertStyleRule(v.Rule)
 	end
-	
+
 	return style
 end
 
@@ -488,7 +573,7 @@ function Style.fromRulesTokens(rules: {Rule}, tokens: {[string]: any}): Style
 	end
 	local sheet = Style.create(tbl)
 	sheet:UpdateTokens()
-	
+
 	return sheet
 end
 

@@ -5,8 +5,8 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local StudioService = game:GetService("StudioService")
 
-local InstanceUtility = require(script.Parent.Small.InstanceUtility)
-local index, newindex = InstanceUtility.index, InstanceUtility.newindex
+local RawInst = require(script.Parent.Small.RawInst)
+local index, newindex = RawInst.index, RawInst.newindex
 
 export type ItemList = {
 	Backdrop: Frame & any,
@@ -184,20 +184,6 @@ local function connection(tbl: {any}, item: any): RBXScriptConnection
 			end
 		end,
 	} :: any
-end
-
-local function borderFrame(pos: UDim2, size: UDim2, parent: Instance)
-	local borderFrame = Instance.new("Frame")
-	borderFrame.Name = "BorderFrame"
-	borderFrame:AddTag("JEXP_GrayBorder")
-
-	borderFrame.BackgroundTransparency = 1
-	borderFrame.BorderSizePixel = 0
-	borderFrame.Size = size
-	borderFrame.Position = UDim2.fromScale(0, 0)
-	borderFrame.Parent = parent
-	
-	return borderFrame
 end
 
 function PluginUI.getId(name: string, unique: boolean?)
@@ -715,9 +701,6 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 	label.Font = Enum.Font.SourceSans
 	label.TextSize = 12
 	
-	borderFrame(UDim2.fromScale(0, 0), UDim2.fromScale(0.5, 1), checkBox)
-	borderFrame(UDim2.fromScale(0.5, 0), UDim2.fromScale(0.5, 1), checkBox)
-	
 	local isChecked = checked or false
 	local button = Instance.new("TextButton")
 	button.Parent = checkBox
@@ -881,7 +864,7 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	nameLabel.ZIndex = 4
 	nameLabel.Parent = attrBox
 	
-	borderFrame(UDim2.fromScale(0, 0), UDim2.fromScale(0.5, 1), attrBox)
+	--borderFrame(UDim2.fromScale(0, 0), UDim2.fromScale(0.5, 1), attrBox)
 	
 	-- Value input box
 	local valueBox = Instance.new("TextBox")
@@ -904,7 +887,7 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	valueBox.ZIndex = 4
 	valueBox.Parent = attrBox
 	
-	borderFrame(UDim2.fromScale(0.5, 0), UDim2.fromScale(0.5, 1), attrBox)
+	--borderFrame(UDim2.fromScale(0.5, 0), UDim2.fromScale(0.5, 1), valueBox)
 	
 	if list then
 		list:AddItem(attrBox)
@@ -1032,8 +1015,6 @@ function PluginUI.createEnumBox(
 	nameLabel.ZIndex = 4
 	nameLabel.Parent = enumBox
 	
-	borderFrame(UDim2.fromScale(0, 0), UDim2.fromScale(0.5, 1), enumBox)
-	
 	local valueButton = Instance.new("TextButton")
 	valueButton.Name = "ValueButton"
 	valueButton:AddTag("JEXP_LightBackground")
@@ -1060,7 +1041,6 @@ function PluginUI.createEnumBox(
 	arrow.BackgroundTransparency = 1
 	arrow.Parent = valueButton
 	
-	borderFrame(UDim2.fromScale(0.5, 0), UDim2.fromScale(0.5, 1), enumBox)
 	local dropdownList = PluginUI.createItemList({
 		Size = UDim2.new(0, 200, 0, 150),
 		ZIndex = 2000,
@@ -1211,8 +1191,6 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	nameLabel.ZIndex = 4
 	nameLabel.Parent = dropdownBox
 	
-	borderFrame(UDim2.fromScale(0, 0), UDim2.new(0.5, 0, 0, absSize.Y), dropdownBox).ZIndex = -1
-	
 	local valueBox = Instance.new("TextBox")
 	valueBox.Name = "ValueBox"
 	valueBox:AddTag("JEXP_Text")
@@ -1233,7 +1211,6 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	valueBox.ZIndex = 4
 	valueBox.Parent = dropdownBox
 	
-	borderFrame(UDim2.fromScale(0.5, 0), UDim2.new(0.5, 0, 0, absSize.Y), dropdownBox)
 	local dropdownList = PluginUI.createItemList({
 		AutomaticSize = Enum.AutomaticSize.XY,
 		Position = UDim2.new(0, 0, 0, absSize.Y + 2),

@@ -12,18 +12,19 @@ local studioSettings = settings().Studio
 
 local main = script.Parent.Parent
 
-local utilities = main.Utilities
+local shared = main.Shared
 
-local UITemplates = require(utilities.UITemplates)
-local PluginUI = require(utilities.PluginUI)
-local GitAPI = require(utilities.GitAPI)
-local InstanceUtility = require(utilities.Small.InstanceUtility)
-local parse = require(utilities.Luaup.parse)
-local visit = require(utilities.Luaup.visit)
-local ItemGroup = require(utilities.Vendor.ItemGroup)
+local UITemplates = require(shared.UITemplates)
+local PluginUI = require(shared.PluginUI)
+local GitAPI = require(shared.GitAPI)
+local RawInst = require(shared.Small.RawInst)
+local parse = require(shared.Luaup.parse)
+local visit = require(shared.Luaup.visit)
+local cstTypes = require(shared.Luaup.cst)
+local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
-local rawindex = InstanceUtility.rawindex
+local rawindex = RawInst.rawindex
 
 local Types = require(main.Types)
 
@@ -169,9 +170,9 @@ local function syntaxHighlight(src: string): string
 			table.insert(spans, root.tok.span)
 		end
 
-		for i, suffix in node.suffixes do
+		for i, suffix: cstTypes.VarSuffix_Call in node.suffixes do
 			if suffix.kind ~= "call" then continue end
-
+			
 			if suffix.method then
 				table.insert(spans, suffix.method.name.span)
 				continue
@@ -551,7 +552,7 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 	button.InputBegan:Connect(function(input)
 		if input.UserInputState ~= Enum.UserInputState.Begin then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			plugin:StartDrag(Manager.getDragInfo(objectValue, "Value"))
+			plugin:StartDrag(Manager.getSetPropertyDragInfo(objectValue, "Value"))
 		end
 	end)
 
