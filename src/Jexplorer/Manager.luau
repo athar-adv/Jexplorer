@@ -87,6 +87,17 @@ local components: Types.Components do
 		PendingChanges = tag(),
 		Deleted = tag(),
 		DisplayTopLevel = tag(),
+		
+		CleanupTicket = comp(),
+		DeletionTicket = comp(),
+		ChildAddedTicket = comp(),
+		ChildMovedTicket = comp(),
+		CreationTicket = comp(),
+		PropAssignTicket = comp(),
+		FrameReuseTicket = comp(),
+		FrameTagAssignTicket = comp(),
+		
+		FRAMEWORLD_FrameSetParentTicket = comp(),
 
 		Instance = comp(),
 		Frame = comp(),
@@ -269,7 +280,7 @@ function Manager.triggerEscapeTarget()
 	local world = state.World
 	local components = Manager.Components
 
-	profilebegin("Manager::ESCAPE (unselect all)")
+	profilebegin("Jexplorer::ESCAPE (unselect all)")
 	if state.CurrentlyRenaming then
 		local frame = world:get(state.CurrentlyRenaming, components.Frame)
 		if not frame then return end
@@ -297,7 +308,7 @@ function Manager.triggerDeleteTarget()
 	local components = Manager.Components
 
 	local id = ChangeHistoryService:TryBeginRecording("Destroy", "Destroy")
-	profilebegin("Manager::BACKSPACE/DELETE (remove)")
+	profilebegin("Jexplorer::BACKSPACE/DELETE (remove)")
 
 	local selection = state.CurrentSelection
 	for _, entity in selection do
@@ -307,13 +318,14 @@ function Manager.triggerDeleteTarget()
 		world:add(entity, components.Deleted)
 		local instance = world:get(entity, components.Instance)
 		assert(instance)
-
+		
 		instance.Parent = nil
 		VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 		Manager.updateParent(entity, nil)
-		HierarchyState.queueForEntityCleanup(entity)
+		HierarchyState.cleanupEntity(Manager, entity)
 	end
-
+	
+	HierarchyState.flushEntityCleanupQueue(Manager)
 	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 
 	for _, entity in selection do
@@ -333,7 +345,7 @@ function Manager.triggerDuplicateTarget()
 	local components = Manager.Components
 
 	local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
-	profilebegin("Manager::D (duplicate)")
+	profilebegin("Jexplorer::D (duplicate)")
 
 	local cloned = {}
 	for _, entity in state.CurrentSelection do
@@ -342,7 +354,7 @@ function Manager.triggerDuplicateTarget()
 
 		local instance = world:get(entity, components.Instance)
 		if not instance then continue end
-
+		
 		world:add(parent, components.AncestryLocked)
 
 		local clone = instance:Clone()
@@ -470,12 +482,16 @@ function Manager.getInstFromId(id)
 	return Manager.DebugIdToInstance[id]
 end
 
-function Manager.getSetPropertyDragInfo(inst, propName)
+function Manager.getSetPropertyDragInfo(instances, propName)
+	local ids = {}
+	for _, v in instances do
+		table.insert(ids, Manager.getInstId(v))
+	end
 	return {
 		Sender = "setproperty",
 		MimeType = "text/plain",
 		Data = HttpService:JSONEncode({
-			id = Manager.getInstId(inst),
+			ids = ids,
 			propName = propName
 		}),
 		MouseIcon = "",
@@ -511,10 +527,14 @@ function Manager.unpackDragInfo(info)
 	local sender = info.Sender
 	if sender == "setproperty" then
 		local data = HttpService:JSONDecode(info.Data)
+		local instances = {}
+		for _, id in data.ids do
+			table.insert(instances, assert(Manager.getInstFromId(id)))
+		end
 
 		return {
 			Type = "setproperty",
-			TargetInstance = assert(Manager.getInstFromId(data.id)),
+			TargetInstances = instances,
 			PropertyName = data.propName
 		}
 	elseif sender == "reparent" then
@@ -606,7 +626,7 @@ function Manager.startDraggingSelected()
 end
 
 function Manager.setExplorerEntitiesAsSelection(entities: {ExplorerEntity}, updateSelection: boolean)
-	profilebegin("Manager::setSelection")
+	profilebegin("Jexplorer::setSelection")
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
@@ -638,21 +658,23 @@ function Manager.addExplorerEntitiesToSelection(entities: {ExplorerEntity}, upda
 	ExplorerFrame.updateSelectionVisuals(Manager, updateSelection)
 end
 
+local function isDescendantOfJexpWidget(g: Instance)
+	local widgets = CollectionService:GetTagged("JEXP_Widget")
+	for _, v in widgets do
+		if g:IsDescendantOf(v) then
+			return true
+		end
+	end
+	return false
+end
+
 function Manager.isInstanceExcluded(g)
 	local state = Manager.WidgetState
-	return (
-		g == state.Widget
-			or	g == StyleEditor.Widget
-			or	g == OrderEditor.Widget
-			or	g == SettingEditor.Widget
-			or	g == PropertyEditor.Widget
-			or	g == ContextMenuEditor.Widget
-			or	g == VersionControl.VersionViewerWidget
-			or	g == VersionControl.Widget
-			or	g == VersionControl.SourceViewerWidget
-			or	g == VersionControl.InstanceHistoryWidget
-			or	g == InstanceVisibilityEditor.Widget
-	) or (g:IsDescendantOf(game:GetService("CoreGui")) and g:FindFirstAncestor("DraggerUI") ~= nil)
+	local isincoregui = g:IsDescendantOf(game:GetService("CoreGui"))
+	return 
+		g:HasTag("JEXP_Widget") or isDescendantOfJexpWidget(g) 
+	or	(isincoregui and g:FindFirstAncestor("DraggerUI") ~= nil)
+	or	(isincoregui and g.Name == "DraggerUI")
 end
 
 function Manager.getPropertyComponentsForClass(world, className)
@@ -997,7 +1019,7 @@ function Manager.saveState()
 			local style = Manager.Style
 			local rules: {Types.SerializedStyleRule} = {}
 			local tokens = {}
-
+			
 			SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
 			for k, v in style.Tokens do
 				tokens[k] = UDF.to(v)
@@ -1089,7 +1111,14 @@ function Manager.loadState(savedState)
 			for k, v in savedState.style.tokens do
 				tokens[k] = UDF.from(v)
 			end
-
+			
+			local default_tokens, default_rules = require("./Shared/Defaults/DefaultStyle")(Manager)
+			for k, v in default_tokens do
+				tokens[k] = v
+			end
+			for _, v in default_rules do
+				table.insert(rules, v)
+			end
 			return Style.fromRulesTokens(rules, tokens)
 		end,
 		order = function()
@@ -1216,11 +1245,11 @@ local function initRegisterPluginMenusAndActions(
 					state.CurrentlyInserting = nil
 					return
 				end
-				HierarchyState.queueForOnChildAdded(entity, v)
+				HierarchyState.queueForOnChildAdded(Manager, entity, v)
 			end
 			
 			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-
+			
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 			end
@@ -1315,14 +1344,16 @@ local function initRegisterPluginMenusAndActions(
 				for _, v in inst:GetDescendants() do
 					local child = Manager.InstanceToEntity[v]
 					if not child then continue end
-					if not world:has(child, components.Expanded) then continue end
+					if not Manager.isExplorerEntityExpanded(child) then continue end
 
 					world:remove(child, components.Expanded)
+					world:remove(child, components.QueryExpanded)
 					HierarchyState.invalidateEntityStateCache(child)
 					ExplorerFrame.updateCollapsedVisuals(Manager)
 				end
 				--toggleExpand(world, entity, false, false)
 				world:remove(entity, components.Expanded)
+				world:remove(entity, components.QueryExpanded)
 				HierarchyState.invalidateEntityStateCache(entity)
 				ExplorerFrame.updateCollapsedVisuals(Manager)
 			end
@@ -1369,7 +1400,6 @@ local function initRegisterPluginMenusAndActions(
 					if world:has(favoritedInstancesEntity, components.Expanded) then
 						local frame = ExplorerFrame.getExplorerFrame(Manager)
 						ExplorerFrame.assignExplorerFrame(Manager, frame, proxy, favoritedInstancesEntity, false)
-						ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 					end
 					HierarchyState.updateEntityOrder(Manager, proxy)
 
@@ -1385,6 +1415,8 @@ local function initRegisterPluginMenusAndActions(
 					HierarchyState.cleanupEntity(Manager, entity)
 				end
 			end
+			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+			ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
 
 			HierarchyState.flushEntityPropAssignQueue(Manager)
 			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
@@ -2067,14 +2099,12 @@ end
 function initStartTrackScrolling(state: Types.WidgetState)
 	local jexplorerUi = state.JExplorerUI
 	local scrollTrackerConnection, scrollTrackerThread = VirtualScroller.trackScrolling(Manager)
-	local instanceTree = jexplorerUi.InstanceTree
-	Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
 	
 	return scrollTrackerConnection, scrollTrackerThread
 end
 
 function initCreateEntities(state: Types.WidgetState, components: typeof(Manager.Components), entities: {ExplorerEntity})
-	profilebegin("Manager::initCreateEntities")
+	profilebegin("Jexplorer::initCreateEntities")
 	local world = state.World
 	-->> Initialize entities
 	-- Initialize services
@@ -2091,7 +2121,10 @@ function initCreateEntities(state: Types.WidgetState, components: typeof(Manager
 		local frame = ExplorerFrame.getExplorerFrame(Manager)
 		ExplorerFrame.assignExplorerFrame(Manager, frame, entity, nil, true)
 	end
+	
+	ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
 	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+	VirtualScroller.rebuildAndUpdate(Manager, false)
 	profileend()
 end
 
@@ -2104,7 +2137,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	local topbar = jexplorerUi.Topbar
 	local queryInput = topbar.QueryInput
 	local selectQueried = queryInput.SelectQueried
-
+	
 	-->> Initialize connections
 	local pathClickConnection: RBXScriptConnection?
 	return {
@@ -2117,7 +2150,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		instanceTree:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 			Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
 		end),
-		jexplorerUi.InstanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		instanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 			VirtualScroller.update(Manager, true)
 		end),
 		jexplorerUi.InstanceTree.InputChanged:Connect(function(input)
@@ -2149,9 +2182,17 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			local mousePos = jexplorerWidget:GetRelativeMousePosition()
 
 			local foundDropInst, foundDropEntity, foundTab = Manager.getEntityAt(mousePos.X, mousePos.Y)
+			
+			if not foundDropEntity then return end
 			if info.Type == "setproperty" then
-				local inst, propName = info.TargetInstance, info.PropertyName
-				rawnewindex(inst, propName, foundDropInst)
+				local instances, propName = info.TargetInstances, info.PropertyName
+				local id = ChangeHistoryService:TryBeginRecording("Set Instance", "Set Instance")
+				for _, inst in instances do
+					rawnewindex(inst, propName, Manager.instanceOf(foundDropEntity))
+				end
+				if id then
+					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+				end
 			elseif info.Type == "reparent" then
 				state.IsDragging = false
 				local dragEntities = info.Entities
@@ -2240,7 +2281,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 		end),
 		game.Selection.SelectionChanged:Connect(function()
-			profilebegin("Manager::onSelectionChanged")
+			profilebegin("Jexplorer::onSelectionChanged")
 			local selection = game.Selection:Get()
 			
 			local entities = {}
@@ -2328,7 +2369,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			local autoExpand = Manager.getSetting("AutoExpandOnSelect")
 			-- I am a genius for this
 			if autoExpand then
-				profilebegin("Manager::onSelectionChanged::expandAncestorsToSelection")
+				profilebegin("Jexplorer::onSelectionChanged::expandAncestorsToSelection")
 				for _, entity in entities do
 					local unexpanded
 					local currentParent = Manager.parentOf(entity)
@@ -2434,7 +2475,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		-- Optimized Query Handler
 		queryInput.FocusLost:Connect(function(enterPressed)
 			if not enterPressed then return end
-			profilebegin("Manager::query")
+			profilebegin("Jexplorer::query")
 
 			local queryText = queryInput.Text
 			VirtualScroller.clearHeightCache(Manager)
@@ -2475,7 +2516,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				return
 			end
 
-			profilebegin("Manager::query::hideEntities")
+			profilebegin("Jexplorer::query::hideEntities")
 			for _, entity in state.Entities do
 				world:add(entity, components.QueryInvisible)
 				HierarchyState.invalidateEntityStateCache(entity)
@@ -2484,10 +2525,10 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			profileend()
 
 			local success, result = pcall(function()
-				profilebegin("Manager::query::parse")
+				profilebegin("Jexplorer::query::parse")
 				local conditions = JQL.parseQuery(queryText)
 				profileend()
-				profilebegin("Manager::query::execute")
+				profilebegin("Jexplorer::query::execute")
 				local queryResult = JQL.executeQuery(world, queryWorld, components, Manager.QueryCtMap, Manager.QueryCtMap, conditions)
 				profileend()
 				return queryResult
@@ -2497,7 +2538,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				if not success then
 					warn("JEXPLORER Query error: " .. tostring(result))
 				end
-				profilebegin("Manager::query::showEntities")
+				profilebegin("Jexplorer::query::showEntities")
 				for entity in world:query(components.QueryInvisible):iter() do
 					world:remove(entity, components.QueryInvisible)
 					HierarchyState.invalidateEntityStateCache(entity)
@@ -2519,7 +2560,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			local n = #validEntities
 			queryInput.QueryCount.Text = n
 
-			profilebegin("Manager::query::optimizedVisibility")
+			profilebegin("Jexplorer::query::optimizedVisibility")
 
 			local visibilityMap = {}
 			local parentTreesCache = {}
@@ -2564,7 +2605,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 
 			VirtualScroller.clearHeightCache(Manager)
-			ExplorerFrame.updateExpandedVisuals(Manager, components.QueryExpanded)
+			ExplorerFrame.updateExpandedVisuals(Manager)
 			VirtualScroller.rebuildAndUpdate(Manager, false)
 
 			profileend()
@@ -2634,6 +2675,8 @@ function Manager.init(onClose, connections, jexplorerWidget)
 
 	local queryInput = topbar.QueryInput
 	local selectQueried = queryInput.SelectQueried
+	
+	Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
 	
 	if getGlobalConfigValue("reset_state") == true then
 		SavedState.save(SavedState.get_default(Manager))
@@ -2787,17 +2830,27 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		local suc1 = HierarchyState.flushOnChildAddedQueue(Manager)
 		local suc2 = HierarchyState.flushOnChildRemovedQueue(Manager)
 		local suc3 = HierarchyState.flushEntityCleanupQueue(Manager)
-
+		ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+		ExplorerFrame.flushFrameReuseQueue(Manager)
+		ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+		
 		if suc1 or suc2 or suc3 then
 			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 		end
 	end
 
 	local function reuseCycle()
-		ExplorerFrame.flushFrameReuseQueue(Manager)
 		if Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate then
 			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = false
 			VirtualScroller.rebuildAndUpdate(Manager, false)
+		end
+	end
+	
+	local function cycleInterval(t: number)
+		if t == 0 then
+			task.wait()
+		else
+			task.wait(t)
 		end
 	end
 
@@ -2805,39 +2858,31 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		scrollTrackerThread,
 		task.spawn(function()
 			while true do
-				task.wait(Manager.getSetting("FlushCycleInterval"))
+				cycleInterval(Manager.getSetting("FlushCycleInterval"))
 				flushCycle()
 			end
 		end),
 		task.spawn(function()
 			while true do
-				task.wait(Manager.getSetting("FrameReuseCycleInterval"))
+				cycleInterval(Manager.getSetting("FrameReuseCycleInterval"))
 				reuseCycle()
 			end
 		end),
 		task.spawn(function()
 			while true do
-				task.wait(Manager.getSetting("EntityCleanupCycleInterval"))
+				cycleInterval(Manager.getSetting("EntityCleanupCycleInterval"))
 				HierarchyState.stepFlushEntityDeletionQueue(Manager)
 			end
 		end),
 		task.spawn(function()
 			while true do
-				task.wait(Manager.getSetting("EntityCreationCycleInterval"))
+				cycleInterval(Manager.getSetting("EntityCreationCycleInterval"))
 				local changed = HierarchyState.flushEntityCreationQueue(Manager)
 				if changed then
 					Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 				end
 			end
 		end),
-		task.spawn(function()
-			while true do
-				task.wait()
-				if not state.IsDragging then continue end
-				
-				
-			end
-		end)
 	})
 
 	jexplorerUi.Parent = jexplorerWidget

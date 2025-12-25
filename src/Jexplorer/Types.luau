@@ -69,7 +69,7 @@ type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
 export type DragInfo_SetInstTypeProperty = {
 	-- Set instance type properties
 	Type: "setproperty",
-	TargetInstance: Instance,
+	TargetInstances: {Instance},
 	PropertyName: string
 }
 export type DragInfo_ReparentInstances = {
@@ -122,7 +122,7 @@ export type RepoProxy = {
 export type ExplorerFrame = Jecs.Id
 export type PropertyItem = {
 	name: string,
-	type: string,
+	type: ReflectionType,
 	writable: boolean,
 	readable: boolean
 }
@@ -154,7 +154,19 @@ export type Components = {
 	PendingChanges: Jecs.Id,
 	Deleted: Jecs.Id,
 	DisplayTopLevel: Jecs.Id,
-
+	
+	CleanupTicket: Jecs.Id<{}>,
+	DeletionTicket: Jecs.Id<{}>,
+	ChildAddedTicket: Jecs.Id<{children: {Instance}}>,
+	ChildMovedTicket: Jecs.Id<{children: {Instance}}>,
+	CreationTicket: Jecs.Id<{children: {Instance}}>,
+	PropAssignTicket: Jecs.Id<{ty: "virtual" | "instance"}>,
+	
+	FrameReuseTicket: Jecs.Id<{}>,
+	FrameTagAssignTicket: Jecs.Id<{frame: ExplorerFrame}>,
+	
+	FRAMEWORLD_FrameSetParentTicket: Jecs.Id<{newParent: Instance?}>,
+	
 	Instance: Jecs.Id<Instance>,
 	Frame: Jecs.Id<ExplorerFrame>,
 	Entity: Jecs.Id<ExplorerEntity>,
@@ -200,33 +212,33 @@ export type WidgetState = {
 
 export type HierarchyState = {
 	ChildrenMap: {[ExplorerEntity]: {ExplorerEntity}},
-	
-	cleanupEntities: (Manager, {ExplorerEntity}) -> boolean,
+
+	cleanupEntities: (Manager) -> boolean,
 	cleanupEntity: (Manager, ExplorerEntity) -> (),
 	rebuildHierarchyCache: (Manager) -> ({[ExplorerEntity]: {ExplorerEntity}}, {ExplorerEntity}),
-	getFlattenedVisibleEntities: (Manager, invisible: {ExplorerEntity}, isScroller: boolean) -> ({ExplorerEntity}, {[ExplorerEntity]: number}),
-	
+	getFlattenedVisibleEntities: (Manager, invisible: {ExplorerEntity}, isScroller: boolean) -> ({ExplorerEntity}, {[ExplorerEntity]: number}, {number}),
+
 	invalidateEntityStateCache: (ExplorerEntity) -> (),
-	
+
 	flushEntityCreationQueue: (Manager) -> boolean,
-	queueForEntityCreation: (parent: ExplorerEntity, children: {Instance}) -> (),
-	
+	queueForEntityCreation: (Manager, parent: ExplorerEntity, children: {Instance}) -> (),
+
 	flushEntityCleanupQueue: (Manager) -> boolean,
-	queueForEntityCleanup: (entity: ExplorerEntity) -> (),
-	
+	queueForEntityCleanup: (Manager, entity: ExplorerEntity) -> (),
+
 	flushOnChildAddedQueue: (Manager) -> boolean,
-	queueForOnChildAdded: (new_parent: ExplorerEntity, child: Instance) -> (),
-	
+	queueForOnChildAdded: (Manager, new_parent: ExplorerEntity, child: Instance) -> (),
+
 	flushOnChildRemovedQueue: (Manager) -> boolean,
-	queueForOnChildRemoved: (old_parent: ExplorerEntity, child: Instance) -> (),
-	
+	queueForOnChildRemoved: (Manager, old_parent: ExplorerEntity, child: Instance) -> (),
+
 	stepFlushEntityDeletionQueue: (Manager) -> boolean,
-	queueForEntityDeletion: (entity: ExplorerEntity) -> (),
-	
+	queueForEntityDeletion: (Manager, entity: ExplorerEntity) -> (),
+
 	getEntitiesBetween: (Manager, e1: ExplorerEntity, e2: ExplorerEntity) -> {ExplorerEntity},
-	
+
 	flushEntityPropAssignQueue: (Manager) -> (),
-	
+
 	getOrCreateInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
 	createVirtualEntity: (Manager, options: {
 		ClassName: string,
@@ -237,38 +249,41 @@ export type HierarchyState = {
 		Parent: ExplorerEntity?
 	}, extra: {[string]: any}) -> ExplorerEntity,
 	createInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
-	
+
 	deregisterFromQueryWorld: (Manager, entity: ExplorerEntity) -> (),
 	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, tags: {Jecs.Id}) -> (),
-	
+
 	updateEntityOrder: (Manager, entity: ExplorerEntity) -> (),
 	getChildren: (ExplorerEntity) -> {ExplorerEntity},
 }
 
 export type ExplorerFrameLib = {
 	fillGlobalPoolToLimit: (Manager) -> (),
-	fillLocalPoolToLimit: (Manager) -> (),
+	--fillLocalPoolToLimit: (Manager) -> (),
 	initializeFrameCaches: (Manager) -> (),
-	
+
 	getExplorerFrame: (Manager) -> ExplorerFrame,
 	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean) -> (),
 	flushExplorerFrameTagAssignQueue: (Manager) -> boolean,
-	
+
 	queueForExplorerFrameReuse: (Manager, ExplorerFrame) -> (),
 	flushFrameReuseQueue: (Manager) -> boolean,
-	
+	stepFlushFrameSetParentQueue: (Manager) -> boolean,
+
+	flushFrameSetParentQueueIfConfigured: (Manager) -> boolean,
+
 	updateSelectionVisuals: (Manager, updateSelection: boolean) -> (),
-	updateExpandedVisuals: (Manager, expandedCt: Jecs.Id?) -> (),
+	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
 }
 
 export type VirtualScroller = {
 	clearHeightCache: (Manager) -> (),
 	invalidateEntityHeightCache: (Manager, ExplorerEntity) -> (),
-	
+
 	update: (Manager, isScroller: boolean) -> (),
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
-	trackScrolling: (Manager) -> (RBXScriptConnection, thread)
+	trackScrolling: (Manager) -> (RBXScriptConnection, thread),
 }
 
 export type InsertMenu = {
@@ -286,12 +301,12 @@ export type Manager = {
 	Components: Components,
 	Toolbar: PluginToolbar,
 	Storage: Folder,
-	
+
 	InstTreeAbsoluteSizeY: number,
-	
+
 	QueryTagMap: {[string]: Jecs.Id},
 	QueryCtMap: {[string]: Jecs.Id},
-	
+
 	ExplorerFrame: ExplorerFrameLib,
 	HierarchyState: HierarchyState,
 	VirtualScroller: VirtualScroller,
@@ -308,25 +323,25 @@ export type Manager = {
 	},
 	Style: Style.Style,
 	AllTab: Tab,
-	
+
 	InstanceToEntity: {[Instance]: ExplorerEntity},
 	FrameToInstanceFrame: {[Instance]: ExplorerFrame},
-	
+
 	ChildAmountCache: {[ExplorerEntity]: number},
 	ClassNameCache: {[ExplorerEntity]: string},
 	NameCache: {[ExplorerEntity]: string},
 	DebugIdToInstance: {[string]: Instance},
 	TabFrameToTab: {[Instance]: Tab},
-	
+
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
-	
+
 	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
 
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
-	
+
 	triggerDuplicateTarget: () -> (),
 	triggerDeleteTarget: () -> (),
 	triggerEscapeTarget: () -> (),
@@ -344,28 +359,28 @@ export type Manager = {
 
 	getSetting: (name: string) -> any,
 	setSetting: (name: string, value: any) -> (),
-	
+
 	isExplorerEntityInvisible: (entity: ExplorerEntity) -> boolean,
 	isExplorerEntityDeleted: (entity: ExplorerEntity) -> boolean,
 	isExplorerEntityExpanded: (entity: ExplorerEntity) -> boolean,
-	
+
 	getPropertyComponentsForClass: (World, class: string) -> {Jecs.Id},
 	
 	isInstanceExcluded: (inst: Instance) -> boolean,
-	
-	getSetPropertyDragInfo: (inst: Instance, propName: string) -> any,
+
+	getSetPropertyDragInfo: (instances: {Instance}, propName: string) -> any,
 	getDragEntitiesDragInfo: (entities: {ExplorerEntity}) -> any,
 	unpackDragInfo: (dragInfo: any) -> DragInfo_ReparentInstances | DragInfo_SetInstTypeProperty,
-	
+
 	addExplorerEntitiesToSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 	setExplorerEntitiesAsSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
-	
+
 	startDraggingSelected: () -> (),
 
 	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,
-	
+
 	init: (onClose: () -> (), connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
-	
+
 	frameOf: (frame: ExplorerFrame) -> typeof(main.__legacy.UI.InstanceFrame)?,
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
@@ -462,10 +477,11 @@ export type InstanceVisibilityEditor = Editor & {
 export type PropertyEditor = Editor & {
 	PropertyList: PluginUI.ItemList,
 
-	CurrentSetNilTarget: {{inst: Instance, name: string}}?,
+	CurrentSetNilTarget: {instances: {Instance}, name: string}?,
 	SetNilMenu: PluginMenu,
 
-	updateProperties: (instances: {Instance}) -> ()
+	updateProperties: (instances: {Instance}) -> (),
+	clearFramePools: () -> ()
 }
 
 export type ContextMenuEditor = Editor & {

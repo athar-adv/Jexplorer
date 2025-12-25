@@ -101,7 +101,7 @@ function ContextMenuEditor.init(Manager)
 	ContextMenuEditor.Widget = widget
 	Manager.Style:Link(widget)
 	
-	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
+	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 	
 	local moduleName = plugin:GetSetting("ContextMenuConfigsModuleName") or ""
 	local nameBox = PluginUI.createAttributeBox(list, "Module Name", moduleName, function(v)

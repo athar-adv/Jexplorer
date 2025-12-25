@@ -43,7 +43,7 @@ function OrderEditor.init(Manager)
 	OrderEditor.Widget = widget
 	Manager.Style:Link(widget)
 	
-	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
+	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 	
 	local box; box = PluginUI.createAttributeBox(list, "Default Priority", 999, function(newValue)
 		local num = JDF.from(newValue)

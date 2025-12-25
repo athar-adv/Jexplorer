@@ -105,32 +105,38 @@ function SettingEditor.init(Manager)
 		ExpandBehavior = PluginUI.createDropDownItemList({
 			Name = "ExpandBehavior",
 			Visible = true,
-			Parent = mainframe.Items
-		}, "Expand Behavior"),
+			Parent = mainframe.Items.Content
+		}, "Expand Settings"),
 
 		ScrollBehavior = PluginUI.createDropDownItemList({
 			Name = "ScrollBehavior",
 			Visible = true,
-			Parent = mainframe.Items
-		}, "Scrolling Behavior"),
+			Parent = mainframe.Items.Content
+		}, "Scrolling Settings"),
 
 		SelectBehavior = PluginUI.createDropDownItemList({
 			Name = "SelectBehavior",
 			Visible = true,
-			Parent = mainframe.Items
-		}, "Select Behavior"),
+			Parent = mainframe.Items.Content
+		}, "Select Settings"),
 
 		SavingBehavior = PluginUI.createDropDownItemList({
 			Name = "SavingBehavior",
 			Visible = true,
-			Parent = mainframe.Items
-		}, "Saving Behavior"),
+			Parent = mainframe.Items.Content
+		}, "Saving Settings"),
 		
 		InternalBehavior = PluginUI.createDropDownItemList({
 			Name = "InternalBehavior",
 			Visible = true,
-			Parent = mainframe.Items
-		}, "Internal Behavior"),
+			Parent = mainframe.Items.Content
+		}, "Internal Settings"),
+		
+		FrameBehavior = PluginUI.createDropDownItemList({
+			Name = "FrameBehavior",
+			Visible = true,
+			Parent = mainframe.Items.Content
+		}, "ExplorerFrame Settings"),
 	}
 	
 	for behaviorName, list in DefaultSettings do

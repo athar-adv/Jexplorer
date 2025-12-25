@@ -1,5 +1,7 @@
 --!strict
 
+local plugin = script:FindFirstAncestorOfClass("Plugin")
+
 local VersionControl = require("../Editors/VersionControl")
 local StyleEditor = require("../Editors/StyleEditor")
 local SettingEditor = require("../Editors/SettingEditor")

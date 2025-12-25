@@ -4,6 +4,7 @@
 local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local ReflectionService = game:GetService("ReflectionService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 local main = script.Parent.Parent
 
@@ -11,7 +12,7 @@ local shared = main.Shared
 
 local UITemplates = require(shared.UITemplates)
 local PropertyFrame = require(script.PropertyFrame)
-local xyz = require(script.xyz)
+local xyz = require(shared.Small.xyz)
 local RawInst = require(shared.Small.RawInst)
 local VersionControl = require(script.Parent.VersionControl)
 local PluginUI = require(shared.PluginUI)
@@ -27,10 +28,96 @@ local getId = PluginUI.getId
 local instanceConnections: {RBXScriptConnection} = {}
 local instancesToClean: {Instance} = {}
 
+-- Frame pooling system
+local framePool: {[string]: {{frame: PluginUI.ValueUIItem & any, data: {[string]: any}}}} = {}
+local frameMetadata: {[any]: {type: string, data: {[string]: any}, connections: {RBXScriptConnection}}} = {}
+
+local function cleanupFrameConnections(frame: any)
+	local metadata = frameMetadata[frame]
+	if metadata and metadata.connections then
+		for _, conn in metadata.connections do
+			if typeof(conn) == "RBXScriptConnection" then
+				conn:Disconnect()
+			elseif typeof(conn) == "function" then
+				conn()
+			end
+		end
+		table.clear(metadata.connections)
+	end
+end
+
+local function getPooledFrame(propType: string, createFn: any, ...): (PluginUI.ValueUIItem & any, {[string]: any})
+	if not framePool[propType] then
+		framePool[propType] = {}
+	end
+
+	local pool = framePool[propType]
+	if #pool > 0 then
+		local frame = table.remove(pool)
+		assert(frame)
+		
+		cleanupFrameConnections(frame)
+		return frame.frame, frame.data
+	end
+	local frame, data = createFn(...)
+	if frame then
+		frameMetadata[frame] = {
+			type = propType,
+			data = data,
+			connections = {}
+		}
+	end
+	return frame, data
+end
+
+local function clearActiveFrames()
+	for frame, metadata in frameMetadata do
+		if metadata.connections then
+			for _, conn in metadata.connections do
+				if typeof(conn) == "RBXScriptConnection" then
+					conn:Disconnect()
+				elseif typeof(conn) == "function" then
+					conn()
+				end
+			end
+			table.clear(metadata.connections)
+		end
+		if frame.Instance then
+			frame.Instance.Parent = nil
+		end
+	end
+end
+
+local function poolFramesByType()
+	-- Organize all frames back into pools
+	for frame, metadata in frameMetadata do
+		local propType = metadata.type
+		if propType then
+			if not framePool[propType] then
+				framePool[propType] = {}
+			end
+			local pooled = {
+				frame = frame,
+				data = metadata.data
+			}
+			local found = false
+			for _, v in framePool[propType] do
+				if v.frame == frame then
+					found = true
+					break
+				end
+			end
+			if not found then
+				table.insert(framePool[propType], pooled)
+			end
+		end
+	end
+end
+
 local typeToPropModule = {}
 for _, v in script.PropertyFrames:GetChildren() do
 	local name = v.Name
-	local module = (require::any)(v)
+	local module: PropertyFrame.PropertyFrame = (require::any)(v)
 	local split = string.split(name, "_")
 	for _, part in split do
 		typeToPropModule[part] = module
@@ -55,7 +142,15 @@ local init = false
 local Manager: Types.Manager
 local PropertyEditor = {} :: Types.PropertyEditor
 
-local function getCommonProperties(instances: {Instance}): {[any]: any}
+local function gettypestr(type: ReflectionType)
+	if type.InstanceType == "Instance" then
+		return "Instance"
+	else
+		return type.EngineType
+	end
+end
+
+local function getCommonProperties(instances: {Instance}): ReflectedProperties
 	if #instances == 0 then
 		return {}
 	end
@@ -65,8 +160,6 @@ local function getCommonProperties(instances: {Instance}): {[any]: any}
 		local inst = instances[1]
 		return ReflectionService:GetPropertiesOfClass(inst.ClassName)
 	end
-
-	-- Multiple instances - find intersection of properties
 	local commonProps = {}
 	local firstInstanceProps = ReflectionService:GetPropertiesOfClass(instances[1].ClassName)
 
@@ -75,26 +168,31 @@ local function getCommonProperties(instances: {Instance}): {[any]: any}
 	end
 
 	-- Start with properties from the first instance
-	for propName, propData in firstInstanceProps do
+	for _, propData in firstInstanceProps do
+		local propName = propData.Name
 		local isCommon = true
 
 		-- Check if this property exists in all other instances
 		for i = 2, #instances do
 			local instanceProps = ReflectionService:GetPropertiesOfClass(instances[i].ClassName)
-			if not instanceProps or not instanceProps[propName] then
+			local instancePropsSet = {}
+			for _, v in instanceProps do
+				instancePropsSet[v.Name] = v
+			end
+			if not instancePropsSet[propName] then
 				isCommon = false
 				break
 			end
 
 			-- Also check if the property type matches
-			if instanceProps[propName].Type ~= propData.Type then
+			if gettypestr(instancePropsSet[propName].Type) ~= gettypestr(propData.Type) then
 				isCommon = false
 				break
 			end
 		end
 
 		if isCommon then
-			commonProps[propName] = propData
+			table.insert(commonProps, propData)
 		end
 	end
 
@@ -106,18 +204,29 @@ function PropertyEditor.updateProperties(instances)
 	debug.profilebegin("PropertyEditor::updateProperties")
 	local widget = PropertyEditor.Widget
 	local list = PropertyEditor.PropertyList
+
+	-- Disconnect connections
 	for _, v in instanceConnections do
 		v:Disconnect()
 	end
+	table.clear(instanceConnections)
+
+	-- Clean up temporary instances
 	for _, v in instancesToClean do
 		v:Destroy()
 	end
+	table.clear(instancesToClean)
+
+	-- Clear active frames and pool them for reuse
+	clearActiveFrames()
+	poolFramesByType()
 
 	list:Clear()
 
 	local n = #instances
 	if n == 0 then
 		widget.Title = "JProperties"
+		debug.profileend()
 		return
 	end
 	if n > 1 then
@@ -128,22 +237,33 @@ function PropertyEditor.updateProperties(instances)
 
 		widget.Title = `JProperties - {inst.ClassName} "{inst.Name}"`
 	end
-	
-	local props = getCommonProperties(instances)
+
+	local props = getCommonProperties(instances) or {}
 	local categories = {}
-	for k, v in props do
-		local item = {
-			name = k,
-			type = v.Type.EngineType,
-			writable = v.Permits.Write and SecurityCapabilities.fromCurrent():Contains(v.Permits.Write) or false,
-			readable = v.Permits.Read and SecurityCapabilities.fromCurrent():Contains(v.Permits.Read) or false,
-		}
-		if not categories[v.Category] then
-			categories[v.Category] = {}
+	for _, v in props::ReflectedProperties do
+		local display = v.Display
+		if display and display.DeprecationMessage then
+			continue
 		end
-		table.insert(categories[v.Category], item)
+		local category
+		if display then
+			category = display.Category
+		else
+			category = "Data"
+		end
+		if not categories[category] then
+			categories[category] = {}
+		end
+		
+		local item = {
+			name = v.Name,
+			type = v.Type,
+			writable = if v.Permits.Write ~= nil then SecurityCapabilities.fromCurrent():Contains(v.Permits.Write) else false,
+			readable = if v.Permits.Read ~= nil then SecurityCapabilities.fromCurrent():Contains(v.Permits.Read) else false,
+		}
+		table.insert(categories[category], item)
 	end
-	
+
 	local categoriesSorted = {}
 	for category, list in categories do
 		table.insert(categoriesSorted, {category = category, list = list})
@@ -155,149 +275,99 @@ function PropertyEditor.updateProperties(instances)
 		return pa < pb
 	end)
 	
-	local function getFormattedValue(t: string, value: any)
-		if t == "float" or t == "double" then
-			value = string.format("%.3f", value)
-		elseif t == "int8" or t == "int16" or t == "int32" or t == "int64" or t == "int" then
-			value = tostring(math.round(value))
-		elseif t == "Vector3" then
-			value = `{string.format("%.3f", value.X)}, {string.format("%.3f", value.Y)}, {string.format("%.3f", value.Z)}`
-		elseif t == "Color3" then
-			value = `{math.round(value.R)}, {math.round(value.G)}, {math.round(value.B)}`
-		elseif t:match("Enum") then
-			value = value.Name
-		end
-		return value
-	end
+	PluginUI.clearOpenEnumLists()
 	
-	local function onchange(propFrame: PluginUI.ValueUIItem, propItem: Types.PropertyItem, newValue: any)
-		local actualValue: any
-		local t = propItem.type
-		local enumName = t:match("Enum%.(%w+)")
-		if t == "double" or t == "float" then
-			actualValue = string.format("%.3f", newValue)
-		elseif t == "int8" or t == "int16" or t == "int32" or t == "int" or t == "int64" then
-			actualValue = tostring(math.round(newValue))
-		elseif t == "bool" or t == "string" or t == "ContentId" or t == "Instance" then
-			actualValue = newValue
-		elseif enumName then
-			actualValue = (Enum[enumName] :: any):FromName(newValue)
-		elseif t == "Vector3" then
-			local x, y, z = xyz(newValue)
-			actualValue = Vector3.new(
-				tonumber(x),
-				tonumber(y),
-				tonumber(z)
-			)
-		elseif t == "Color3" then
-			local r, g, b = xyz(newValue)
-			actualValue = Color3.fromRGB(
-				tonumber(r),
-				tonumber(g),
-				tonumber(b)
-			)
-		end
-		for _, inst in instances do
-			local success = pcall(rawnewindex, inst, propItem.name, actualValue)
-			if not success then
-				propFrame:Set(getFormattedValue(t, rawindex(inst, propItem.name)))
-				break
-			end
-			VersionControl.addPendingChange(inst, propItem.name, actualValue)
-		end
-	end
+	local datas: {[string]: {changed: (any) -> (), frame: PluginUI.ValueUIItem, item: Types.PropertyItem}} = {}
 	
-	local items: {[string]: PluginUI.ValueUIItem} = {}
-	for _, inst in instances do
-		table.insert(instanceConnections, inst.Changed:Connect(function(prop)
-			local item = items[prop]
-			if not item then return end
-
-			local property = props[prop]
-			if not property then return end
-			if not property.Readable then return end
-			
-			local firstValue = rawindex(instances[1], prop)
-			local allSame = true
-
-			for i = 2, #instances do
-				if rawindex(instances[i], prop) ~= firstValue then
-					allSame = false
-					break
-				end
-			end
-
-			local t = property.Type
-			local value = firstValue
-
-			if not allSame then
-				item:Set("--")
-				return
-			end
-
-			if value == nil then
-				item:Set("")
-				return
-			end
-			value = getFormattedValue(t, value)
-			
-			item:Set(typeof(value) ~= "string" and tostring(value) or value)
-		end))
-	end
+	local defaultValues = {
+		["Color3"] = Color3.fromRGB(0, 0, 0),
+		["string"] = "",
+		["Instance"] = nil,
+		["int8"] = 0,
+		["int16"] = 0,
+		["int64"] = 0,
+		["int32"] = 0,
+		["int"] = 0,
+		["Vector3"] = Vector3.zero,
+		["ContentId"] = "",
+		["bool"] = false,
+		["double"] = 0,
+		["float"] = 0
+	}
+	
+	local defaultEnumValues = require(script.defaultEnumValues)
 	
 	local dropdowns = {}
 	for i, v in categoriesSorted do
-		local category, propItems = v.category, v.list :: {Types.PropertyItem}
+		local category, propItems = v.category, v.list
 
 		local dropdown = PluginUI.createDropDownItemList({Visible = true, Name = category}, category, false)
 		dropdown.Backdrop.LayoutOrder = i
 		dropdown.Container.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		
+
 		local n = 0
 		for _, propItem in propItems do
 			if not isFirstCharUpper(propItem.name) then continue end
 			if not propItem.readable then continue end
 
 			local propType = propItem.type
-			if propItem.type:sub(1, 4) == "Enum" then
-				propType = "Enum"
-			end
-
-			local create = typeToPropModule[propType]
-			if not create then continue end
+			local typeStr = gettypestr(propType)
 			
-			local propFrame = create({
-				PropertyEditor = PropertyEditor,
-				Manager = Manager,
-				InstanceCleanup = instancesToClean
-			}, dropdown, instances[1], propItem)
-			if not propFrame then continue end
-
-			n += 1
-
-			if not propItem.writable then
-				propFrame:SetEditable(false)
-				continue
-			end
-
-			propFrame:OnChange(function(newValue: any)
-				onchange(propFrame, propItem, newValue)
-			end)
-
-			items[propItem.name] = propFrame
+			local module = typeToPropModule[typeStr]
+			if not module then continue end
 			
-			local firstValue = rawindex(instances[1], propItem.name)
-			local allSame = true
-
-			for j = 2, #instances do
-				if rawindex(instances[j], propItem.name) ~= firstValue then
-					allSame = false
-					break
+			local allSame, firstValue = PropertyFrame.isAllValuesSame(instances, propItem.name)
+			
+			local initValue
+			if allSame then
+				initValue = firstValue
+			else
+				if typeStr == "Enum" and propType.EnumType then
+					initValue = defaultEnumValues[propType.EnumType]
+				else
+					initValue = defaultValues[typeStr]
 				end
 			end
+			
+			local info = {
+				PropertyEditor = PropertyEditor,
+				Manager = Manager,
+				InstanceCleanup = instancesToClean,
+				Plugin = plugin,
+				VersionControl = VersionControl,
+				Instances = instances
+			}
+			local propFrame, data = getPooledFrame(typeStr, module.createUI, info, dropdown, propItem, initValue)
+			if not propFrame then continue end
+			
+			propFrame:SetName(propItem.name)
+			
+			-- Re-parent the frame to the current dropdown
+			if propFrame.Instance then
+				propFrame.Instance.Parent = dropdown.Container
+			end
 
+			n += 1
+			
+			local cleanup, changedFn = module.applyBehavior(info, propItem, initValue, data)
+			datas[propItem.name] = {
+				changed = changedFn,
+				frame = propFrame,
+				item = propItem
+			}
 			if not allSame then
-				propFrame:Set("--")
+				if propFrame.SetText then
+					propFrame:SetText("--")
+				else
+					propFrame:Set("--")
+				end
+			end
+			
+			propFrame:SetEditable(propItem.writable)
+			-- Store the connection in metadata
+			local metadata = frameMetadata[propFrame]
+			if metadata then
+				table.insert(metadata.connections, cleanup :: any)
 			end
 		end
 		if n == 0 then
@@ -307,7 +377,23 @@ function PropertyEditor.updateProperties(instances)
 		table.insert(dropdowns, dropdown)
 		dropdown:Show()
 	end
-	
+	for _, inst in instances do
+		table.insert(instanceConnections, inst.Changed:Connect(function(prop)
+			local data = datas[prop]
+			if not data then return end
+			
+			if not data.item.writable then return end
+			
+			local allSame, firstValue = PropertyFrame.isAllValuesSame(instances, prop)
+			if allSame then
+				data.changed(firstValue)
+			else
+				data.changed(defaultValues[prop])
+				data.frame:Set("--")
+			end
+		end))
+	end
+
 	local allHaveTags = true
 	for _, inst in instances do
 		if not inst.GetTags then
@@ -315,16 +401,17 @@ function PropertyEditor.updateProperties(instances)
 			break
 		end
 	end
-	
+
 	if allHaveTags then
-		local dropdown = PluginUI.createDropDownItemList({Visible = true, Name = "Tags"}, "Tags", false)
+		local dropdown = PluginUI.createDropDownItemList({Visible = true, Name = "Tags", LayoutOrder = 1000}, "Tags", false)
 		table.insert(dropdowns, dropdown)
-		dropdown.Backdrop.LayoutOrder = 10000
 		dropdown.Container.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		
+
 		local tagToFrame = {}
 		local function createTagFrame(tag: string)
 			local frame = PluginUI.createButtonWithIcon(dropdown, tag, "rbxassetid://92768859826736", Vector2.zero, Vector2.zero)
+			frame.Instance.Icon:AddTag("JEXP_MonochromeImage")
+			
 			PluginUI.createDeleteButton(frame.Instance, function()
 				frame:Destroy()
 				for _, inst in instances do
@@ -334,13 +421,31 @@ function PropertyEditor.updateProperties(instances)
 			end)
 			tagToFrame[tag] = frame
 		end
-
-		local insert = PluginUI.createInsertButton(dropdown.Backdrop.DropDownHeader, function()
-			for _, inst in instances do
-				inst:AddTag("TEST")
-			end
-		end)
 		
+		local currentWidget
+		local insert = PluginUI.createInsertButton(dropdown.Backdrop.DropDownHeader, function()
+			if currentWidget then
+				currentWidget:Destroy()
+			end
+			local tagBox = PluginUI.createAttributeBox(nil, "Tag", "")
+			local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Add Tag", {
+				tagBox
+			})
+			currentWidget = widget
+			Manager.Style:Link(widget)
+			
+			cancel:OnTrigger(function()
+				close()
+			end)
+			confirm:OnTrigger(function()
+				local tag = tagBox:Get()
+				for _, inst in instances do
+					inst:AddTag(tag)
+				end
+				close()
+			end)
+		end)
+
 		local commonTags = {}
 		if #instances > 0 then
 			local firstInstanceTags = instances[1]:GetTags()
@@ -361,7 +466,7 @@ function PropertyEditor.updateProperties(instances)
 		for _, tag in commonTags do
 			createTagFrame(tag)
 		end
-		
+
 		for _, inst in instances do
 			table.insert(instanceConnections, Manager.onTagAdded(inst, function(tag)
 				local isCommon = true
@@ -386,7 +491,7 @@ function PropertyEditor.updateProperties(instances)
 
 		dropdown:Show()
 	end
-	
+
 	for _, v in dropdowns do
 		list:AddItem(v.Backdrop)
 	end
@@ -402,7 +507,7 @@ function PropertyEditor.init(_m)
 
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
-	
+
 	local connections = state.Connections
 	local instances = connections:extend(cleanup.destroy)
 
@@ -426,12 +531,12 @@ function PropertyEditor.init(_m)
 
 	PropertyEditor.Widget = widget
 	Manager.Style:Link(widget)
-	
+
 	toggleButton.Click:Connect(function()
 		widget.Enabled = not widget.Enabled
 	end)
 
-	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
+	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 	PropertyEditor.PropertyList = list
 
 	local setNilMenu = plugin:CreatePluginMenu(
@@ -443,15 +548,38 @@ function PropertyEditor.init(_m)
 	action.Triggered:Connect(function()
 		local currentTarget = PropertyEditor.CurrentSetNilTarget
 		if not currentTarget then return end
-		
-		for _, v in currentTarget do
-			rawnewindex(v.inst, v.name, nil)
+
+		for _, inst in currentTarget.instances do
+			rawnewindex(inst, currentTarget.name, nil)
 		end
 	end)
-	
+
 	PropertyEditor.SetNilMenu = setNilMenu
-	
+
 	connections:add_many(instanceConnections)
+	connections:add(mainframe.InputBegan:Connect(function()
+		PluginUI.clearOpenEnumLists()
+	end))
 end 
+
+function PropertyEditor.clearFramePools()
+	for frame, metadata in frameMetadata do
+		if metadata.connections then
+			for _, conn in metadata.connections do
+				conn:Disconnect()
+			end
+		end
+	end
+	for propType, pool in framePool do
+		for _, frame in pool do
+			if frame.frame.Instance then
+				frame.frame.Instance:Destroy()
+			end
+		end
+	end
+
+	table.clear(framePool)
+	table.clear(frameMetadata)
+end
 
 return PropertyEditor

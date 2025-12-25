@@ -24,13 +24,15 @@ export type ItemList = {
 	Parent: (self: ItemList, parentList: ItemList) -> ()
 }
 
-export type ValueUIItem<T = (newValue: any, ...never) -> ()> = {
+export type ValueUIItem<T = (newValue: string, ...never) -> ()> = {
 	Instance: Instance & {
 		ValueBox: TextBox
 	},
 	Get: (self: ValueUIItem<T>) -> any,
 	Set: (self: ValueUIItem<T>, value: any) -> (),
+	SetText: (self: ValueUIItem<T>, new: string) -> (),
 	GetName: (self: ValueUIItem<T>) -> string,
+	SetName: (self: ValueUIItem<T>, new: string) -> (),
 	OnChange: (self: ValueUIItem<T>, callback: T) -> RBXScriptConnection,
 	Destroy: (self: ValueUIItem<T>) -> (),
 	SetEditable: (self: ValueUIItem<T>, editable: boolean) -> ()
@@ -49,7 +51,7 @@ local function remove(t: any, key: any)
 	return v
 end
 
-local function updateLayout(container: ScrollingFrame)
+local function updateLayout(container: any)
 	-- Update canvas size based on content
 	local totalHeight = 0
 	for _, child in container:GetChildren() do
@@ -180,7 +182,7 @@ local function connection(tbl: {any}, item: any): RBXScriptConnection
 			self.Connected = false
 			local idx = table.find(tbl, item)
 			if idx then
-				table.remove(tbl, item)
+				table.remove(tbl, idx)
 			end
 		end,
 	} :: any
@@ -203,6 +205,7 @@ function PluginUI.createEditorWidget<T>(mainframe: T, name: string, displayName:
 			true
 		)
 	)
+	widget:AddTag("JEXP_Widget")
 	
 	widget.Name = `Jexplorer_{name}`
 	widget.Title = `Jexplorer {displayName}`
@@ -214,10 +217,15 @@ function PluginUI.createEditorWidget<T>(mainframe: T, name: string, displayName:
 	mainframe:AddTag("JEXP_Background")
 	mainframe.Parent = widget
 	
+	mainframe.Items.Content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local size = mainframe.Items.Content.AbsoluteSize
+		mainframe.Items.Overlay.Size = UDim2.fromOffset(size.X, size.Y)
+	end)
+	
 	return widget, mainframe
 end
 
-function PluginUI.createItemListFromExisting(backdrop: Instance, container: ScrollingFrame): ItemList
+function PluginUI.createItemListFromExisting(backdrop: Instance, container: Instance, scrollingFrame: ScrollingFrame): ItemList
 	local items = {}
 
 	local itemList = {
@@ -231,7 +239,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Scro
 		item.Parent = container
 		item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset or 30)
 		table.insert(self.Items, item)
-		updateLayout(container)
+		updateLayout(scrollingFrame)
 	end
 
 	function itemList:RemoveItem(item: GuiObject)
@@ -242,7 +250,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Scro
 				break
 			end
 		end
-		updateLayout(container)
+		updateLayout(scrollingFrame)
 	end
 
 	function itemList:Clear()
@@ -250,7 +258,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Scro
 			item:Destroy()
 		end
 		self.Items = {}
-		updateLayout(container)
+		updateLayout(scrollingFrame)
 	end
 
 	function itemList:SetAnchor(anchorPoint: Vector2, position: UDim2)
@@ -723,6 +731,11 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 			isChecked = v
 			checkMark.Visible = v
 		end,
+		SetText = function(self, new)
+			local is = new == "true"
+			checkMark.Visible = is
+			isChecked = is
+		end,
 		OnChange = function(self, fn)
 			table.insert(callbacks, fn)
 			return connection(callbacks, fn)
@@ -735,26 +748,29 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 		SetEditable = function(self, editable)
 			if not editable then
 				label:RemoveTag("JEXP_Text")
-				label:AddTag("JEXP_DarkText")
+				label:AddTag("JEXP_FadedText")
 				checkBoxVisual:RemoveTag("JEXP_LightBackground")
 				checkBoxVisual:AddTag("JEXP_DarkBackground")
 				checkMark:RemoveTag("JEXP_Text")
-				checkMark:AddTag("JEXP_DarkText")
+				checkMark:AddTag("JEXP_FadedText")
 				button.Interactable = false
 				button.Active = false
 				return
 			end
 			label:AddTag("JEXP_Text")
-			label:RemoveTag("JEXP_DarkText")
+			label:RemoveTag("JEXP_FadedText")
 			checkBoxVisual:AddTag("JEXP_LightBackground")
 			checkBoxVisual:RemoveTag("JEXP_DarkBackground")
 			checkMark:AddTag("JEXP_Text")
-			checkMark:RemoveTag("JEXP_DarkText")
+			checkMark:RemoveTag("JEXP_FadedText")
 			button.Interactable = true
 			button.Active = true
 		end,
 		GetName = function(self)
 			return label.Text
+		end,
+		SetName = function(self, new)
+			label.Text = new
 		end,
 	}
 
@@ -893,6 +909,7 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 		list:AddItem(attrBox)
 	end
 	
+	local iseditable = true
 	local callbacks: {any} = { callback}
 	local item: ValueUIItem<(v: string) -> ()> = {
 		Instance = attrBox :: any,
@@ -901,6 +918,9 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 		end,
 		Set = function(self, v)
 			valueBox.Text = v
+		end,
+		SetText = function(self, new)
+			valueBox.Text = new
 		end,
 		OnChange = function(self, fn)
 			table.insert(callbacks, fn)
@@ -912,26 +932,41 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 			attrBox:Destroy()
 		end,
 		SetEditable = function(self, editable)
+			iseditable = editable
 			if not editable then
 				nameLabel:RemoveTag("JEXP_Text")
-				nameLabel:AddTag("JEXP_DarkText")
+				nameLabel:AddTag("JEXP_FadedText")
 				valueBox:RemoveTag("JEXP_Text")
-				valueBox:AddTag("JEXP_DarkText")
+				valueBox:AddTag("JEXP_FadedText")
 				valueBox.TextEditable = false
 				return
 			end
 			nameLabel:AddTag("JEXP_Text")
-			nameLabel:RemoveTag("JEXP_DarkText")
+			nameLabel:RemoveTag("JEXP_FadedText")
 			valueBox:AddTag("JEXP_Text")
-			valueBox:RemoveTag("JEXP_DarkText")
+			valueBox:RemoveTag("JEXP_FadedText")
 			valueBox.TextEditable = true
 		end,
 		GetName = function(self)
 			return nameLabel.Text
 		end,
+		SetName = function(self, new)
+			nameLabel.Text = new
+		end,
 	}
 	
+	local lastValue = attributeValue
+	valueBox.Focused:Connect(function()
+		lastValue = valueBox.Text
+	end)
 	valueBox.FocusLost:Connect(function(enterPressed)
+		--if not enterPressed then
+		--	if lastValue then
+		--		valueBox.Text = lastValue
+		--	end
+		--	return
+		--end
+		if not iseditable then return end
 		for _, v in callbacks do
 			v(valueBox.Text)
 		end
@@ -979,19 +1014,32 @@ function PluginUI.createHeader(list: ItemList?, text: string?): Frame
 	return header
 end
 
-local visibleEnumLists: {ItemList} = {}
+local visibleEnumLists: {EnumBox} = {}
+type EnumBox = {
+	ReconstructEnumList: (self: any, enumType: Enum, selectedValue: EnumItem?) -> (),
+	IsOpen: boolean,
+	List: ItemList
+} & ValueUIItem
+
+function PluginUI.clearOpenEnumLists()
+	for _, v in visibleEnumLists do
+		v.IsOpen = false
+		v.List:Hide()
+	end
+	table.clear(visibleEnumLists)
+end
 
 function PluginUI.createEnumBox(
 	list: ItemList?,
 	attributeName: string?,
 	enumType: Enum?,
 	selectedValue: any?,
-	callback: ((any) -> ())?, 
+	callback: ((EnumItem) -> ())?, 
 	listParent: Instance?,
 	onList: ((list: Instance) -> ())?,
 	onAnchor: ((pos: Vector2, size: Vector2) -> (Vector2, UDim2))?
 )
-	: (ValueUIItem, ItemList)
+	: (EnumBox, ItemList)
 	local enumBox = Instance.new("Frame")
 	enumBox.Name = "EnumBoxItem"
 	enumBox.BackgroundTransparency = 1
@@ -1042,9 +1090,9 @@ function PluginUI.createEnumBox(
 	arrow.Parent = valueButton
 	
 	local dropdownList = PluginUI.createItemList({
-		Size = UDim2.new(0, 200, 0, 150),
+		Size = UDim2.new(0.5 - 0.1, 0, 0, 150),
 		ZIndex = 2000,
-		Parent = listParent or valueButton
+		Parent = enumBox
 	})
 	
 	if onList then
@@ -1052,34 +1100,13 @@ function PluginUI.createEnumBox(
 	end
 	
 	local currentValue = selectedValue
-	local isDropdownOpen = false
 	local callbacks: {any} = {callback}
 	
-	local enumValues = {}
-	if enumType then
-		for _, item in enumType:GetEnumItems() do
-			table.insert(enumValues, item.Name)
-		end
+	local enumButtons: {TriggerUIItem} = {}
 
-		table.sort(enumValues, function(a, b) return a < b end)
-		for _, enumName in enumValues do
-			local enumButton = PluginUI.createButton(dropdownList, enumName, function()
-				valueButton.Text = enumName
-				currentValue = enumName
-				dropdownList:Hide()
-
-				for _, fn in callbacks do
-					fn(enumName)
-				end
-			end)
-		end
-	end
-
-	if list then
-		list:AddItem(enumBox)
-	end
-
-	local item: ValueUIItem<(v: any) -> ()> = {
+	local item: EnumBox = {
+		List = dropdownList,
+		IsOpen = false,
 		Instance = enumBox :: any,
 		Get = function(self)
 			return currentValue
@@ -1088,11 +1115,14 @@ function PluginUI.createEnumBox(
 			currentValue = v
 			valueButton.Text = tostring(v)
 		end,
+		SetText = function(self, v)
+			valueButton.Text = v
+		end,
 		OnChange = function(self, fn)
 			table.insert(callbacks, fn)
 			return connection(callbacks, fn)
 		end,
-		Destroy = function(self)
+		Destroy = function(self: any)
 			table.clear(callbacks)
 			table.clear(self)
 			dropdownList:Destroy()
@@ -1101,9 +1131,9 @@ function PluginUI.createEnumBox(
 		SetEditable = function(self, editable)
 			if not editable then
 				nameLabel:RemoveTag("JEXP_Text")
-				nameLabel:AddTag("JEXP_DarkText")
+				nameLabel:AddTag("JEXP_FadedText")
 				valueButton:RemoveTag("JEXP_Text")
-				valueButton:AddTag("JEXP_DarkText")
+				valueButton:AddTag("JEXP_FadedText")
 				valueButton:RemoveTag("JEXP_LightBackground")
 				valueButton:AddTag("JEXP_DarkBackground")
 				valueButton.Interactable = false
@@ -1111,9 +1141,9 @@ function PluginUI.createEnumBox(
 				return
 			end
 			nameLabel:AddTag("JEXP_Text")
-			nameLabel:RemoveTag("JEXP_DarkText")
+			nameLabel:RemoveTag("JEXP_FadedText")
 			valueButton:AddTag("JEXP_Text")
-			valueButton:RemoveTag("JEXP_DarkText")
+			valueButton:RemoveTag("JEXP_FadedText")
 			valueButton:AddTag("JEXP_LightBackground")
 			valueButton:RemoveTag("JEXP_DarkBackground")
 			valueButton.Interactable = true
@@ -1122,17 +1152,73 @@ function PluginUI.createEnumBox(
 		GetName = function(self)
 			return nameLabel.Text
 		end,
+		SetName = function(self, new)
+			nameLabel.Text = new
+		end,
+		ReconstructEnumList = function(self: EnumBox, enumType: Enum, selectedValue: EnumItem?)
+			local enumValues = {}
+			for _, v in enumButtons do
+				v:Destroy()
+			end
+			table.clear(enumButtons)
+			if selectedValue then
+				valueButton.Text = selectedValue.Name
+			end
+			for _, item in enumType:GetEnumItems() do
+				table.insert(enumValues, item)
+			end
+
+			table.sort(enumValues, function(a, b) return a.Name < b.Name end)
+			for _, enum: EnumItem in enumValues do
+				local enumName = enum.Name
+				local enumButton = PluginUI.createButton(dropdownList, enumName, function()
+					valueButton.Text = enumName
+					currentValue = enumName
+					dropdownList:Hide()
+					self.IsOpen = false
+
+					for _, fn in callbacks do
+						fn(enum)
+					end
+				end)
+				table.insert(enumButtons, enumButton)
+			end
+		end,
 	}
+	
+	if enumType then
+		local enumValues = {}
+		for _, item in enumType:GetEnumItems() do
+			table.insert(enumValues, item)
+		end
+
+		table.sort(enumValues, function(a, b) return a.Name < b.Name end)
+		for _, enum: EnumItem in enumValues do
+			local enumName = enum.Name
+			local enumButton = PluginUI.createButton(dropdownList, enumName, function()
+				valueButton.Text = enumName
+				currentValue = enumName
+				dropdownList:Hide()
+				item.IsOpen = false
+
+				for _, fn in callbacks do
+					fn(enum)
+				end
+			end)
+			table.insert(enumButtons, enumButton)
+		end
+	end
+
+	if list then
+		list:AddItem(enumBox)
+	end
 
 	valueButton.Activated:Connect(function()
-		if isDropdownOpen then
+		if item.IsOpen then
 			dropdownList:Hide()
-			isDropdownOpen = false
+			item.IsOpen = false
 		else
-			for _, v in visibleEnumLists do
-				v:Hide()
-			end
-			table.clear(visibleEnumLists)
+			PluginUI.clearOpenEnumLists()
 			
 			local absolutePos = valueButton.AbsolutePosition
 			local absoluteSize = valueButton.AbsoluteSize
@@ -1143,16 +1229,16 @@ function PluginUI.createEnumBox(
 				dropdownList:SetAnchor(Vector2.new(1, 0), UDim2.fromOffset(absolutePos.X, absolutePos.Y))
 			end
 			dropdownList:Show()
-			table.insert(visibleEnumLists, dropdownList)
+			table.insert(visibleEnumLists, item)
 			
-			isDropdownOpen = true
+			item.IsOpen = true
 		end
 	end)
 	
-	return item, dropdownList
+	return item::any, dropdownList
 end
 
-function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, attributeValue: any?, callback: ((string) -> ())?, dropdownItems: {(parentItem: ValueUIItem) -> ValueUIItem}?): ValueUIItem
+function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, attributeValue: any?, callback: ((string) -> ())?, dropdownItems: {(parentItem: ValueUIItem) -> ValueUIItem}?): (ValueUIItem, {ValueUIItem})
 	local dropdownBox = Instance.new("Frame")
 	dropdownBox.Name = "DropdownBoxItem"
 	dropdownBox.BackgroundTransparency = 1
@@ -1171,7 +1257,7 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	expandArrow.Size = UDim2.new(0, 12, 0, 12)
 	expandArrow.Position = UDim2.new(0, 8, 0, (0.5 * absSize.Y) - 6)
 	expandArrow.BackgroundTransparency = 1
-	expandArrow.Rotation = 90
+	expandArrow.Rotation = -90
 	expandArrow.Parent = dropdownBox
 	
 	local nameLabel = Instance.new("TextLabel")
@@ -1215,6 +1301,8 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 		AutomaticSize = Enum.AutomaticSize.XY,
 		Position = UDim2.new(0, 0, 0, absSize.Y + 2),
 		ZIndex = 2000,
+		BackgroundTransparency = 0,
+		--Visible = true,
 		Parent = dropdownBox
 	})
 	dropdownList.Backdrop:RemoveTag("JEXP_Border")
@@ -1235,6 +1323,8 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	if list then
 		list:AddItem(dropdownBox)
 	end
+	
+	local iseditable = false
 
 	local item: ValueUIItem<(v: string) -> ()> = {
 		Instance = dropdownBox :: any,
@@ -1243,6 +1333,9 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 		end,
 		Set = function(self, v)
 			valueBox.Text = v
+		end,
+		SetText = function(self, new)
+			valueBox.Text = new
 		end,
 		OnChange = function(self, fn)
 			table.insert(callbacks, fn)
@@ -1255,30 +1348,34 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 			dropdownBox:Destroy()
 		end,
 		SetEditable = function(self, editable)
+			iseditable = editable
 			for _, v in items do
 				v:SetEditable(editable)
 			end
 			
 			if not editable then
 				nameLabel:RemoveTag("JEXP_Text")
-				nameLabel:AddTag("JEXP_DarkText")
+				nameLabel:AddTag("JEXP_FadedText")
 				valueBox:RemoveTag("JEXP_Text")
-				valueBox:AddTag("JEXP_DarkText")
+				valueBox:AddTag("JEXP_FadedText")
 				valueBox.TextEditable = false
 				nameLabel.Interactable = false
 				nameLabel.Active = false
 				return
 			end
 			nameLabel:AddTag("JEXP_Text")
-			nameLabel:RemoveTag("JEXP_DarkText")
+			nameLabel:RemoveTag("JEXP_FadedText")
 			valueBox:AddTag("JEXP_Text")
-			valueBox:RemoveTag("JEXP_DarkText")
+			valueBox:RemoveTag("JEXP_FadedText")
 			valueBox.TextEditable = true
 			nameLabel.Interactable = true
 			nameLabel.Active = true
 		end,
 		GetName = function(self)
 			return nameLabel.Text
+		end,
+		SetName = function(self, new)
+			nameLabel.Text = new
 		end,
 	}
 	
@@ -1293,7 +1390,7 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	local function toggleDropdown()
 		if isExpanded then
 			dropdownList:Hide()
-			expandArrow.Rotation = 90
+			expandArrow.Rotation = -90
 			isExpanded = false
 		else
 			dropdownList:Show()
@@ -1303,13 +1400,24 @@ function PluginUI.createDropdownBox(list: ItemList?, attributeName: string?, att
 	end
 
 	expandArrow.Activated:Connect(toggleDropdown)
+	local lastValue = attributeValue
+	valueBox.Focused:Connect(function()
+		lastValue = valueBox.Text
+	end)
 	valueBox.FocusLost:Connect(function(enterPressed)
+		--if not enterPressed then
+		--	if lastValue then
+		--		valueBox.Text = lastValue
+		--	end
+		--	return
+		--end
+		if not iseditable then return end
 		for _, v in callbacks do
 			v(valueBox.Text)
 		end
 	end)
 
-	return item
+	return item, items
 end
 
 function PluginUI.createInsertButton(parent: Instance?, fn: () -> ())
@@ -1410,6 +1518,172 @@ function PluginUI.createSideButtonText(text: string, container: GuiObject, binde
 	sideButton.Parent = container
 
 	return sideButton
+end
+
+local point = Path2DControlPoint.new
+local ZERO = UDim2.fromScale(0, 0)
+function PluginUI.createLine(parent: Instance?, p1: UDim2, p2: UDim2, xoffset1: number, radius1: number, xoffset2: number, radius2: number, color: Color3)
+	local path = Instance.new("Path2D")
+	path:SetControlPoints {
+		point(p1, ZERO, ZERO),
+		point(
+			UDim2.new(0, p1.X.Offset + xoffset1, 0, p1.Y.Offset + radius1),
+			UDim2.new(0, 0, 0, -radius1),
+			UDim2.new(0, 0, 0, radius1)
+		),
+		point(
+			UDim2.new(0, p2.X.Offset + xoffset2, 0, p2.Y.Offset - radius2),
+			UDim2.new(0, 0, 0, -radius2),
+			UDim2.new(0, 0, 0, radius2)
+		),
+		point(p2, ZERO, ZERO)
+	}
+	
+	path.Parent = parent
+	path.Color3 = color
+	return path
+end
+
+function PluginUI.createCancelCreateButtons()
+	local container = Instance.new("Frame")
+	container.Name = "CreateConfirmContainer"
+	container.BackgroundTransparency = 1
+
+	container.Size = UDim2.new(1, 0, 0, 20)
+	container.BorderSizePixel = 0
+	
+	local cancelButton: TriggerUIItem do
+		local button = Instance.new("TextButton")
+		button.Name = "button"
+		button:AddTag("JEXP_LightBackground")
+		button:AddTag("JEXP_Text")
+		button:AddTag("JEXP_Hover")
+
+		button.BorderSizePixel = 0
+		button.TextTruncate = Enum.TextTruncate.AtEnd
+		button.AnchorPoint = Vector2.new(1, 0.5)
+		button.Size = UDim2.new(0.5 - 0.1, 0, 1 - 0.1, 0)
+		button.Position = UDim2.new(1 - 0.05, 0, 0.5, 0)
+		button.Text = "Cancel"
+		button.TextXAlignment = Enum.TextXAlignment.Center
+		button.Font = Enum.Font.SourceSans
+		button.TextSize = 12
+		button.ZIndex = 4
+		button.Parent = container
+		
+		local callbacks = {}
+		cancelButton = {
+			Instance = button,
+			OnTrigger = function(self, callback)
+				table.insert(callbacks, callback)
+				return connection(callbacks, callback)
+			end,
+			Trigger = function(self)
+				for _, v in callbacks do
+					v()
+				end
+			end,
+			Destroy = function(self)
+				button:Destroy()
+			end,
+		}
+		button.Activated:Connect(function()
+			for _, v in callbacks do
+				v()
+			end
+		end)
+	end
+	
+	local confirmButton: TriggerUIItem do
+		local button = Instance.new("TextButton")
+		button.Name = "button"
+		button:AddTag("JEXP_SelectedColor")
+		
+		button.BorderSizePixel = 0
+		button.TextTruncate = Enum.TextTruncate.AtEnd
+		button.AnchorPoint = Vector2.new(0, 0.5)
+		button.Size = UDim2.new(0.5 - 0.1, 0, 1 - 0.1, 0)
+		button.Position = UDim2.new(0.05, 0, 0.5, 0)
+		button.Text = "Confirm"
+		button.TextXAlignment = Enum.TextXAlignment.Center
+		button.Font = Enum.Font.SourceSans
+		button.TextSize = 12
+		button.ZIndex = 4
+		button.Parent = container
+
+		local callbacks = {}
+		confirmButton = {
+			Instance = button,
+			OnTrigger = function(self, callback)
+				table.insert(callbacks, callback)
+				return connection(callbacks, callback)
+			end,
+			Trigger = function(self)
+				for _, v in callbacks do
+					v()
+				end
+			end,
+			Destroy = function(self)
+				button:Destroy()
+			end,
+		}
+		button.Activated:Connect(function()
+			for _, v in callbacks do
+				v()
+			end
+		end)
+	end
+	
+	return container, cancelButton, confirmButton
+end
+
+function PluginUI.createCreatorWidget(title: string, items: {ValueUIItem})
+	local widget = plugin:CreateDockWidgetPluginGuiAsync(
+		PluginUI.getId("Creator", true), DockWidgetPluginGuiInfo.new(
+			Enum.InitialDockState.Float,
+			true,
+			true,
+			200,
+			100
+		)
+	)
+	widget:AddTag("JEXP_Widget")
+	local UITemplates = require("./UITemplates")
+	local editorFrame = UITemplates.EditorFrame()
+	editorFrame.Parent = widget
+	
+	widget.Name = "CREATORWIDGET"
+	widget.Title = title
+	widget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	widget:BindToClose(function()
+		widget.Enabled = not widget.Enabled
+	end)
+
+	editorFrame:AddTag("JEXP_Background")
+	editorFrame.Parent = widget
+
+	editorFrame.Items.Content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		local size = editorFrame.Items.Content.AbsoluteSize
+		editorFrame.Items.Overlay.Size = UDim2.fromOffset(size.X, size.Y)
+	end)
+	
+	local list = PluginUI.createItemListFromExisting(editorFrame, editorFrame.Items.Content, editorFrame.Items)
+	for _, v in items do
+		list:AddItem(v.Instance)
+	end
+	
+	local container, cancel, confirm = PluginUI.createCancelCreateButtons()
+	list:AddItem(container)
+	widget:BindToClose(function()
+		widget.Enabled = false
+		widget:Destroy()
+	end)
+	
+	return widget, cancel, confirm, function()
+		widget.Enabled = false
+		task.wait(0.1)
+		widget:Destroy()
+	end
 end
 
 return PluginUI

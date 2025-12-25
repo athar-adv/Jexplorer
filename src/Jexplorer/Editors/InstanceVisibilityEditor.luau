@@ -45,7 +45,7 @@ function InstanceVisibilityEditor.init(Manager)
 	InstanceVisibilityEditor.Widget = widget
 	Manager.Style:Link(widget)
 
-	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
+	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 
 	local classVisibilityDropdown = PluginUI.createDropDownItemList({Name = "InvisibleClassesDropdown", Visible = true}, "Invisible Classes")
 	classVisibilityDropdown:Parent(list)

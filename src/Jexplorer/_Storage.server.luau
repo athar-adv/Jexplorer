@@ -1,7 +1,7 @@
 --[[
 -- Goes up expanded parents to update their expanded heights
 local function cascadeUpdateExpandedHeights(world: World, entity: ExplorerEntity): number
-	profilebegin("Manager::getExpandedEntityHeight")
+	profilebegin("Jexplorer::getExpandedEntityHeight")
 	local components = Manager.Components
 	local childrenMap = hierarchyCache.childrenMap
 

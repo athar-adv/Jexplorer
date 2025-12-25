@@ -13,7 +13,7 @@ return {
 		},
 		FrameReuseCycleInterval = {
 			Type = "number",
-			Display = "ExplorerFrame Reuse & HierarchyCache Rebuild Cycle Interval",
+			Display = "HierarchyCache Rebuild Cycle Interval",
 			Default = 1/30
 		},
 		EntityCleanupCycleInterval = {
@@ -25,6 +25,26 @@ return {
 			Type = "number",
 			Display = "ExplorerEntity Creation Cycle Interval",
 			Default = 1/30
+		},
+		EntityDeletionFlushStep = {
+			Type = "number",
+			Display = "ExplorerEntity Deletion Cycle Step",
+			Default = 30
+		},
+		FrameSetParentFlushStep = {
+			Type = "number",
+			Display = "ExplorerFrame Set Parent Flush Step",
+			Default = 10,
+		},
+		ImmediateFlushFrameSetParentQueue = {
+			Type = "boolean",
+			Display = "Immediately Flush Frame Set Parent Queue",
+			Default = false
+		},
+		SetFrameVisibleOnReuse = {
+			Type = "boolean",
+			Display = "Set Frame Visible On Reuse & Assign",
+			Default = true
 		}
 	},
 	ExpandBehavior = {
@@ -99,6 +119,24 @@ return {
 			Default = 0,
 		},
 	},
+	FrameBehavior = {
+		IndentWidth = {
+			Type = "number",
+			Display = "ExplorerFrame Children Indent Width",
+			Default = 20,
+			OnChange = function(Manager)
+				Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
+			end,
+		},
+		FrameHeight = {
+			Type = "number",
+			Display = "ExplorerFrame Frame Height",
+			Default = 20,
+			OnChange = function(Manager)
+				Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
+			end,
+		}
+	}
 } :: {
 	[string]: {
 		[string]: {

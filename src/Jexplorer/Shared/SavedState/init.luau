@@ -15,7 +15,7 @@ local Migrations = require("@self/Migrations")
 export type SavedState = Types.SavedState
 
 local SavedState = {
-	data_version = 16
+	data_version = 19
 }
 
 function SavedState._migrate(state: any, manager: Types.Manager): SavedState

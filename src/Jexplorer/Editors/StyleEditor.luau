@@ -18,10 +18,13 @@ local UDF = require(shared.UDF)
 local Selector = require(shared.Small.Selector)
 local RawInst = require(shared.Small.RawInst)
 local ItemGroup = require(shared.Vendor.ItemGroup)
+local xyz = require(shared.Small.xyz)
 local cleanup = ItemGroup.cleanup
 
 local getId = PluginUI.getId
 local rule = Style.rule
+
+local ColorPicker = require(shared.Vendor.PluginColorPicker)
 
 local index = RawInst.index
 local newindex = RawInst.newindex
@@ -44,6 +47,18 @@ function StyleEditor.init(Manager)
 	local widget, mainframe = PluginUI.createEditorWidget(UITemplates.EditorFrame(), "StyleEditor", "Style Editor")
 	StyleEditor.Widget = widget
 	sheet:Link(widget)
+	
+	local function resolve(v: any): Color3
+		if typeof(v) == "Color3" then
+			return v
+		elseif typeof(v) == "string" then
+			return Style.eval(v, sheet.Tokens)
+		elseif typeof(v) == "table" and v.__stylevar then
+			return Style.eval(v.__expr, sheet.Tokens)
+		else
+			error(`'{v}' cannot be converted into Color3`)
+		end
+	end
 	
 	local currentResetTarget: {
 		box: TextBox,
@@ -81,13 +96,13 @@ function StyleEditor.init(Manager)
 	end
 
 	--local warningHeader = PluginUI.createHeader(nil, "WARNING: Styles are currently not saved")
-	--warningHeader.Parent = mainframe.Items
+	--warningHeader.Parent = mainframe.Items.Content
 
 	local rulesDropdown = PluginUI.createDropDownItemList(nil, "StyleRules")
 	local tokensDropdown = PluginUI.createDropDownItemList(nil, "Tokens")
 	rulesDropdown.Backdrop.Visible = true
 	tokensDropdown.Backdrop.Visible = true
-
+	
 	-- WARNING: YOU HAVE TO PASS A RULE IF K IS "Image" OR "Texture"
 	local function createStylePropertyBox(dropdown: any, k: string, defaultValue: any, callback: ((string) -> ())?, rule: Style.Rule?)
 		local defaultStr = UDF.to(defaultValue)
@@ -98,15 +113,11 @@ function StyleEditor.init(Manager)
 				rule:SetProperty(k, defaultValue)
 				return 
 			end
-			--if newValue == "" then
-			--	rule:SetProperty(k, defaultValue)
-			--	box.ValueBox.Text = defaultStr
-			--	return
-			--end
 			local value = UDF.from(newValue)
 			rule:SetProperty(k, value)
 		end)
 		
+		local conn2
 		if k == "Image" or k == "Texture" then
 			local importFromFileButton = PluginUI.createSideButtonImage("rbxassetid://13544220123", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
 			importFromFileButton:AddTag("JEXP_MonochromeImage")
@@ -120,12 +131,57 @@ function StyleEditor.init(Manager)
 				box:Set(file:GetTemporaryId())
 				rule:SetProperty(k, box:Get())
 			end)
+		elseif k == "BackgroundColor3" or k == "TextColor3" or k == "ImageColor3" or k == "Color" or k == "PlaceholderTextColor3" then
+			local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
+			chooseColorButton:AddTag("JEXP_Border")
+			chooseColorButton.BackgroundColor3 = resolve(defaultValue)
+
+			local function colorChanged(newColor: Color3)
+				assert(rule)
+				
+				rule:SetProperty(k, newColor)
+				box.Instance.ValueBox.Text = UDF.to(newColor)
+				chooseColorButton.BackgroundColor3 = newColor
+			end
+			
+			local last
+			chooseColorButton.Activated:Connect(function()
+				assert(rule)
+				if last then
+					last:Close()
+					last:Destroy()
+				end
+				local picker = ColorPicker.new(plugin, getId("StyleColorPicker", true))
+				last = picker
+				
+				picker:Show()
+				local originalColor = resolve(rule:GetProperty(k))
+				picker:Set(originalColor)
+
+				picker:BindToChange(colorChanged)
+				picker:BindToCancel(function()
+					colorChanged(originalColor)
+					picker:Close()
+					picker:Destroy()
+				end)
+				picker:BindToConfirm(function()
+					picker:Close()
+					picker:Destroy()
+				end)
+			end)
+			
+			if rule then
+				conn2 = rule.AppliedPropertyChanged:Connect(function(name, v)
+					if name ~= k then return end
+					chooseColorButton.BackgroundColor3 = resolve(v)
+				end)
+			end
 		end
 		
 		if rule then
 			local conn = rule.PropertyChanged:Connect(function(name, newValue)
 				if name ~= k then return end
-				box:Set(UDF.to(newValue))
+				box.Instance.ValueBox.Text = UDF.to(newValue)
 			end);
 			(box.Instance :: GuiObject).InputBegan:Connect(function(input: InputObject)
 				if input.UserInputState ~= Enum.UserInputState.Begin then return end
@@ -142,6 +198,9 @@ function StyleEditor.init(Manager)
 			local button = PluginUI.createDeleteButton(box.Instance, function()
 				rule:SetProperty(k, nil)
 				conn:Disconnect()
+				if conn2 then
+					conn2:Disconnect()
+				end
 				box:Destroy()
 			end)
 			button.AnchorPoint = Vector2.new(1, 0)
@@ -152,43 +211,56 @@ function StyleEditor.init(Manager)
 	end
 	
 	local currentCreatingRule: Style.Rule?, creatingDropdown: any?
-	local createStylePropertyItemList do
-		createStylePropertyItemList = PluginUI.createItemList {
-			Name = "StyleRuleItemList"
-		}
+	local function showCreateStylePropertyMenu()
+		local nameBox = PluginUI.createAttributeBox(nil, "Name", "")
+		local defaultValueBox = PluginUI.createAttributeBox(nil, "Default Value", "")
 		
-		local nameBox = PluginUI.createAttributeBox(createStylePropertyItemList, "Name")
-		local defaultValueBox = PluginUI.createAttributeBox(createStylePropertyItemList, "Default Value")
-		PluginUI.createButton(createStylePropertyItemList, "Create", function()
-			createStylePropertyItemList:Hide()
-			if not currentCreatingRule then return end
+		local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Create Style Property", {
+			nameBox,
+			defaultValueBox
+		})
+		Manager.Style:Link(widget)
+		
+		cancel:OnTrigger(function()
+			close()
+		end)
+		confirm:OnTrigger(function()
+			if not currentCreatingRule then
+				close()
+				return
+			end
 			local name = nameBox:Get()
 			local defaultValue = UDF.from(defaultValueBox:Get())
-			
+
 			if not defaultValue then return end
 
 			currentCreatingRule:SetProperty(name, defaultValue)
 			createStylePropertyBox(creatingDropdown, name, defaultValue, nil, currentCreatingRule)
 			currentCreatingRule = nil
+			
+			close()
 		end)
-
-		createStylePropertyItemList.Backdrop.MouseLeave:Connect(function()
-			createStylePropertyItemList:Hide()
-		end)
-		createStylePropertyItemList.Backdrop.Parent = topbar
 	end
 	
-	local createNestedStyleRuleList do
-		createNestedStyleRuleList = PluginUI.createItemList {
-			Name = "CreateNestedStyleRuleItemList"
-		}
+	local function showCreateNestedStyleRuleMenu()
+		local selectorBox = PluginUI.createAttributeBox(nil, "Selector", "")
+		local priorityBox = PluginUI.createAttributeBox(nil, "Priority", "1")
 		
-		local selectorBox = PluginUI.createAttributeBox(createNestedStyleRuleList, "Selector")
-		local priorityBox = PluginUI.createAttributeBox(createNestedStyleRuleList, "Priority")
-		PluginUI.createButton(createNestedStyleRuleList, "Create", function()
-			createNestedStyleRuleList:Hide()
-			if not currentCreatingRule or not creatingDropdown then return end
-			
+		local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Create Child Style Rule", {
+			selectorBox,
+			priorityBox
+		})
+		Manager.Style:Link(widget)
+		
+		cancel:OnTrigger(function()
+			close()
+		end)
+		confirm:OnTrigger(function()
+			if not currentCreatingRule or not creatingDropdown then
+				close()
+				return
+			end
+
 			local selector = selectorBox:Get()
 			local priority = tonumber(priorityBox:Get())
 			assert(priority, "stylerule priority must be a number")
@@ -205,18 +277,15 @@ function StyleEditor.init(Manager)
 					ImageRectSize = Vector2.zero
 				}
 			end
-			
+
 			local styleRule = rule("CustomStyle", selector, priority, defaultProperties)
-			
+
 			currentCreatingRule:AddRules({styleRule})
 			-- Handled in ParentRule.RuleAdded
 			--dropdown:Parent(creatingDropdown)
+
+			close()
 		end)
-		
-		createNestedStyleRuleList.Backdrop.MouseLeave:Connect(function()
-			createNestedStyleRuleList:Hide()
-		end)
-		createNestedStyleRuleList.Backdrop.Parent = topbar
 	end
 	
 	local function createStyleRuleDropdown(rule: Style.Rule)
@@ -236,7 +305,7 @@ function StyleEditor.init(Manager)
 		box = createStylePropertyBox(dropdown, "StyleRule.Selector", defaultSelector, function(newValue)
 			local newSelector, macroType = Selector.parseSelectorMacro(UDF.from(newValue))
 			if newSelector then
-				box:Set(UDF.to(newSelector))
+				box.Instance.ValueBox.Text = UDF.to(newSelector)
 				rule.Rule.Selector = newSelector
 			else
 				rule.Rule.Selector = newValue
@@ -292,7 +361,7 @@ function StyleEditor.init(Manager)
 		PluginUI.createInsertButton(header, function()
 			currentCreatingRule = rule
 			creatingDropdown = dropdown
-			createStylePropertyItemList:Show()
+			showCreateStylePropertyMenu()
 		end)
 		
 		local createRulePos = UDim2.fromScale(0.85, 0.5)
@@ -306,7 +375,7 @@ function StyleEditor.init(Manager)
 		local createRule = PluginUI.createInsertButtonWithImage(header, "rbxassetid://85474028895485", function()
 			currentCreatingRule = rule
 			creatingDropdown = dropdown
-			createNestedStyleRuleList:Show()
+			showCreateNestedStyleRuleMenu()
 		end)
 		createRule.Position = createRulePos
 		
@@ -320,15 +389,20 @@ function StyleEditor.init(Manager)
 		return dropdown
 	end
 	
-	local createStyleRuleItemList do
-		createStyleRuleItemList = PluginUI.createItemList {
-			Name = "CreateStyleRuleItemList"
-		}
+	local function showCreateTopStyleRuleMenu()
+		local selectorBox = PluginUI.createAttributeBox(nil, "Selector", "")
+		local priorityBox = PluginUI.createAttributeBox(nil, "Priority", "1")
 
-		local selectorBox = PluginUI.createAttributeBox(createStyleRuleItemList, "Selector")
-		local priorityBox = PluginUI.createAttributeBox(createStyleRuleItemList, "Priority")
-		PluginUI.createButton(createStyleRuleItemList, "Create", function()
-			createStyleRuleItemList:Hide()
+		local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Create Style Rule", {
+			selectorBox,
+			priorityBox
+		})
+		Manager.Style:Link(widget)
+		
+		cancel:OnTrigger(function()
+			close()
+		end)
+		confirm:OnTrigger(function()
 			local selector = selectorBox:Get()
 			local priority = tonumber(priorityBox:Get())
 			assert(priority, "stylerule priority must be a number")
@@ -348,17 +422,14 @@ function StyleEditor.init(Manager)
 
 			local styleRule = rule("CustomStyle", selector, priority, defaultProperties)
 			sheet:AddRules {styleRule}
-			
+
 			-- Handled in the .RuleAdded connection
 			--createStyleRuleDropdown(styleRule)
+			
+			close()
 		end)
-		
-		createStyleRuleItemList.Backdrop.MouseLeave:Connect(function()
-			createStyleRuleItemList:Hide()
-		end)
-		createStyleRuleItemList.Backdrop.Parent = topbar
 	end
-
+	
 	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string)
 		local box
 		box = PluginUI.createAttributeBox(tokensDropdown, k, defaultStr, function(newValue)
@@ -366,14 +437,9 @@ function StyleEditor.init(Manager)
 				sheet:SetToken(k, defaultValue, true)
 				return
 			end
-			--if newValue == "" then
-			--	sheet:SetToken(k, defaultValue)
-			--	box.ValueBox.Text = defaultStr
-			--	return
-			--end
 			local value = UDF.from(newValue)
 			if not value then
-				box:Set(defaultStr)
+				box.Instance.ValueBox.Text = defaultStr
 				return
 			end
 			sheet:SetToken(k, value, true)
@@ -381,8 +447,9 @@ function StyleEditor.init(Manager)
 		
 		local conn = sheet.TokenChanged:Connect(function(name, newValue)
 			if name ~= k then return end
-			box:Set(UDF.to(newValue))
+			box.Instance.ValueBox.Text = UDF.to(newValue)
 		end)
+		local conn2
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
 			if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
@@ -396,38 +463,90 @@ function StyleEditor.init(Manager)
 			stylePropertyResetMenu:ShowAsync()
 		end)
 
-		--if not JState.DefaultTokens[k] then
-		--	local button = PluginUI.createDeleteButton(box.Instance, function()
-		--		sheet:SetToken(k, nil, true)
-		--		conn:Disconnect()
-		--		box:Destroy()
-		--	end)
-		--	button.AnchorPoint = Vector2.new(1, 0)
-		--	button.Position = UDim2.fromScale(1, 0)
-		--end
+		local button = PluginUI.createDeleteButton(box.Instance, function()
+			sheet:SetToken(k, nil, true)
+			conn:Disconnect()
+			if conn2 then
+				conn2:Disconnect()
+			end
+			box:Destroy()
+		end)
+		button.AnchorPoint = Vector2.new(1, 0)
+		button.Position = UDim2.fromScale(1, 0)
+		
+		local function iscolor(v: any): boolean
+			local success, result = pcall(resolve, v)
+			return success and typeof(result) == "Color3"
+		end
+		if iscolor(defaultValue) then
+			local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
+			chooseColorButton:AddTag("JEXP_Border")
+			chooseColorButton.BackgroundColor3 = resolve(defaultValue)
+
+			local function colorChanged(newColor: Color3)
+				assert(rule)
+
+				sheet:SetToken(k, newColor, true)
+				box.Instance.ValueBox.Text = UDF.to(newColor)
+				chooseColorButton.BackgroundColor3 = newColor
+			end
+			
+			local last
+			chooseColorButton.Activated:Connect(function()
+				assert(rule)
+				if last then
+					last:Close()
+					last:Destroy()
+				end
+				local picker = ColorPicker.new(plugin, getId("StyleColorPicker", true))
+				last = picker
+				
+				picker:Show()
+				local originalColor = resolve(sheet:GetToken(k))
+				picker:Set(originalColor)
+
+				picker:BindToChange(colorChanged)
+				picker:BindToCancel(function()
+					colorChanged(originalColor)
+					picker:Close()
+					picker:Destroy()
+				end)
+				picker:BindToConfirm(function()
+					picker:Close()
+					picker:Destroy()
+				end)
+			end)
+			
+			conn2 = sheet.AppliedTokenChanged:Connect(function(name, v)
+				if name ~= k then return end
+				chooseColorButton.BackgroundColor3 = resolve(v)
+			end)
+		end
 	end
+	
+	local function showCreateTokenMenu()
+		local nameBox = PluginUI.createAttributeBox(nil, "Name", "")
+		local defaultValueBox = PluginUI.createAttributeBox(nil, "Default Value", "")
 
-	local createTokenItemList do
-		createTokenItemList = PluginUI.createItemList {
-			Name = "CreateTokenItemList"
-		}
-
-		local nameBox = PluginUI.createAttributeBox(createTokenItemList, "Name")
-		local defaultValueBox = PluginUI.createAttributeBox(createTokenItemList, "Default Value")
-		PluginUI.createButton(createTokenItemList, "Create", function()
-			createTokenItemList:Hide()
+		local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Create Token", {
+			nameBox,
+			defaultValueBox
+		})
+		Manager.Style:Link(widget)
+		
+		cancel:OnTrigger(function()
+			close()
+		end)
+		confirm:OnTrigger(function()
 			local name = nameBox:Get()
 			local defaultStr = defaultValueBox:Get()
 			local defaultValue = UDF.from(defaultStr)
 			sheet:SetToken(name, defaultValue, true)
 
 			createTokenAttribute(name, defaultValue, defaultStr)
+
+			close()
 		end)
-		
-		createTokenItemList.Backdrop.MouseLeave:Connect(function()
-			createTokenItemList:Hide()
-		end)
-		createTokenItemList.Backdrop.Parent = topbar
 	end
 	
 	task.spawn(function()
@@ -452,17 +571,17 @@ function StyleEditor.init(Manager)
 	local rulesHeader = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
 
 	PluginUI.createInsertButton(rulesHeader, function()
-		createStyleRuleItemList:Show()
+		showCreateTopStyleRuleMenu()
 	end)
 	
 	local tokensHeader = tokensDropdown.Backdrop:FindFirstChild("DropDownHeader")
 	
 	PluginUI.createInsertButton(tokensHeader, function()
-		createTokenItemList:Show()
+		showCreateTokenMenu()
 	end)
 
-	rulesDropdown.Backdrop.Parent = mainframe.Items
-	tokensDropdown.Backdrop.Parent = mainframe.Items
+	rulesDropdown.Backdrop.Parent = mainframe.Items.Content
+	tokensDropdown.Backdrop.Parent = mainframe.Items.Content
 	
 	connections:add_many({
 		sheet.RuleAdded:Connect(function(newRule)

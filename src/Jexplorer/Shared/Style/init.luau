@@ -1,7 +1,7 @@
 --!strict
 --!optimize 2
 
-local eval = require(script.ExprEvaluator)
+local eval = require(script.EvalASEL)
 local SimpleSignal = require(script.Parent.Vendor.SimpleSignal)
 
 export type Expression = {
@@ -18,15 +18,17 @@ export type Style = {
 	Sheet: StyleSheet,
 	Tokens: {[string]: any},
 	AppliedTokens: {[string]: any},
+	TokenDependencies: {[string]: {string}},
 
 	Links: {StyleLink},
 	Rules: {Rule},
-
 	Link: (Style, gui: Instance) -> StyleLink,
 
 	SetToken: (Style, name: string, value: any, autoUpdate: boolean) -> (),
 	GetToken: (Style, name: string) -> any,
 	UpdateTokens: (Style) -> (),
+	UpdateToken: (Style, name: string) -> (),
+	GetDependencies: (Style, expr: string) -> {string},
 
 	AddRules: (Style, rules: {[any]: any}) -> (),
 	FindRule: (Style, selector: string) -> StyleRule?,
@@ -37,6 +39,7 @@ export type Style = {
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
 	RuleRemoved: SimpleSignal.SimpleSignal<Rule>,
 	TokenChanged: SimpleSignal.SimpleSignal<string, any>,
+	AppliedTokenChanged: SimpleSignal.SimpleSignal<string, any>,
 }
 
 export type Rule = {
@@ -45,6 +48,7 @@ export type Rule = {
 	ChildRules: {Rule},
 	ParentRule: Rule?,
 	Tags: {[string]: boolean},
+	PropertyDependencies: {[string]: {string}},
 
 	AddTag: (Rule, string) -> (),
 	HasTag: (Rule, string) -> boolean,
@@ -63,6 +67,7 @@ export type Rule = {
 	Destroy: (Rule) -> (),
 
 	PropertyChanged: SimpleSignal.SimpleSignal<string, any>,
+	AppliedPropertyChanged: SimpleSignal.SimpleSignal<string, any>,
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
 	RuleRemoved: SimpleSignal.SimpleSignal<Rule>,
 
@@ -76,32 +81,103 @@ local Style = {
 	eval = eval
 }
 
+-- Extract all $TOKEN references from an expression
+local function getDependencies(expr: string): {string}
+	local deps = {}
+	local seen = {}
+
+	-- Match $TOKEN pattern (alphanumeric and underscore after $)
+	for token in expr:gmatch("%$([%w_]+)") do
+		if not seen[token] then
+			seen[token] = true
+			table.insert(deps, token)
+		end
+	end
+
+	return deps
+end
+
+-- Topological sort for token evaluation order
+local function topologicalSort(tokens: {[string]: any}, tokenDeps: {[string]: {string}}): {string}
+	local sorted = {}
+	local visited = {}
+	local visiting = {}
+
+	local function visit(name: string)
+		if visited[name] then return end
+		if visiting[name] then
+			error(`Circular dependency detected involving token '${name}'`)
+		end
+
+		visiting[name] = true
+		local deps = tokenDeps[name]
+		if deps then
+			for _, dep in deps do
+				if tokens[dep] ~= nil then
+					visit(dep)
+				end
+			end
+		end
+		visiting[name] = nil
+		visited[name] = true
+		table.insert(sorted, name)
+	end
+
+	for name in tokens do
+		if type(name) == "string" and not visited[name] then
+			visit(name)
+		end
+	end
+
+	return sorted
+end
+
 local function filterRules(style: Style, rules: {[string | number]: any}, tokens: {[string]: any})
 	local sheet = style.Sheet
-	local queuedTokens = {}
 
+	-- First pass: collect all tokens and their dependencies
 	for k, v in rules do
 		if type(k) == "number" then continue end
 		if type(v) == "table" and v.__stylevar then
-			table.insert(queuedTokens, function()
-				local evaluated = eval(v.__expr, tokens)
-				sheet:SetAttribute(k, evaluated)
-			end)
+			style.TokenDependencies[k] = getDependencies(v.__expr)
 		else
-			pcall(sheet.SetAttribute, sheet, k, v)
+			style.TokenDependencies[k] = {}
 		end
 		tokens[k] = v
 		rules[k] = nil
 	end
-	for _, f in queuedTokens do f() end
 
-	local appliedTokens = sheet:GetAttributes()
+	-- Sort tokens in dependency order
+	local sortedTokens = topologicalSort(tokens, style.TokenDependencies)
+
+	-- Evaluate tokens in order, building up AppliedTokens progressively
+	for _, tokenName in sortedTokens do
+		local v = tokens[tokenName]
+		if type(v) == "table" and v.__stylevar then
+			-- Evaluate using the progressively built AppliedTokens
+			local evaluated = eval(v.__expr, style.AppliedTokens)
+			sheet:SetAttribute(tokenName, evaluated)
+			style.AppliedTokens[tokenName] = evaluated
+		else
+			-- Store literal values directly
+			pcall(sheet.SetAttribute, sheet, tokenName, v)
+			style.AppliedTokens[tokenName] = v
+		end
+	end
+
+	-- Now evaluate rule properties
 	for _, rule in rules do
 		for k, v in rule.RawProperties do
 			if type(v) == "table" and v.__stylevar then
-				local evaluated = eval(v.__expr, appliedTokens)
+				rule.PropertyDependencies[k] = getDependencies(v.__expr)
+				local evaluated = eval(v.__expr, style.AppliedTokens)
+				rule.AppliedProperties[k] = evaluated
+			elseif type(v) == "string" and v:sub(1, 1) == "$" then
+				rule.PropertyDependencies[k] = getDependencies(v)
+				local evaluated = style.AppliedTokens[k]
 				rule.AppliedProperties[k] = evaluated
 			else
+				rule.PropertyDependencies[k] = {}
 				rule.AppliedProperties[k] = v
 			end
 		end
@@ -138,63 +214,179 @@ function StyleMethods:GetToken(name: string)
 	return self.AppliedTokens[name]
 end
 
+function StyleMethods:GetDependencies(expr: string): {string}
+	return getDependencies(expr)
+end
+
+-- Build reverse dependency map (which tokens are affected by a change)
+local function buildReverseDeps(tokenDeps: {[string]: {string}}): {[string]: {string}}
+	local reverseDeps: {[string]: {string}} = {}
+
+	for tokenName, deps in tokenDeps do
+		for _, depToken in deps do
+			if not reverseDeps[depToken] then
+				reverseDeps[depToken] = {}
+			end
+			table.insert(reverseDeps[depToken], tokenName)
+		end
+	end
+
+	return reverseDeps
+end
+
+-- Update only the specified token and its dependents
+function StyleMethods:UpdateToken(name: string)
+	local sheet = self.Sheet
+
+	-- Build reverse dependency map
+	local reverseDeps = buildReverseDeps(self.TokenDependencies)
+
+	-- Determine which tokens need updating (BFS for transitive dependencies)
+	local toUpdate = {[name] = true}
+	local queue = {name}
+	local queueIdx = 1
+
+	while queueIdx <= #queue do
+		local current = queue[queueIdx]
+		queueIdx = queueIdx + 1
+
+		local dependents = reverseDeps[current]
+		if dependents then
+			for _, dependent in dependents do
+				if not toUpdate[dependent] then
+					toUpdate[dependent] = true
+					table.insert(queue, dependent)
+				end
+			end
+		end
+	end
+
+	-- Build subset of tokens to update
+	local tokensToUpdate = {}
+	for tokenName in toUpdate do
+		tokensToUpdate[tokenName] = self.Tokens[tokenName]
+	end
+
+	-- Sort them in dependency order
+	local sortedTokens = topologicalSort(tokensToUpdate, self.TokenDependencies)
+
+	-- Update tokens in dependency order
+	for _, tokenName in sortedTokens do
+		local v = self.Tokens[tokenName]
+		if type(v) == "table" and v.__stylevar then
+			local evaluated = eval(v.__expr, self.AppliedTokens)
+			sheet:SetAttribute(tokenName, evaluated)
+			self.AppliedTokens[tokenName] = evaluated
+			self.AppliedTokenChanged:Fire(tokenName, evaluated)
+		else
+			pcall(sheet.SetAttribute, sheet, tokenName, v)
+			self.AppliedTokens[tokenName] = v
+			self.AppliedTokenChanged:Fire(tokenName, v)
+		end
+	end
+
+	-- Update rules that depend on these tokens
+	local function updateRulesRecursive(rules: {Rule})
+		for _, ruleTbl in rules do
+			for propName, deps in ruleTbl.PropertyDependencies do
+				-- Check if this property depends on any updated token
+				local needsUpdate = false
+				for _, dep in deps do
+					if toUpdate[dep] then
+						needsUpdate = true
+						break
+					end
+				end
+
+				if needsUpdate then
+					local v = ruleTbl.RawProperties[propName]
+					if type(v) == "table" and v.__stylevar then
+						local evaluated = eval(v.__expr, self.AppliedTokens)
+						ruleTbl.Rule:SetProperty(propName, evaluated)
+						ruleTbl.AppliedProperties[propName] = evaluated
+						ruleTbl.AppliedPropertyChanged:Fire(propName, evaluated)
+					else
+						ruleTbl.Rule:SetProperty(propName, v)
+						ruleTbl.AppliedProperties[propName] = v
+						ruleTbl.AppliedPropertyChanged:Fire(propName, v)
+					end
+				end
+			end
+
+			if #ruleTbl.ChildRules > 0 then
+				updateRulesRecursive(ruleTbl.ChildRules)
+			end
+		end
+	end
+
+	updateRulesRecursive(self.Rules)
+end
+
 function StyleMethods:SetToken(name: string, value: any, autoUpdate: boolean)
 	local sheet = self.Sheet
-	local appliedTokens = sheet:GetAttributes()
 
 	self.Tokens[name] = value
 	if type(value) == "table" and value.__stylevar then
-		local evaluated = eval(value.__expr, appliedTokens)
+		self.TokenDependencies[name] = getDependencies(value.__expr)
+		local evaluated = eval(value.__expr, self.AppliedTokens)
 		sheet:SetAttribute(name, evaluated)
-		appliedTokens[name] = evaluated
+		self.AppliedTokens[name] = evaluated
 	else
+		self.TokenDependencies[name] = {}
 		pcall(sheet.SetAttribute, sheet, name, value)
-		appliedTokens[name] = value
+		self.AppliedTokens[name] = value
 	end
 
-	self.AppliedTokens = appliedTokens
-	if autoUpdate then
-		self:UpdateTokens()
-	end
 	self.TokenChanged:Fire(name, value)
+
+	if autoUpdate then
+		self:UpdateToken(name)
+	end
 end
 
 function StyleMethods:UpdateTokens()
 	local sheet = self.Sheet
-	local appliedTokens = sheet:GetAttributes()
 
-	for k, v in self.Tokens do
+	-- Sort tokens in dependency order
+	local sortedTokens = topologicalSort(self.Tokens, self.TokenDependencies)
+
+	-- Update tokens in order
+	for _, tokenName in sortedTokens do
+		local v = self.Tokens[tokenName]
 		if type(v) == "table" and v.__stylevar then
-			local evaluated = eval(v.__expr, appliedTokens)
-			sheet:SetAttribute(k, evaluated)
-			appliedTokens[k] = evaluated
+			local evaluated = eval(v.__expr, self.AppliedTokens)
+			sheet:SetAttribute(tokenName, evaluated)
+			self.AppliedTokens[tokenName] = evaluated
+			self.AppliedTokenChanged:Fire(tokenName, evaluated)
 		else
-			pcall(sheet.SetAttribute, sheet, k, v)
-			appliedTokens[k] = v
+			pcall(sheet.SetAttribute, sheet, tokenName, v)
+			self.AppliedTokens[tokenName] = v
+			self.AppliedTokenChanged:Fire(tokenName, v)
 		end
 	end
 
 	local function updateRulesRecursive(rules: {Rule})
 		for _, ruleTbl in rules do
-			local changed = false
 			for k, v in ruleTbl.RawProperties do
 				if type(v) == "table" and v.__stylevar then
-					local evaluated = eval(v.__expr, appliedTokens)
+					local evaluated = eval(v.__expr, self.AppliedTokens)
 					ruleTbl.Rule:SetProperty(k, evaluated)
 					ruleTbl.AppliedProperties[k] = evaluated
-					changed = true
+
+					ruleTbl.AppliedPropertyChanged:Fire(k, evaluated)
 				else
 					ruleTbl.Rule:SetProperty(k, v)
 					ruleTbl.AppliedProperties[k] = v
-					changed = true
+
+					ruleTbl.AppliedPropertyChanged:Fire(k, v)
 				end
 			end
-			if #ruleTbl.ChildRules == 0 then continue end
-			updateRulesRecursive(ruleTbl.ChildRules)
+			if #ruleTbl.ChildRules > 0 then
+				updateRulesRecursive(ruleTbl.ChildRules)
+			end
 		end
 	end
 	updateRulesRecursive(self.Rules)
-	self.AppliedTokens = appliedTokens
 end
 
 function StyleMethods:Replace(new: Style)
@@ -205,7 +397,7 @@ function StyleMethods:Replace(new: Style)
 		v.StyleSheet = new.Sheet
 	end
 	sheet:Destroy()
-	
+
 	self.Sheet = new.Sheet
 	table.clear(self.Rules)
 	for _, v in new.Rules do
@@ -220,6 +412,10 @@ function StyleMethods:Replace(new: Style)
 	table.clear(self.AppliedTokens)
 	for k, v in new.AppliedTokens do
 		self.AppliedTokens[k] = v
+	end
+	table.clear(self.TokenDependencies)
+	for k, v in new.TokenDependencies do
+		self.TokenDependencies[k] = v
 	end
 end
 
@@ -311,28 +507,39 @@ end
 function RuleMethods:SetProperty(k, v)
 	local realProps = self.AppliedProperties
 	local props = self.RawProperties
-	local rule = self.Rule
+	local style = self.Sheet
 
 	if type(v) == "table" and v.__stylevar then
-		local evaluated = eval(v.__expr, self.Sheet.Sheet:GetAttributes())
+		self.PropertyDependencies[k] = getDependencies(v.__expr)
+		local evaluated = eval(v.__expr, style.AppliedTokens)
+		realProps[k] = evaluated
+	elseif type(v) == "string" and v:sub(1, 1) == "$" then
+		self.PropertyDependencies[k] = getDependencies(v)
+		local evaluated = style.AppliedTokens[k]
 		realProps[k] = evaluated
 	else
+		self.PropertyDependencies[k] = {}
 		realProps[k] = v
 	end
-	rule:SetProperty(k, realProps[k])
+	self.Rule:SetProperty(k, realProps[k])
 	props[k] = v
 	self.PropertyChanged:Fire(k, v)
 end
 
 function RuleMethods:AddRules(rules)
 	local sheet = self.Sheet
-	local appliedTokens = sheet.Sheet:GetAttributes()
 	for _, rule in rules do
 		for k, v in rule.RawProperties do
 			if type(v) == "table" and v.__stylevar then
-				local evaluated = eval(v.__expr, appliedTokens)
+				rule.PropertyDependencies[k] = getDependencies(v.__expr)
+				local evaluated = eval(v.__expr, sheet.AppliedTokens)
+				rule.AppliedProperties[k] = evaluated
+			elseif type(v) == "string" and v:sub(1, 1) == "$" then
+				rule.PropertyDependencies[k] = getDependencies(v)
+				local evaluated = self.Sheet.AppliedTokens[k]
 				rule.AppliedProperties[k] = evaluated
 			else
+				rule.PropertyDependencies[k] = {}
 				rule.AppliedProperties[k] = v
 			end
 		end
@@ -393,6 +600,11 @@ function RuleMethods:Destroy()
 	rule:Destroy()
 	table.clear(self.RawProperties)
 	table.clear(self.AppliedProperties)
+
+	self.PropertyChanged:Destroy()
+	self.AppliedPropertyChanged:Destroy()
+	self.RuleAdded:Destroy()
+	self.RuleRemoved:Destroy()
 end
 
 function RuleMethods:init(sheet)
@@ -412,7 +624,7 @@ function RuleMethods:init(sheet)
 
 	for k, v in props do
 		if type(v) == "table" and v.__stylevar then
-			local evaluated = eval(v.__expr, self.Sheet.Sheet:GetAttributes())
+			local evaluated = eval(v.__expr, sheet.AppliedTokens)
 			realProps[k] = evaluated
 		else
 			realProps[k] = v
@@ -446,11 +658,10 @@ function RuleMethods:init(sheet)
 		self.ChildRules[i] = cloned
 	end
 
-	local appliedTokens = sheet.Sheet:GetAttributes()
 	for _, rule in rulesToInit do
 		for k, v in rule.RawProperties do
 			if type(v) == "table" and v.__stylevar then
-				local evaluated = eval(v.__expr, appliedTokens)
+				local evaluated = eval(v.__expr, sheet.AppliedTokens)
 				rule.AppliedProperties[k] = evaluated
 			else
 				rule.AppliedProperties[k] = v
@@ -529,8 +740,10 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		AppliedProperties = realProps,
 		ChildRules = childrenRules,
 		Tags = {},
+		PropertyDependencies = {},
 
 		PropertyChanged = SimpleSignal.new(),
+		AppliedPropertyChanged = SimpleSignal.new(),
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new()
 	} :: Rule, RuleMethods) :: any
@@ -546,12 +759,14 @@ function Style.create(rules: {[any]: any}): Style
 		Sheet = sheet,
 		Tokens = tokens,
 		Links = {},
-		AppliedTokens = sheet:GetAttributes(),
+		AppliedTokens = {}, -- Start with empty table, not GetAttributes()
+		TokenDependencies = {},
 		Rules = rules,
 
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new(),
 		TokenChanged = SimpleSignal.new(),
+		AppliedTokenChanged = SimpleSignal.new()
 	} :: Style, StyleMethods) :: any
 
 	filterRules(style, rules, tokens)

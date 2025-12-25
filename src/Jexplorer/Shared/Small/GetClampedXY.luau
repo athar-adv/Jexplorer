@@ -1,4 +1,4 @@
-return function(frameSize: Vector2, originalPosition: Vector2, size: Vector2, containerPos: Vector2, containerSize: Vector2)
+return function(frameSize: Vector2, originalPosition: Vector2, size: Vector2, containerPos: Vector2, containerSize: Vector2): (number, number)
 	local left = containerPos.X
 	local top = containerPos.Y
 	local right = containerPos.X + containerSize.X

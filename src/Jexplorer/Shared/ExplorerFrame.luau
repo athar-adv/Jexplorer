@@ -12,6 +12,11 @@ local Style = require("./Style")
 local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 
+local getClassPropMap = require("./Small/GetClassPropMap")
+local cachedQuery = require("./Small/CachedQuery")
+
+local addTag, removeTag = game.AddTag, game.RemoveTag
+
 local var = Style.var
 local rule = Style.rule
 local rawindex = RawInst.rawindex
@@ -24,15 +29,8 @@ type ExplorerFrame = Types.ExplorerFrame
 type ExplorerEntity = Types.ExplorerEntity
 type Manager = Types.Manager
 
-local tagAssignQueue: {{frame: ExplorerFrame, entity: ExplorerEntity}} = {}
-
-local LOCAL_FRAME_CACHE_SIZE = 50  -- L1 cache: small, fast (parented, hidden)
-local GLOBAL_FRAME_CACHE_SIZE = 200  -- L2 cache: large, slower (parented to nil)
-
-local globalFramePool = {}  -- L2 cache (parent = nil)
-local localFramePool = {}  -- L1 cache (parent = JExplorerUI, visible = false)
-
-local frameReuseQueue: {ExplorerEntity} = {}
+local GLOBAL_FRAME_CACHE_SIZE = 500  -- L2 cache: large, slower (parented to nil)
+local globalFramePool = {}
 
 local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected: boolean)
 	local frameInst = assert(Manager.frameOf(frame))
@@ -46,22 +44,8 @@ local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected
 	profileend()
 end
 
-local function getFrameTags(instance: any)
-	local tags = {}
-	for _, prop in Constants.TaggedProperties do
-		local success, value = pcall(index, instance, prop)
-		if success and value ~= nil then
-			table.insert(tags, JexpTags.getTaggedPropertyTag(prop, typeof(value) == "EnumItem" and value.Name or tostring(value)))
-		end
-	end
-	for _, tag in instance:GetTags() do
-		table.insert(tags, `JEXP_TAG_{tag}`)
-	end
-	return tags
-end
-
 local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlHeld: boolean, isShiftHeld: boolean)
-	profilebegin("Manager::toggleSelection")
+	profilebegin("Jexplorer::toggleSelection")
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
 	local ExplorerFrame = Manager.ExplorerFrame
@@ -84,7 +68,7 @@ local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlH
 	elseif isShiftHeld and state.LastSelectedEntity then
 		-- Shift select
 		local range = Manager.HierarchyState.getEntitiesBetween(Manager, state.LastSelectedEntity, entity)
-		profilebegin("Manager::toggleSelection::shiftSelect::addSelectedComponents")
+		profilebegin("Jexplorer::toggleSelection::shiftSelect::addSelectedComponents")
 		for _, eid in range do
 			world:add(eid, components.Selected)
 		end
@@ -372,48 +356,29 @@ end
 local ExplorerFrame = {} :: Types.ExplorerFrameLib
 
 function ExplorerFrame.fillGlobalPoolToLimit(Manager)
-	profilebegin("Manager::fillInstanceFramePoolToLimit")
-	local n = #globalFramePool
-	if n >= GLOBAL_FRAME_CACHE_SIZE then return end
-	local framesToCreate = GLOBAL_FRAME_CACHE_SIZE - n
+	profilebegin("Jexplorer::fillInstanceFramePoolToLimit")
+	if #globalFramePool >= GLOBAL_FRAME_CACHE_SIZE then return end
+
+	local framesToCreate = GLOBAL_FRAME_CACHE_SIZE - #globalFramePool
 	for _ = 1, framesToCreate do
 		local clone = UITemplates.InstanceFrame()
 
 		local frame = createExplorerFrame(Manager, clone)
-		clone.Visible = false
-		clone.Parent = nil
+		clone.Visible = true
+		--clone.Parent = Manager.WidgetState.JExplorerUI.InstanceTree
+
 		table.insert(globalFramePool, frame)
 	end
 	profileend()
 end
 
-function ExplorerFrame.fillLocalPoolToLimit(Manager)
-	profilebegin("Manager::fillLocalFrameCache")
-	-- Only fill if we have frames in the global pool
-	while #localFramePool < LOCAL_FRAME_CACHE_SIZE and #globalFramePool > 0 do
-		local frame: ExplorerFrame? = table.remove(globalFramePool)
-		if not frame then break end 
-
-		local frameInst = assert(Manager.frameOf(frame))
-		frameInst.Visible = false
-		frameInst.Parent = Manager.WidgetState.JExplorerUI.InstanceTree
-		table.insert(localFramePool, frame)
-	end
-	profileend()
-end
-
 function ExplorerFrame.getExplorerFrame(Manager): ExplorerFrame
-	-- Try L1 cache first (fastest)
-	if #localFramePool > 0 then
-		local frame = table.remove(localFramePool)
-		-- Refill local cache in background if getting low
-		if #localFramePool < LOCAL_FRAME_CACHE_SIZE / 2 then
-			ExplorerFrame.fillLocalPoolToLimit(Manager)
-		end
-		return frame::any
-	end
-
-	-- Fall back to L2 cache
+	profilebegin("Jexplorer::allocateExplorerFrame")
+	
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local frameWorld = state.FrameWorld
+	
 	if #globalFramePool == 0 then
 		-- Attempt to reuse any pending frames before creating new ones
 		local success = ExplorerFrame.flushFrameReuseQueue(Manager)
@@ -421,42 +386,41 @@ function ExplorerFrame.getExplorerFrame(Manager): ExplorerFrame
 			ExplorerFrame.fillGlobalPoolToLimit(Manager)
 		end
 	end
-
-	local frame = table.remove(globalFramePool)
-	-- Note: frame from L2 will need parent assignment by caller
-	return frame::any
+	local reused = table.remove(globalFramePool)::any
+	local frameInst = Manager.frameOf(reused)
+	if frameInst then
+		if not rawindex(frameInst, "Visible") then
+			frameInst.Visible = true
+		end
+		frameWorld:set(reused, components.FRAMEWORLD_FrameSetParentTicket, {newParent = state.JExplorerUI.InstanceTree})
+	end
+	profileend()
+	return reused
 end
 
 function ExplorerFrame.flushFrameReuseQueue(Manager)
-	profilebegin("Manager::flushFrameReuseQueue")
-	if #frameReuseQueue == 0 then return false end
+	profilebegin("Jexplorer::flushFrameReuseQueue")
 	
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
 	local children = {}
 	local tounassign = {}
-
+	
+	local query = cachedQuery(world, "frame-reuse-ticket", components.FrameReuseTicket)
+	
+	local any = false
 	local cn = 0
-
-	for _, entity in frameReuseQueue do
-		--if not world:contains(entity) then continue end
-		profilebegin("Manager::reuseInstanceFrames")
+	for entity, ticketData in query:iter() do
+		any = true
+		world:remove(entity, components.FrameReuseTicket)
+		profilebegin("Jexplorer::reuseInstanceFrames")
 		
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			world:remove(entity, components.Frame)
-			local frameInst = Manager.frameOf(frame)
-			if frameInst then
-				table.insert(tounassign, frame)
-				if #localFramePool < LOCAL_FRAME_CACHE_SIZE then
-					frameInst.Parent = state.JExplorerUI.InstanceTree
-					table.insert(localFramePool, frame)
-				else
-					frameInst.Parent = nil
-					table.insert(globalFramePool, frame)
-				end
-			end
+			table.insert(tounassign, frame)
+			table.insert(globalFramePool, frame)
 		end
 		local entityChildren = Manager.HierarchyState.getChildren(entity)
 		if entityChildren then
@@ -466,20 +430,108 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 		end
 		profileend()
 	end
+	if not any then profileend() return false end
+	
 	for _, frame in tounassign do
 		ExplorerFrame.assignExplorerFrame(Manager, frame, nil, nil, false)
 	end
+	ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
 	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-
-	table.clear(frameReuseQueue)
+	
 	for _, v in children do
-		table.insert(frameReuseQueue, v)
+		world:set(v, components.FrameReuseTicket, {})
 	end
-	--if depth < 2 then
-	--	flushFrameReuseQueue(depth + 1)
-	--end
+	
 	profileend()
 	return true
+end
+
+function ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
+	if not Manager.getSetting("ImmediateFlushFrameSetParentQueue") then return false end
+	
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local world = state.World
+	local frameWorld = state.FrameWorld
+
+	local any = false
+	local query = cachedQuery(frameWorld, "frame-parent-to-nil-ticket", components.Instance, components.FRAMEWORLD_FrameSetParentTicket)
+
+	profilebegin("Jexplorer::stepFlushFrameSetParentQueue")
+
+	local withoutParents: {Instance} = {}
+	local withParents: {{inst: Instance, parent: Instance}} = {}
+	
+	for frame: ExplorerFrame, frameInst, ticketData in query:iter() do
+		any = true
+		frameWorld:remove(frame, components.FRAMEWORLD_FrameSetParentTicket)
+		if ticketData.newParent then
+			table.insert(withParents, {inst = frameInst, parent = ticketData.newParent})
+		else
+			table.insert(withoutParents, frameInst)
+		end
+	end
+
+	local PARENT = "Parent"
+	profilebegin("withoutParents")
+	for _, v in withoutParents do
+		rawnewindex(v, PARENT, nil)
+	end
+	profileend()
+	profilebegin("withParents")
+	for _, v in withParents do
+		rawnewindex(v.inst, PARENT, v.parent)
+	end
+	profileend()
+	profileend()
+
+	return any
+end
+
+function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+	if Manager.getSetting("ImmediateFlushFrameSetParentQueue") then return false end
+	
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local world = state.World
+	local frameWorld = state.FrameWorld
+	
+	local any = false
+	local query = cachedQuery(frameWorld, "frame-parent-to-nil-ticket", components.Instance, components.FRAMEWORLD_FrameSetParentTicket)
+	
+	profilebegin("Jexplorer::stepFlushFrameSetParentQueue")
+	
+	local withoutParents: {Instance} = {}
+	local withParents: {{inst: Instance, parent: Instance}} = {}
+	local n = 0
+	
+	local stepSize = Manager.getSetting("FrameSetParentFlushStep")
+	for frame: ExplorerFrame, frameInst, ticketData in query:iter() do
+		if n >= stepSize then break end
+		any = true
+		n += 1
+		frameWorld:remove(frame, components.FRAMEWORLD_FrameSetParentTicket)
+		if ticketData.newParent then
+			table.insert(withParents, {inst = frameInst, parent = ticketData.newParent})
+		else
+			table.insert(withoutParents, frameInst)
+		end
+	end
+	
+	local PARENT = "Parent"
+	profilebegin("withoutParents")
+	for _, v in withoutParents do
+		rawnewindex(v, PARENT, nil)
+	end
+	profileend()
+	profilebegin("withParents")
+	for _, v in withParents do
+		rawnewindex(v.inst, PARENT, v.parent)
+	end
+	profileend()
+	profileend()
+	
+	return any
 end
 
 function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, parentIsGame)
@@ -498,10 +550,6 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	local parentFrame
 	if parent then
 		parentFrame = world:get(parent, components.Frame)
-		if not parentFrame then
-			frameState.isAssigning = false
-			return
-		end
 	end
 
 	profilebegin("InstanceFrame::Assign")
@@ -514,14 +562,16 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		end
 
 		frameInst.Main.Insert.Visible = false
-		frameInst.Parent = nil
+		if Manager.getSetting("SetFrameVisibleOnReuse") then
+			frameInst.Visible = false
+		end
+		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
+		
 		frameState.isAssigning = false
+		profileend()
 		return
 	end
-	--local existingFrame = world:get(entity, components.Frame)
-	--if existingFrame then
-	--	reuseExplorerFrame(existingFrame)
-	--end
+	
 	world:set(entity, components.Frame, frame)
 
 	frameWorld:set(frame, components.Entity, entity)
@@ -534,11 +584,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		frameState.isAssigning = false
 		return
 	end
-	table.insert(tagAssignQueue, {
-		frame = frame,
-		entity = entity
-	})
-	frameInst.Visible = true
+	world:set(entity, components.FrameTagAssignTicket, {frame = frame})
 	
 	local isSelected = world:has(entity, components.Selected)
 	setFrameSelected(Manager, frame, isSelected)
@@ -584,10 +630,10 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		end
 		if Manager.isExplorerEntityExpanded(entity) then
 			arrow.Rotation = 0
-			frameInst.Children.Visible = true
+			--frameInst.Children.Visible = true
 		else
 			arrow.Rotation = -90
-			frameInst.Children.Visible = false
+			--frameInst.Children.Visible = false
 		end
 	end
 
@@ -598,43 +644,36 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	frameState.isLMBActive = false
 	frameState.hasBeenSelected = false
 	frameState.shouldDeselect = false
-
-	local newParent
-	if parent and parentFrame then
-		local frameInst = assert(Manager.frameOf(parentFrame))
-		local children = assert(frameInst:FindFirstChild("Children"))
-		newParent = children.List
-	else
-		newParent = state.JExplorerUI.InstanceTree
-	end
-
+	
 	local link = instance:FindFirstChildOfClass("PackageLink")
 	local main = frameInst.Main
 	if link then
+		if not frameState.packageIconConn then
+			frameState.packageIconConn = frameInst:GetPropertyChangedSignal("Position"):Connect(function()
+				local cumulativeX = 0
+				local current: ExplorerEntity? = entity
+				local width = sheet:GetToken("IndentWidth")
+				while current do
+					cumulativeX += width
+					current = Manager.parentOf(current)
+				end
+				
+				local containerWidth = state.JExplorerUI.AbsoluteSize.X
+				local distanceToEdge = containerWidth - cumulativeX
+				if distanceToEdge == frameState.lastPackageIconPos then return end
+				frameState.lastPackageIconPos = distanceToEdge
+
+				local padding = 10
+
+				main.PackageLinkIcon.Position = UDim2.new(
+					0,
+					distanceToEdge,
+					main.PackageLinkIcon.Position.Y.Scale,
+					main.PackageLinkIcon.Position.Y.Offset
+				)
+			end)
+		end
 		main.PackageLinkIcon.Visible = true
-		frameState.packageIconConn = frameInst:GetPropertyChangedSignal("Position"):Connect(function()
-			local cumulativeX = 0
-			local current = frameInst
-			while current and current.Parent do
-				if current.Name ~= "InstanceFrame" then break end
-				cumulativeX += current.Children.AbsolutePosition.X
-				current = current.Parent.Parent
-			end
-
-			local containerWidth = state.JExplorerUI.AbsoluteSize.X
-			local distanceToEdge = containerWidth - cumulativeX
-			if distanceToEdge == frameState.lastPackageIconPos then return end
-			frameState.lastPackageIconPos = distanceToEdge
-
-			local padding = 10
-
-			main.PackageLinkIcon.Position = UDim2.new(
-				0,
-				distanceToEdge,
-				main.PackageLinkIcon.Position.Y.Scale,
-				main.PackageLinkIcon.Position.Y.Offset
-			)
-		end)
 	else
 		if frameState.packageIconConn then
 			frameState.packageIconConn:Disconnect()
@@ -642,9 +681,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		end
 		main.PackageLinkIcon.Visible = false
 	end
-
-	pcall(rawnewindex, frameInst, "Parent", newParent)
-
+	
 	profileend()
 	frameState.isAssigning = false
 end
@@ -652,19 +689,18 @@ end
 function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	local state = Manager.WidgetState
 	local frameWorld = state.FrameWorld
+	local world = state.World
 	local components = Manager.Components
 
 	local currentEntity, frameInst: any = frameWorld:get(frame, components.Entity, components.Instance)
 	if not currentEntity and frameInst then
-		frameInst.Visible = false
 		return
 	end
 	if not currentEntity and not frameInst then return end
 	
 	profilebegin("ExplorerFrame::Reuse");
-	frameInst.Visible = false
-	if currentEntity and not table.find(frameReuseQueue, currentEntity) then
-		table.insert(frameReuseQueue, currentEntity)
+	if currentEntity and not world:has(currentEntity, components.FrameReuseTicket) then
+		world:set(currentEntity, components.FrameReuseTicket, {})
 		frameWorld:remove(frame, components.Entity)
 	end
 
@@ -673,11 +709,11 @@ end
 
 function ExplorerFrame.initializeFrameCaches(Manager)
 	ExplorerFrame.fillGlobalPoolToLimit(Manager)  -- Fill L2
-	ExplorerFrame.fillLocalPoolToLimit(Manager)  -- Fill L1 from L2
+	--ExplorerFrame.fillLocalPoolToLimit(Manager)  -- Fill L1 from L2
 end
 
 function ExplorerFrame.updateSelectionVisuals(Manager, updateSelection)
-	profilebegin("Manager::updateSelectionVisuals")
+	profilebegin("Jexplorer::updateSelectionVisuals")
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
@@ -685,7 +721,7 @@ function ExplorerFrame.updateSelectionVisuals(Manager, updateSelection)
 	table.clear(state.CurrentSelection)
 	local currentSelection = {}
 
-	profilebegin("Manager::updateSelectionVisuals::iter")
+	profilebegin("Jexplorer::updateSelectionVisuals::iter")
 	for entityId, frame in world:query(components.Frame):without(components.Selected):iter() do
 		setFrameSelected(Manager, frame, false)
 	end
@@ -705,24 +741,22 @@ function ExplorerFrame.updateSelectionVisuals(Manager, updateSelection)
 
 	profileend()
 	if updateSelection then
-		profilebegin("Manager::updateSelectionVisuals::setSelection")
+		profilebegin("Jexplorer::updateSelectionVisuals::setSelection")
 		game.Selection:Set(currentSelection)
 		profileend()
 	end
 end
 
-function ExplorerFrame.updateExpandedVisuals(Manager, expandedCt)
-	profilebegin("Manager::toggleExpand")
+function ExplorerFrame.updateExpandedVisuals(Manager)
+	profilebegin("Jexplorer::toggleExpand")
 
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
-	local expandedCt = expandedCt or components.Expanded
-
-	local anyCreated = false
-	for entity, instance, frame in world:query(components.Instance, components.Frame, expandedCt):iter() do
+	
+	local function update(entity: ExplorerEntity, instance: Instance, frame: ExplorerFrame)
 		local frameInst = Manager.frameOf(frame)
-		if not frameInst then continue end
+		if not frameInst then return end
 
 		if instance == game then return end
 
@@ -734,14 +768,21 @@ function ExplorerFrame.updateExpandedVisuals(Manager, expandedCt)
 			arrow.Visible = n > 0
 		end
 
-		local children = frameInst.Children
-		children.Visible = true
+		--local children = frameInst.Children
+		--children.Visible = true
 	end
+	for entity, instance, frame in world:query(components.Instance, components.Frame, components.Expanded):iter() do
+		update(entity, instance, frame)
+	end
+	for entity, instance, frame in world:query(components.Instance, components.Frame, components.QueryExpanded):iter() do
+		update(entity, instance, frame)
+	end
+	
 	profileend()
 end
 
 function ExplorerFrame.updateCollapsedVisuals(Manager)
-	profilebegin("Manager::toggleExpand")
+	profilebegin("Jexplorer::toggleExpand")
 	
 	local components = Manager.Components
 	local state = Manager.WidgetState
@@ -752,10 +793,11 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 		local frameInst = Manager.frameOf(frame)
 		if not frameInst then continue end
 
-		local children = frameInst.Children
+		--local children = frameInst.Children
+		--children.Visible = false
+		
 		world:remove(entity, components.Expanded)
 		world:remove(entity, components.QueryExpanded)
-		children.Visible = false
 
 		frameInst.Main.Arrow.Rotation = -90
 
@@ -764,51 +806,101 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 		end
 		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 	end
+	
 	profileend()
 end
 
 function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-	if #tagAssignQueue == 0 then return false end
-
 	local state = Manager.WidgetState
 	local components = Manager.Components
-
 	local world = state.World
 	local frameWorld = state.FrameWorld
 
-	profilebegin("Manager::flushTagAssignQueue")
-	for _, v in tagAssignQueue do
-		local frame, entity = v.frame, v.entity
+	local query = cachedQuery(world, "frame-tag-assign-ticket", components.FrameTagAssignTicket)
+	local any = false
+	profilebegin("Jexplorer::flushTagAssignQueue")
+
+	for entity, ticketData in query:iter() do
+		world:remove(entity, components.FrameTagAssignTicket)
+		any = true
+		local frame = ticketData.frame
+
 		local frameInst = Manager.frameOf(frame)
 		if not frameInst then continue end
-
 		local frameState = frameWorld:get(frame, components.FrameState)
 		if not frameState then continue end
-
 		local inst = world:get(entity, components.Instance)
 		if not inst then continue end
-
+		
+		local hasPendingChanges = world:has(entity, components.PendingChanges)
 		local scriptErrors = world:get(entity, components.ScriptErrors)
 		local scriptWarns = world:get(entity, components.ScriptWarns)
+		
+		local newTags = {}
+		if typeof(inst) == "Instance" then
+			local propmap = getClassPropMap(Manager.ClassNameCache[entity])
+			for _, prop in Constants.TaggedProperties do
+				if not propmap[prop] then continue end
+				
+				local value = rawindex(inst, prop)
+				table.insert(newTags, JexpTags.getTaggedPropertyTag(prop, typeof(value) == "EnumItem" and value.Name or tostring(value)))
+			end
+		end
+		for _, tag in inst:GetTags() do
+			table.insert(newTags, `JEXP_TAG_{tag}`)
+		end
+		local hasScriptError = scriptErrors and #scriptErrors > 0
+		local hasScriptWarn = not hasScriptError and scriptWarns and #scriptWarns > 0
 
-		frameInst.Main.PendingChanges.Visible = world:has(entity, components.PendingChanges)
-		for _, v in frameState.tagsToRemove do
-			frameInst:RemoveTag(v)
+		if hasScriptError then
+			table.insert(newTags, "JEXP_ScriptError")
+		elseif hasScriptWarn then
+			table.insert(newTags, "JEXP_ScriptWarn")
 		end
-		frameState.tagsToRemove = getFrameTags(inst)
-		if scriptErrors and #scriptErrors > 0 then
-			table.insert(frameState.tagsToRemove, "JEXP_ScriptError")
-		elseif scriptWarns and #scriptWarns > 0 then
-			table.insert(frameState.tagsToRemove, "JEXP_ScriptWarn")
+		local newTagSet = {}
+		for _, tag in newTags do
+			newTagSet[tag] = true
 		end
-		for _, tag in frameState.tagsToRemove do
-			if frameInst:HasTag(tag) then continue end
-			frameInst:AddTag(tag)
+		local tagsToAdd = {}
+		local tagsToRemove = {}
+		local addCount = 0
+		local removeCount = 0
+
+		for _, oldTag in frameState.tagsToRemove do
+			if not newTagSet[oldTag] then
+				removeCount += 1
+				tagsToRemove[removeCount] = oldTag
+			end
 		end
+
+		for _, newTag in newTags do
+			local alreadyHas = false
+			for _, oldTag in frameState.tagsToRemove do
+				if oldTag == newTag then
+					alreadyHas = true
+					break
+				end
+			end
+			if not alreadyHas then
+				addCount += 1
+				tagsToAdd[addCount] = newTag
+			end
+		end
+		if hasPendingChanges ~= frameInst.Main.PendingChanges.Visible then
+			frameInst.Main.PendingChanges.Visible = hasPendingChanges
+		end
+		if removeCount > 0 or addCount > 0 then
+			for i = 1, removeCount do
+				removeTag(frameInst, tagsToRemove[i])
+			end
+			for i = 1, addCount do
+				addTag(frameInst, tagsToAdd[i])
+			end
+		end
+		frameState.tagsToRemove = newTags
 	end
-	table.clear(tagAssignQueue)
-	profileend()
-	return true
-end
 
+	profileend()
+	return any
+end
 return ExplorerFrame

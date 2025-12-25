@@ -9,6 +9,7 @@ local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
+local cachedQuery = require("./Small/CachedQuery")
 
 local ItemGroup = require("./Vendor/ItemGroup")
 
@@ -25,14 +26,6 @@ type Manager = Types.Manager
 type ExplorerEntity = Types.ExplorerEntity
 type World = Types.World
 
-local entityCreationQueue: { {parent: ExplorerEntity, children: {Instance}} } = {}
-local entityPropAssignQueue: { {ty: "virtual" | "instance", ent: ExplorerEntity} } = {}
-local entityCleanupQueue: {ExplorerEntity} = {}
-local entityDeleteQueue: {ExplorerEntity} = {}
-
-local onChildAddedQueue: { {child: Instance, parent: ExplorerEntity} } = {}
-local onChildRemovedQueue: { {child: Instance, parent: ExplorerEntity} } = {}
-
 local hierarchyCache = {
 	childrenMap = {} :: {[ExplorerEntity]: {ExplorerEntity}},
 	roots = {} :: {ExplorerEntity},
@@ -41,11 +34,10 @@ local classPriorityCache = {}
 --local lastCacheVersion = -1
 local lastPriorityVersion = -1
 
-local cachedFlatList, cachedFlatIndex = nil, nil
 local entityStateCache = {}
 
 local function getClassPriority(className: string): number
-	profilebegin("Manager::getClassPriorityUncached")
+	profilebegin("Jexplorer::getClassPriorityUncached")
 	local priority = table.find(OrderEditor.ClassPriorities, className) or OrderEditor.DefaultPriority
 	classPriorityCache[className] = priority
 	profileend()
@@ -53,7 +45,7 @@ local function getClassPriority(className: string): number
 end
 
 local function addEntityPriorities(Manager: Manager, children: {ExplorerEntity}, priorities: any)
-	profilebegin("Manager::getEntityPriorities")
+	profilebegin("Jexplorer::getEntityPriorities")
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
@@ -63,8 +55,8 @@ local function addEntityPriorities(Manager: Manager, children: {ExplorerEntity},
 		lastPriorityVersion = OrderEditor.PriorityVersion
 	end
 
-	profilebegin("Manager::getEntityPriorities::collectEntityPriority")
-	profilebegin("Manager::getEntityPriorities::collectEntityPriority::loop1")
+	profilebegin("Jexplorer::getEntityPriorities::collectEntityPriority")
+	profilebegin("Jexplorer::getEntityPriorities::collectEntityPriority::loop1")
 	local n = 0
 	for i, child in children do
 		n += 1
@@ -74,7 +66,7 @@ local function addEntityPriorities(Manager: Manager, children: {ExplorerEntity},
 		end
 	end
 	profileend()
-	profilebegin("Manager::getEntityPriorities::collectEntityPriority::loop2")
+	profilebegin("Jexplorer::getEntityPriorities::collectEntityPriority::loop2")
 	for i = #children, 1, -1 do
 		if not priorities[children[i]] then
 			children[i] = children[n]
@@ -94,88 +86,23 @@ local HierarchyState = {
 	ChildrenMap = hierarchyCache.childrenMap
 } :: Types.HierarchyState
 
-function HierarchyState.cleanupEntities(Manager, queueTable)
-	profilebegin("Manager::cleanupEntitiesInTable")
-	if #queueTable == 0 then return false end
-
-	local state = Manager.WidgetState
-	local world = state.World
-	local queryWorld = state.QueryWorld
-	local components = Manager.Components
-
-	local groupsToFree = {}
-	local entityIndexesToRemove = {}
-	local seen = {}
-
-	local entities = state.Entities
-	for _, entity in queueTable do
-		-- Prevent double cleanups
-		if seen[entity] then continue end
-		seen[entity] = true
-		world:add(entity, components.Deleted)
-
-		--cascadeUpdateExpandedHeights(world, entity)
-		profilebegin("Manager::processImmediateCleaningTasks")
-		local inst = world:get(entity, components.Instance)
-		if inst then
-			Manager.InstanceToEntity[inst] = nil
-		end
-
-		local entityConnections = world:get(entity, components.Connections)
-		if entityConnections then
-			table.insert(groupsToFree, entityConnections)
-		end
-
-		--local idx = table.find(entities, entity)
-		--if idx then
-		--	table.insert(entityIndexesToRemove, idx)
-		--end
-
-		local frame = world:get(entity, components.Frame)
-		if frame then
-			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
-		end
-
-		world:add(entity, components.Deleted)
-		
-		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
-		Manager.updateParent(entity, nil)
-		profileend()
-	end
-
-	profilebegin("Manager::cleanupEntity::processDeferredCleaningTasks")
-	profilebegin("freeGroups")
-	for _, group in groupsToFree do
-		(group::ItemGroup.ItemGroup):free()
-	end
-	profileend()
-	profilebegin("removeEntityData")
-	for _, entity in queueTable do
-		Manager.ClassNameCache[entity] = nil
-		Manager.NameCache[entity] = nil
-		Manager.ChildAmountCache[entity] = nil
-	end
-	profileend()
-
-	profilebegin("deleteEntities")
-	for _, entity in queueTable do
-		--world:delete(entity)
-		HierarchyState.queueForEntityDeletion(entity)
-	end
-	profileend()
-
-	table.clear(queueTable)
-	profileend()
-	profileend()
-	return true
-end
-
 function HierarchyState.cleanupEntity(Manager, ent)
 	local state = Manager.WidgetState
 	local world, components = state.World, Manager.Components
 	world:add(ent, components.Deleted)
 
-	HierarchyState.queueForEntityCleanup(ent)
+	HierarchyState.queueForEntityCleanup(Manager, ent)
+	
+	local idx = table.find(state.Entities, ent)
+	if idx then table.remove(state.Entities, idx) end
+	
+	local function addchildren(entity: ExplorerEntity)
+		for _, v in HierarchyState.getChildren(entity) do
+			HierarchyState.cleanupEntity(Manager, v)
+			addchildren(v)
+		end
+	end
+	addchildren(ent)
 end
 
 function HierarchyState.rebuildHierarchyCache(Manager)
@@ -185,8 +112,8 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 
 	local roots, childrenMap = {}, {}
 
-	profilebegin("Manager::rebuildHierarchyCache")
-	profilebegin("Manager::rebuildHierarchyCache::buildChildrenMap")
+	profilebegin("Jexplorer::rebuildHierarchyCache")
+	profilebegin("Jexplorer::rebuildHierarchyCache::buildChildrenMap")
 
 	for _, eid in state.Entities do
 		if Manager.isExplorerEntityDeleted(eid) then
@@ -207,7 +134,7 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 	end
 
 	profileend()
-	profilebegin("Manager::rebuildHierarchyCache::collectPriorities")
+	profilebegin("Jexplorer::rebuildHierarchyCache::collectPriorities")
 
 	local tosort = {roots}
 
@@ -243,29 +170,30 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 
 	hierarchyCache.childrenMap = childrenMap
 	hierarchyCache.roots = roots
+	HierarchyState.ChildrenMap = childrenMap
+	
 	profileend()
 	return childrenMap, roots
 end
 
 function HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroller)
-	if isScroller and cachedFlatList and cachedFlatIndex then
-		return cachedFlatList, cachedFlatIndex
-	end
-	
-	profilebegin("Manager::getFlattenedVisibleEntities")
-	
+	profilebegin("Jexplorer::getFlattenedVisibleEntities")
+
 	local state = Manager.WidgetState
 	local components = Manager.Components
-	
+
 	local childrenMap = hierarchyCache.childrenMap
 	local roots = hierarchyCache.roots
 
 	local flatList = table.create(100)
+	local indexToIndentOffset = {}
 	local entityToIndex = {}
 	local flatIndex = 0
 	local invisibleIndex = #invisible
 	local stack = table.create(200)
 	local stackSize = 0
+	local indentStack = table.create(200) -- Track indent level for each stack item
+
 	profilebegin("traverse")
 
 	-- Unroll root insertion (minor optimization)
@@ -273,13 +201,16 @@ function HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroll
 	for i = rootCount, 1, -1 do
 		stackSize += 1
 		stack[stackSize] = roots[i]
+		indentStack[stackSize] = 0 -- Roots have indent offset 0
 	end
-	
+
 	local entityinvisible = Manager.isExplorerEntityInvisible
 	local entitydeleted = Manager.isExplorerEntityDeleted
 	local entityexpanded = Manager.isExplorerEntityExpanded
+
 	while stackSize > 0 do
 		local entity = stack[stackSize]
+		local currentIndent = indentStack[stackSize]
 		stackSize -= 1
 
 		local state = entityStateCache[entity]
@@ -298,187 +229,320 @@ function HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroll
 		else
 			flatIndex += 1
 			flatList[flatIndex] = entity
-
+			indexToIndentOffset[flatIndex] = currentIndent -- Store indent offset
 			if state.expanded then
 				local children = childrenMap[entity]
 				if children then
 					local childCount = #children
+					local childIndent = currentIndent + 1 -- Children have +1 indent
 					for i = 1, childCount do
 						stackSize += 1
 						stack[stackSize] = children[childCount - i + 1]
+						indentStack[stackSize] = childIndent
 					end
 				end
 			end
 		end
 	end
 	profileend()
+
 	profilebegin("fillentitytoindex")
 	for idx, v in flatList do
 		entityToIndex[v] = idx
 	end
 	profileend()
+
 	profileend()
-	cachedFlatList, cachedFlatIndex = flatList, entityToIndex
-	return flatList, entityToIndex
+	return flatList, entityToIndex, indexToIndentOffset
 end
 
 function HierarchyState.flushEntityCreationQueue(Manager)
-	if #entityCreationQueue == 0 then return false end
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
-
-	local clone = table.clone(entityCreationQueue)
-	table.clear(entityCreationQueue)
-
-	for _, v in clone do
-		local parent = v.parent
-		for _, child in v.children do
+	
+	local query = cachedQuery(world, "creation-ticket", components.CreationTicket)
+	
+	local any = false
+	for parent, ticketData in query:iter() do
+		any = true
+		world:remove(parent, components.CreationTicket)
+		
+		for _, child in ticketData.children do
 			if Manager.isInstanceExcluded(child) then continue end
 			if Manager.InstanceToEntity[child] then continue end
 
 			HierarchyState.createInstanceEntity(Manager, child, parent)
 		end
 	end
+	if not any then return false end
+	
 	HierarchyState.flushEntityPropAssignQueue(Manager)
 	
 	return true
 end
 
-function HierarchyState.queueForEntityCreation(parent, children)
-	table.insert(entityCreationQueue, {children = children, parent = parent})
-end
-
-function HierarchyState.flushEntityCleanupQueue(Manager)
-	return HierarchyState.cleanupEntities(Manager, entityCleanupQueue)
-end
-
-function HierarchyState.queueForEntityCleanup(entity)
-	table.insert(entityCleanupQueue, entity)
-end
-
-function HierarchyState.flushOnChildAddedQueue(Manager)
-	if #onChildAddedQueue == 0 then return false end
-	profilebegin("Manager::flushOnChildAddedQueue")
-
+function HierarchyState.queueForEntityCreation(Manager, parent, children)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
+	
+	world:set(parent, components.CreationTicket, {children = children})
+end
 
+function HierarchyState.flushEntityCleanupQueue(Manager)
+	profilebegin("Jexplorer::cleanupEntitiesInTable")
+
+	local state = Manager.WidgetState
+	local world = state.World
+	local queryWorld = state.QueryWorld
+	local components = Manager.Components
+
+	local groupsToFree = {}
+	local entityIndexesToRemove = {}
+	local seen = {}
+	local any = false
+
+	local entities = state.Entities
+	local entitiesWithTicket = {}
+	
+	local query = cachedQuery(world, "cleanup-ticket", components.CleanupTicket)
+
+	for entity, ticketData in query:iter() do
+		-- Prevent double cleanups
+		if seen[entity] then continue end
+		seen[entity] = true
+		world:add(entity, components.Deleted)
+
+		any = true
+
+		table.insert(entitiesWithTicket, entity)
+
+		--cascadeUpdateExpandedHeights(world, entity)
+		profilebegin("Jexplorer::processImmediateCleaningTasks")
+		local inst = world:get(entity, components.Instance)
+		if inst then
+			Manager.InstanceToEntity[inst] = nil
+		end
+
+		local entityConnections = world:get(entity, components.Connections)
+		if entityConnections then
+			table.insert(groupsToFree, entityConnections)
+		end
+
+		--local idx = table.find(entities, entity)
+		--if idx then
+		--	table.insert(entityIndexesToRemove, idx)
+		--end
+
+		local frame = world:get(entity, components.Frame)
+		if frame then
+			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+		end
+
+		world:add(entity, components.Deleted)
+
+		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
+		Manager.updateParent(entity, nil)
+		profileend()
+	end
+	if not any then profileend() return false end
+
+	profilebegin("Jexplorer::cleanupEntity::processDeferredCleaningTasks")
+		profilebegin("freeGroups")
+		for _, group in groupsToFree do
+			(group::ItemGroup.ItemGroup):free()
+		end
+		profileend()
+		
+		profilebegin("removeEntityData")
+		for _, entity in entitiesWithTicket do
+			Manager.ClassNameCache[entity] = nil
+			Manager.NameCache[entity] = nil
+			Manager.ChildAmountCache[entity] = nil
+		end
+		profileend()
+
+		profilebegin("deleteEntities")
+		for _, entity in entitiesWithTicket do
+			--world:delete(entity)
+			HierarchyState.queueForEntityDeletion(Manager, entity)
+		end
+		profileend()
+	profileend()
+	
+	profileend()
+	return true
+
+end
+
+function HierarchyState.queueForEntityCleanup(Manager, entity)
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local world = state.World
+	
+	world:set(entity, components.CleanupTicket, {})
+end
+
+function HierarchyState.flushOnChildAddedQueue(Manager)
+	profilebegin("Jexplorer::flushOnChildAddedQueue")
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local world = state.World
+	
 	local anyChanged = false
 	local seen = {}
-	for _, info in onChildAddedQueue do
-		local childInst = info.child
-		local newParent = info.parent
+	
+	local query = cachedQuery(world, "child-added-ticket", components.ChildAddedTicket)
+	
+	for newParent, ticketData in query:iter() do
+		world:remove(newParent, components.ChildAddedTicket)
 		
-		if seen[childInst] then continue end
-		
-		local childEntity = HierarchyState.getOrCreateInstanceEntity(Manager, childInst, newParent)
-		
-		local frame = world:get(newParent, components.Frame)
-		if not frame then continue end
+		for _, childInst in ticketData.children do
+			if seen[childInst] then continue end
+			seen[childInst] = true  -- ADD THIS LINE!
 
-		local frameInst = Manager.frameOf(frame)
+			local childEntity = HierarchyState.getOrCreateInstanceEntity(Manager, childInst, newParent)
 
-		if frameInst then 
-			local main = frameInst:FindFirstChild("Main")
-			if main then
-				-- If a child is added, the entity always has atleast 1 child so just set to true always
-				--main.Arrow.Visible = #instance:GetChildren() > 0
-				main.Arrow.Visible = true
+			local frame = world:get(newParent, components.Frame)
+			if not frame then continue end
+			local frameInst = Manager.frameOf(frame)
+			if frameInst then 
+				local main = frameInst:FindFirstChild("Main")
+				if main then
+					-- If a child is added, the entity always has atleast 1 child so just set to true always
+					--main.Arrow.Visible = #instance:GetChildren() > 0
+					main.Arrow.Visible = true
+				end
 			end
+			HierarchyState.updateEntityOrder(Manager, childEntity)
 		end
 		
 		if Manager.isExplorerEntityExpanded(newParent) then
 			Manager.VirtualScroller.invalidateEntityHeightCache(Manager, newParent)
 		end
-		
-		HierarchyState.updateEntityOrder(Manager, childEntity)
 		anyChanged = true
 	end
 	HierarchyState.flushEntityPropAssignQueue(Manager)
 	
-	table.clear(onChildAddedQueue)
-
 	profileend()
 	return anyChanged
 end
 
-function HierarchyState.queueForOnChildAdded(newParent, childEntity)
-	table.insert(onChildAddedQueue, {parent = newParent, child = childEntity})
+function HierarchyState.queueForOnChildAdded(Manager, newParent, childEntity)
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+
+	local ticket: {children: {Instance}}
+	local existing = world:get(newParent, components.ChildAddedTicket)
+	if existing then
+		ticket = existing
+	else
+		ticket = {children = {}}
+		world:set(newParent, components.ChildAddedTicket, ticket)
+	end
+	table.insert(ticket.children, childEntity)
 end
 
 function HierarchyState.flushOnChildRemovedQueue(Manager)
-	if #onChildRemovedQueue == 0 then return false end
-	profilebegin("Manager::flushOnChildRemovedQueue")
-	
+	profilebegin("Jexplorer::flushOnChildRemovedQueue")
+
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
-
 	local anyChanged = false
 	local seen = {}
-	for _, info in onChildRemovedQueue do
-		local childInst = info.child
-		local oldParent = info.parent
-		if seen[childInst] then continue end
-		
-		if not childInst.Parent then continue end
-		local newParent = Manager.InstanceToEntity[childInst.Parent]
-		if not newParent then continue end
-		
-		local childEntity = HierarchyState.getOrCreateInstanceEntity(Manager, childInst, newParent)
-		
-		local frame = world:get(oldParent, components.Frame)
-		if not frame then
-			continue
-		end
+	
+	local query = cachedQuery(world, "child-moved-ticket", components.ChildMovedTicket)
 
-		local frameInst = Manager.frameOf(frame)
+	for oldParent, ticketData in query:iter() do
+		world:remove(oldParent, components.ChildMovedTicket)
+		
+		for _, childInst in ticketData.children do
+			if seen[childInst] then continue end
+			seen[childInst] = true
 
-		if frameInst then
-			local main = frameInst:FindFirstChild("Main")
-			if main then
-				-- If a child is added, the entity always has atleast 1 child so just set to true always
-				--main.Arrow.Visible = #instance:GetChildren() > 0
-				main.Arrow.Visible = true
+			-- Update OLD parent's arrow visibility
+			local frame = world:get(oldParent, components.Frame)
+			if frame then
+				local frameInst = Manager.frameOf(frame)
+				if frameInst then
+					local main = frameInst:FindFirstChild("Main")
+					if main then
+						local parentInstance = world:get(oldParent, components.Instance)
+						-- Check if OLD parent still has remaining children
+						main.Arrow.Visible = parentInstance and #parentInstance:GetChildren() > 0
+					end
+				end
+			end
+
+			-- Handle the child entity if it was reparented (not deleted)
+			if childInst.Parent then
+				local newParent = Manager.InstanceToEntity[childInst.Parent]
+				if newParent then
+					local childEntity = Manager.InstanceToEntity[childInst]
+					if childEntity then
+						Manager.updateParent(childEntity, newParent)
+						if Manager.isExplorerEntityExpanded(newParent) then
+							Manager.VirtualScroller.invalidateEntityHeightCache(Manager, childEntity)
+						end
+
+						HierarchyState.updateEntityOrder(Manager, childEntity)
+						local childFrame = world:get(childEntity, components.Frame)
+						if childFrame then
+							Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, childFrame)
+						end
+						anyChanged = true
+					end
+				end
 			end
 		end
-		
-		local parent = Manager.parentOf(childEntity)
-		if parent and Manager.isExplorerEntityExpanded(parent) then
-			Manager.VirtualScroller.invalidateEntityHeightCache(Manager, parent)
-		end
-		
-		HierarchyState.updateEntityOrder(Manager, childEntity)
-		anyChanged = true
-	end
-	
-	HierarchyState.flushEntityPropAssignQueue(Manager)
-	table.clear(onChildRemovedQueue)
 
+		-- Invalidate old parent's cache
+		if Manager.isExplorerEntityExpanded(oldParent) then
+			Manager.VirtualScroller.invalidateEntityHeightCache(Manager, oldParent)
+		end
+	end
+
+	HierarchyState.flushEntityPropAssignQueue(Manager)
+	
 	profileend()
 	return anyChanged
 end
 
-function HierarchyState.queueForOnChildRemoved(oldParent, childEntity)
-	table.insert(onChildRemovedQueue, {parent = oldParent, child = childEntity})
+function HierarchyState.queueForOnChildRemoved(Manager, oldParent, childEntity)
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+	
+	local ticket: {children: {Instance}}
+	local existing = world:get(oldParent, components.ChildMovedTicket)
+	if existing then
+		ticket = existing
+	else
+		ticket = {children = {}}
+		world:set(oldParent, components.ChildMovedTicket, ticket)
+	end
+	table.insert(ticket.children, childEntity)
 end
 
 function HierarchyState.stepFlushEntityDeletionQueue(Manager)
-	local n = #entityDeleteQueue
-	if n == 0 then return false end
-	
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
 	local queryWorld = state.QueryWorld
 
-	local start = math.max(1, n - 30)
-	for i = n, start, -1 do
-		local entity = entityDeleteQueue[i]
-		entityDeleteQueue[i] = nil
-
+	local n = 0
+	local any = false
+	
+	local stepSize = Manager.getSetting("EntityDeletionFlushStep")
+	for entity, ticketData in world:query(components.DeletionTicket):iter() do
+		if n >= stepSize then break end
+		any = true
+		n += 1
+		world:remove(entity, components.DeletionTicket)
+		
 		local idx = table.find(state.Entities, entity)
 		if idx then table.remove(state.Entities, idx) end
 
@@ -499,16 +563,19 @@ function HierarchyState.stepFlushEntityDeletionQueue(Manager)
 
 		queryWorld:delete(queryEntity)
 	end
-	return true
+	
+	return any
 end
 
-function HierarchyState.queueForEntityDeletion(entity)
-	table.insert(entityDeleteQueue, entity)
+function HierarchyState.queueForEntityDeletion(Manager, entity)
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+	
+	world:set(entity, components.DeletionTicket, {})
 end
 
 function HierarchyState.flushEntityPropAssignQueue(Manager)
-	if #entityPropAssignQueue == 0 then return false end
-
 	local world = Manager.WidgetState.World
 	local queryWorld = Manager.WidgetState.QueryWorld
 	local components = Manager.Components
@@ -517,27 +584,18 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 	local classNameCache = Manager.ClassNameCache
 	local childAmountCache = Manager.ChildAmountCache
 	local debugIdToInstance = Manager.DebugIdToInstance
+	local any = false
 	
-	local function getFrameTags(instance: any)
-		local tags = {}
-		for _, prop in Constants.TaggedProperties do
-			local success, value = pcall(index, instance, prop)
-			if success and value ~= nil then
-				table.insert(tags, JexpTags.getTaggedPropertyTag(prop, typeof(value) == "EnumItem" and value.Name or tostring(value)))
-			end
-		end
-		for _, tag in instance:GetTags() do
-			table.insert(tags, `JEXP_TAG_{tag}`)
-		end
-		return tags
-	end
-
-	profilebegin("Manager::flushEntityPropAssignQueue")
-	for _, data in entityPropAssignQueue do
-		local ent = data.ent
+	local query = cachedQuery(world, "prop-assign-ticket", components.PropAssignTicket)
+	
+	profilebegin("Jexplorer::flushEntityPropAssignQueue")
+	for ent, ticketData in query:iter() do
+		any = true
+		world:remove(ent, components.PropAssignTicket)
+		
 		local instance = world:get(ent, components.Instance)
 		if not instance then continue end
-
+		
 		local connections = assert(world:get(ent, components.Connections))
 
 		local className = instance.ClassName
@@ -547,7 +605,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		debugIdToInstance[instance:GetDebugId()] = instance
 		--hierarchyCache.expandedHeights[ent] = 1
 
-		if data.ty ~= "instance" then continue end
+		if ticketData.ty ~= "instance" then continue end
 		local appliedTaggedProps = {}
 		local props = getClassPropMap(className)
 		assert(props)
@@ -567,9 +625,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 
 		local handlers = {}
 		for _, v in appliedTaggedProps do
-			local success, oldValue = pcall(rawindex, instance, v)
-			if not success then continue end
-
+			local oldValue = rawindex(instance, v)
 			local function onChange()
 				local frame = world:get(ent, components.Frame)
 				if not frame then return end
@@ -624,20 +680,27 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 					return
 				end
 				
-				HierarchyState.queueForOnChildAdded(ent, child)
+				HierarchyState.queueForOnChildAdded(Manager, ent, child)
 			end),
 			rbxconnect(rawindex(instance, "ChildRemoved"), function(child: Instance)
-				if Manager.isInstanceExcluded(child) then return end
-				
 				local existing = Manager.InstanceToEntity[child]
 				if existing and world:has(existing, components.AncestryLocked) then
 					return
 				end
-
+				
 				-- Handled in the parent changed connection
 				if child.Parent == nil then return end
+				if existing then
+					local parent = Manager.parentOf(existing)
+					if parent then
+						local inst = Manager.instanceOf(parent)
+						if inst and Manager.isInstanceExcluded(inst) then
+							return
+						end
+					end
+				end
 				
-				HierarchyState.queueForOnChildRemoved(ent, child)
+				HierarchyState.queueForOnChildRemoved(Manager, ent, child)
 			end),
 			rbxconnect(getpropertychangedsignal(instance, "Parent"), function()
 				if rawindex(instance, "Parent") == nil then
@@ -649,10 +712,9 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		HierarchyState.deregisterFromQueryWorld(Manager, ent)
 		HierarchyState.registerIntoQueryWorld(Manager, ent, className, tags)
 	end
-	table.clear(entityPropAssignQueue)
-
+	
 	profileend()
-	return true
+	return any
 end
 
 function HierarchyState.deregisterFromQueryWorld(Manager, entity)
@@ -715,7 +777,7 @@ end
 
 -- TODO: Should probably make another version of this since i dont know how the hell this even works, but for now keep it
 function HierarchyState.getEntitiesBetween(Manager, e1, e2)
-	profilebegin("Manager::getEntitiesBetween")
+	profilebegin("Jexplorer::getEntitiesBetween")
 	local visible = HierarchyState.getFlattenedVisibleEntities(Manager, {}, false)
 	local i1, i2
 	for i, eid: any in visible do
@@ -734,7 +796,7 @@ function HierarchyState.getEntitiesBetween(Manager, e1, e2)
 end
 
 function HierarchyState.updateEntityOrder(Manager, entity)
-	profilebegin("Manager::updateEntityOrder")
+	profilebegin("Jexplorer::updateEntityOrder")
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
@@ -774,24 +836,25 @@ function HierarchyState.createVirtualEntity(Manager, options, extra)
 		tbl[k] = v
 	end
 	local ent = world:entity()
-
-	table.insert(entityPropAssignQueue, {ty = "virtual", ent = ent})
+	
 	table.insert(state.Entities, ent)
 
 	local instConnections = connections:extend(cleanup.call)
 	Jecs.bulk_insert(world, ent, {
 		components.Instance,
-		components.Connections
+		components.Connections,
+		components.PropAssignTicket
 	}, {
 		tbl,
-		instConnections
+		instConnections,
+		{ty = "virtual"}
 	})
 
 	return ent
 end
 
 function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetInInstanceToEntity)
-	profilebegin("Manager::createInstanceEntity")
+	profilebegin("Jexplorer::createInstanceEntity")
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local cleanup = Manager.CleanupFns
@@ -821,18 +884,19 @@ function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetI
 		components.Instance,
 		components.Connections,
 		components.ParentTabs,
+		components.PropAssignTicket,
 		if parent then Manager.ChildOf(parent) else nil
 	},
 	{
 		instance,
 		connections,
-		{}
+		{},
+		{ty = "instance"}
 	})
-
-	table.insert(entityPropAssignQueue, {ty = "instance", ent = entity})
+	
 	local children = instance:GetChildren()
 	if #children > 0 then
-		table.insert(entityCreationQueue, {parent = entity, children = children})
+		world:set(entity, components.CreationTicket, {children = children})
 	end
 
 	table.insert(state.Entities, entity)

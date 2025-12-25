@@ -49,10 +49,11 @@ function UDF.to(input: any): string
 	elseif typeof(input) == "Ray" then
 		return `[ray] {input.Origin.X}, {input.Origin.Y}, {input.Origin.Z}, {input.Direction.X}, {input.Direction.Y}, {input.Direction.Z}`
 	end
-	return ""
+	return "[nil]"
 end
 
 function UDF.from(input: string): any
+	if input == "" then return "" end
 	-- Truncate leading whitespace
 	input = input:match("^%s*(.*)") or input
 
@@ -79,9 +80,10 @@ function UDF.from(input: string): any
 
 	-- Check if input starts with [DATATYPE] format
 	local datatype = input:match("^%b[]")
-
+	if datatype == "[nil]" then return "" end
+	
 	if not datatype then 
-		error("Input must start with [DATATYPE] tag or shorthand punctuation")
+		error(`UDFValue '{input}' must start with [DATATYPE] tag or shorthand punctuation`)
 	end
 
 	-- Remove whitespace from datatype tag

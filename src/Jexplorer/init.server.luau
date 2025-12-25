@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "pr4"
+local VERSION = "pr5"
 
 local global = shared
 local shared = script.Shared
@@ -122,6 +122,7 @@ while true do
 	task.wait()
 end
 
+jexplorerWidget:AddTag("JEXP_Widget")
 jexplorerWidget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 jexplorerWidget.Title = `Jexplorer [{VERSION}]`
 jexplorerWidget.Name = "Jexplorer"

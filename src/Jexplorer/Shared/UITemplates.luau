@@ -91,15 +91,7 @@ return {
 			Name = "Buffer",
 		},
 		template "Frame" {
-			Name = "Children",
-			"JEXP_ChildrenContainer",
-			
-			template "Frame" {
-				Name = "List",
-			},
-			template "Frame" {
-				Name = "Ruler"
-			}
+			Name = "Ruler"
 		},
 		template "Frame" {
 			Name = "Main",
@@ -140,59 +132,6 @@ return {
 			}
 		}
 	},
-	DragFrame = template "Frame" {
-		Name = "DragFrame",
-		AutomaticSize = Enum.AutomaticSize.XY,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ZIndex = 100,
-		
-		"JEXP_Background",
-		
-		template "Frame" {
-			Name = "Main",
-			AutomaticSize = Enum.AutomaticSize.XY,
-			Size = UDim2.new(1, 0, 0, 20),
-			ZIndex = 2,
-			
-			"JEXP_SelectedColor",
-			
-			template "Frame" {
-				Name = "Overlay",
-				AutomaticSize = Enum.AutomaticSize.XY,
-				Size = UDim2.new(1, 0, 0, 20),
-				ZIndex = 2,
-				
-				"JEXP_Selected"
-			},
-			template "ImageLabel" {
-				Name = "ClassIcon",
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				BackgroundTransparency = 1,
-				Position = UDim2.new(0, 30, 0.5, 0),
-				Size = UDim2.new(0, 15, 0, 15),
-				ZIndex = 2,
-				
-				template "UIAspectRatioConstraint" {
-					AspectRatio = 1
-				}
-			},
-			template "TextLabel" {
-				Name = "InstanceName",
-				AutomaticSize = Enum.AutomaticSize.XY,
-				BackgroundTransparency = 1,
-				Position = UDim2.new(0, 40, 0.5, 0),
-				FontFace = Font.fromEnum(Enum.Font.SourceSans),
-				Size = UDim2.new(1, 0, 0, 15),
-				ZIndex = 2,
-				Text = "Instance",
-				TextSize = 14,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				
-				"JEXP_InstanceName"
-			}
-		}
-	},
 	EditorFrame = template "Frame" {
 		Size = UDim2.new(1, 0, 1, 0),
 		
@@ -216,8 +155,22 @@ return {
 			"JEXP_DarkBackground",
 			"JEXP_ScrollingFrame",
 			
-			template "UIListLayout" {
-				ItemLineAlignment = Enum.ItemLineAlignment.Start
+			template "Frame" {
+				Name = "Content",
+				Size = UDim2.fromScale(0, 0),
+				AutomaticSize = Enum.AutomaticSize.XY,
+				BackgroundTransparency = 1,
+				
+				template "UIListLayout" {
+					ItemLineAlignment = Enum.ItemLineAlignment.Start,
+					SortOrder = Enum.SortOrder.LayoutOrder,
+				}
+			},
+			template "Frame" {
+				Name = "Overlay",
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = 100,
+				BackgroundTransparency = 1
 			}
 		},
 		template "Frame" {

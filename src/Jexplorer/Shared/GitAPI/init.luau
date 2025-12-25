@@ -891,7 +891,7 @@ function GitAPI.revertLastCommit(
 	commitSha: string,
 	revertedCommitSha: string,
 	commit: typeof(((nil :: any) :: GitBranchInfo).commit.commit)
-}?>
+	}?>
 	LuaSecret.assert_is(authToken)
 
 	local authType = authToken:GetProperty("AuthType")
@@ -987,7 +987,7 @@ function GitAPI.revertLastCommit(
 			})
 		})
 	end)
-	
+
 	return APIResult.new(
 		refResponse.Success,
 		refResponse.StatusCode,
@@ -997,6 +997,182 @@ function GitAPI.revertLastCommit(
 			revertedCommitSha = latestCommitSha,
 			commit = branchInfo.commit.commit
 		} or nil
+	)
+end
+
+function GitAPI.watchBranchCommits(
+	getInfo: () -> {
+		token: LuaSecret?,
+		repoId: string,
+		branch: string,
+		pollInterval: number
+	},
+	onCommit: (info: GitBranchInfo) -> ()
+): () -> ()
+	local running = true
+	local lastCheckedSha: string? = nil
+	
+	local info = getInfo()
+	local token = info.token
+	if token then
+		LuaSecret.assert_is(token)
+
+		local initialBranchInfo = GitAPI.getLatestBranchInfo(token, info.repoId, info.branch)
+		if initialBranchInfo.Success then
+			lastCheckedSha = initialBranchInfo:Unwrap().commit.sha
+		end
+	end
+	
+	task.spawn(function()
+		while running do
+			local info = getInfo()
+			
+			task.wait(info.pollInterval)
+			local token = info.token
+			if not token then continue end
+			
+			LuaSecret.assert_is(token)
+			
+			local branchInfo = GitAPI.getLatestBranchInfo(token, info.repoId, info.branch)
+			if branchInfo.Success then
+				local info = branchInfo:Unwrap()
+				local currentSha = info.commit.sha
+				if lastCheckedSha and currentSha ~= lastCheckedSha then
+					-- New commit detected
+					onCommit(info)
+				end
+
+				lastCheckedSha = currentSha
+			end
+		end
+	end)
+	return function()
+		running = false
+	end
+end
+
+function GitAPI.getFullCommitHistoryFromBranch(
+	authToken: LuaSecret,
+	repoId: string,
+	branch: string,
+	maxCommits: number?
+)
+	return GitAPI.getFullCommitHistory(authToken, `https://api.github.com/repos/{repoId}/commits`, `sha={branch}`, maxCommits)
+end
+
+export type CommitHistory = {
+	{
+		sha: string,
+		message: string,
+		author: {
+			name: string,
+			email: string,
+			date: string
+		},
+		committer: {
+			name: string,
+			email: string,
+			date: string
+		},
+		tree: {
+			sha: string,
+			url: string
+		},
+		parents: {{sha: string, url: string}},
+		url: string,
+		html_url: string
+	}
+}
+
+function GitAPI.getFullCommitHistory(
+	authToken: LuaSecret, 
+	url: string,
+	query: string?,
+	maxCommits: number?
+): APIResult<CommitHistory>
+	LuaSecret.assert_is(authToken)
+
+	local authType = authToken:GetProperty("AuthType")
+	local perPage = 100 -- GitHub API max per page
+	local maxCommits = maxCommits or 1000 -- Default limit to prevent infinite loops
+
+	local allCommits = {}
+	local page = 1
+	local hasMore = true
+
+	while hasMore and #allCommits < maxCommits do
+		local url = `{url}?per_page={perPage}&page={page}{query and "&"..query or ""}`
+
+		local success, response = pcall(function()
+			return HttpService:RequestAsync({
+				Url = url,
+				Method = "GET",
+				Headers = {
+					["Authorization"] = token(authToken, authType),
+					["Accept"] = "application/vnd.github.v3+json"
+				}
+			})
+		end)
+
+		if not success or not response.Success then
+			return APIResult.new(
+				false,
+				response and response.StatusCode or 500,
+				response and response.StatusMessage or "Request failed",
+				nil :: any
+			)
+		end
+
+		local commits = HttpService:JSONDecode(response.Body)
+
+		-- If we got fewer commits than per_page, we've reached the end
+		if #commits < perPage then
+			hasMore = false
+		end
+
+		-- Add commits to our collection
+		for _, commit in commits do
+			if #allCommits >= maxCommits then
+				break
+			end
+			if not commit.commit then continue end
+
+			table.insert(allCommits, {
+				sha = commit.sha,
+				message = commit.commit.message,
+				author = {
+					name = commit.commit.author.name,
+					email = commit.commit.author.email,
+					date = commit.commit.author.date
+				},
+				committer = {
+					name = commit.commit.committer.name,
+					email = commit.commit.committer.email,
+					date = commit.commit.committer.date
+				},
+				tree = {
+					sha = commit.commit.tree.sha,
+					url = commit.commit.tree.url
+				},
+				parents = commit.parents,
+				url = commit.url,
+				html_url = commit.html_url
+			})
+		end
+
+		-- If no commits returned, we're done
+		if #commits == 0 then
+			break
+		end
+
+		page += 1
+	end
+
+	return APIResult.new(
+		true,
+		200,
+		"OK",
+		allCommits
 	)
 end
 

@@ -21,18 +21,18 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["SelectedColor"] = Color3.fromRGB(25, 148, 255),
 		["ScriptErrorColor"] = Color3.fromRGB(255, 44, 44),
 		["ScriptWarnColor"] = Color3.fromRGB(255, 211, 53),
-		["HoverColor"] = var "$BackgroundColor.R > 0.5 ? $BackgroundColor - rgb(30, 30, 30) : $BackgroundColor + rgb(30, 30, 30)",
+		["HoverColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(30, 30, 30) : $BackgroundColor + rgb(30, 30, 30)",
 		
 		["BackgroundColor"] = theme:GetColor(Enum.StudioStyleGuideColor.MainBackground),
 		["DarkBackgroundColor"] = var "$BackgroundColor - rgb(6, 6, 6)",
 		["LightBackgroundColor"] = var "$BackgroundColor + rgb(10, 10, 10)",
 		["DarkerBackgroundColor"] = var "$DarkBackgroundColor - rgb(10, 10, 10)",
 
-		["TextColor"] = theme:GetColor(Enum.StudioStyleGuideColor.MainText),
-		["DefaultTextColor"] = var "$BackgroundColor.R > 0.5 ? $TextColor + rgb(80, 80, 80) : $TextColor - rgb(80, 80, 80)",
+		["TextColor"] = var "invert($BackgroundColor)",
+		["DefaultTextColor"] = var "$TextColor - rgb(80, 80, 80)",
 		["TextColorDark"] = var "$TextColor - rgb(130, 130, 130)",
 
-		["MonochromeColor"] = var "$BackgroundColor.R > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
+		["MonochromeColor"] = var "invert($BackgroundColor)",
 
 		["InstanceFrameTextSize"] = 14,
 		["InstanceFrameTextColor"] = var "$TextColor",
@@ -43,17 +43,18 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["PathBarSize"] = UDim2.new(1, 0, 0, 20),
 		["TabBarSize"] = UDim2.new(1, 0, 0, 20),
 		["ScrollbarWidthOffset"] = 12,
-		["IndentWidth"] = 20,
-		["ScrollbarColor"] = var "$BackgroundColor.R > 0.5 ? $DarkerBackgroundColor - rgb(70, 70, 70) : $DarkerBackgroundColor - rgb(210, 210, 210)",
+		["ScrollbarColor"] = var "brightness($BackgroundColor) > 0.5 ? $DarkerBackgroundColor - rgb(70, 70, 70) : $DarkerBackgroundColor - rgb(210, 210, 210)",
 		["QueryInputTextSize"] = 11,
-		["Theme"] = var "$BackgroundColor.R > 0.5 ? 'Light' : 'Dark'",
+		["Theme"] = var "brightness($BackgroundColor) > 0.5 ? 'Light' : 'Dark'",
 		["DownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/DropdownArrow.png'",
 		["LegacyDownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/ArrowDown.png'",
+		["FadedTextColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)"
 	}
 	
 	local rule = function(...)
 		local newrule = _rule(...)
 		newrule:AddTag("Default")
+		newrule:AddTag("DontSaveRule")
 		return newrule
 	end :: typeof(_rule)
 		
@@ -227,6 +228,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				BackgroundColor3 = "$SelectedColor"
 			}
 		),
+		rule("SelectedTextColor",
+			getClassTagSlctr(".JEXP_SelectedColor", "TextButton", "TextBox", "TextLabel"), 20, {
+				BackgroundColor3 = "$SelectedColor",
+				TextColor3 = Color3.fromRGB(255, 255, 255)
+			}
+		),
 		rule("DarkerBackgroundStyle",
 			getClassTagSlctr(".JEXP_DarkerBackground", "GuiObject"), 0, {
 				BackgroundColor3 = "$DarkerBackgroundColor"
@@ -262,6 +269,11 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		rule("DefaultTextStyle",
 			getClassTagSlctr(".JEXP_DefaultText", "TextLabel", "TextButton", "TextBox"), 1, {
 				PlaceholderTextColor3 = "$DefaultTextColor",
+			}
+		),
+		rule("FadedTextStyle",
+			getClassTagSlctr(".JEXP_FadedText", "TextLabel", "TextButton", "TextBox"), 1, {
+				TextColor3 = "$FadedTextColor"
 			}
 		),
 		rule("UIBorder", ".JEXP_Border ::UIStroke", 0, {
@@ -331,25 +343,34 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 				Size = UDim2.new(0.94, 0, 0, 0)
 			}),
-			rule("ChildrenStyle", "> #Children Frame", 0, {
-				Position = var "udim2(0, $IndentWidth, 0, 20)",
-				AutomaticSize = Enum.AutomaticSize.Y,
-				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 0, 0),
+			--rule("ChildrenStyle", "> #Children Frame", 0, {
+			--	Position = var "udim2(0, $IndentWidth, 0, 20)",
+			--	AutomaticSize = Enum.AutomaticSize.Y,
+			--	BackgroundTransparency = 1,
+			--	Size = UDim2.new(1, 0, 0, 0),
 
-				rule("RulerStyle", "> #Ruler Frame", 0, {
-					Visible = true, --ssss
-					Size = UDim2.new(0, 1, 1, 0),
-					BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
-					BackgroundTransparency = 0.5,
-					AutomaticSize = Enum.AutomaticSize.Y,
-					ZIndex = 0
-				}),
-				rule("ListStyle", "> #List Frame", 0, {
-					AutomaticSize = Enum.AutomaticSize.Y,
-					BackgroundTransparency = 1,
-					Size = UDim2.new(1, 0, 1, 0),
-				})
+			--	rule("RulerStyle", "> #Ruler Frame", 0, {
+			--		Visible = true, --ssss
+			--		Size = UDim2.new(0, 1, 1, 0),
+			--		BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
+			--		BackgroundTransparency = 0.5,
+			--		AutomaticSize = Enum.AutomaticSize.Y,
+			--		ZIndex = 0
+			--	}),
+			--	rule("ListStyle", "> #List Frame", 0, {
+			--		AutomaticSize = Enum.AutomaticSize.Y,
+			--		BackgroundTransparency = 1,
+			--		Size = UDim2.new(1, 0, 1, 0),
+			--	})
+			--}),
+			rule("RulerStyle", "> #Ruler Frame", 0, {
+				Position = var "udim2(0, 20, 0, 20)",
+				Visible = true,
+				--Size = UDim2.new(0, 1, 1, 0),
+				BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
+				BackgroundTransparency = 0.5,
+				--AutomaticSize = Enum.AutomaticSize.Y,
+				ZIndex = 0
 			}),
 			rule("MainFrameStyle", "> #Main", 0, {
 				Size = "$InstanceFrameSize",

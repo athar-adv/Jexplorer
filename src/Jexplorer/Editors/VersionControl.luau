@@ -251,7 +251,7 @@ function VersionControl.openSourceViewer(src)
 	box.TextSize = 12
 	box.Size = UDim2.new(1, 0, 0, 0)
 	box.Text = src
-	box.TextColor3 = mainframe.Items:FindFirstChild("ItemFrame"):GetStyled("BackgroundColor3")
+	box.TextColor3 = mainframe.Items.Content:FindFirstChild("ItemFrame"):GetStyled("BackgroundColor3")
 	box.TextWrapped = false
 	box.AutomaticSize = Enum.AutomaticSize.Y
 	box.BackgroundTransparency = 1
@@ -261,7 +261,7 @@ function VersionControl.openSourceViewer(src)
 	box.TextEditable = false
 	box.ZIndex = 2
 	box.Position = UDim2.fromOffset(4, 0)
-	box.Parent = mainframe.Items:FindFirstChild("ItemFrame")
+	box.Parent = mainframe.Items.Content:FindFirstChild("ItemFrame")
 	
 	local label = Instance.new("TextLabel")
 	label.TextColor3 = Color3.fromRGB(186, 185, 179)
@@ -289,7 +289,7 @@ function VersionControl.openSourceViewer(src)
 		line.AutomaticSize = Enum.AutomaticSize.X
 		line.BackgroundTransparency = 1
 		
-		line.Parent = mainframe.Items:FindFirstChild("LineFrame")
+		line.Parent = mainframe.Items.Content:FindFirstChild("LineFrame")
 		
 		table.insert(lineLabels, line)
 	end
@@ -335,7 +335,7 @@ function VersionControl.createInstanceVersion(inst, changedProp, newValue)
 	local props = {}
 	for _, v in ReflectionService:GetPropertiesOfClass(inst.ClassName) do
 		if not v.Permits.Read then continue end
-		if not v.Permits.Read:Contains(SecurityCapabilities.fromCurrent()) then continue end
+		if not SecurityCapabilities.fromCurrent():Contains(v.Permits.Read) then continue end
 		props[v.Name] = rawindex(inst, v.Name)
 	end
 	props[changedProp] = newValue
@@ -487,6 +487,8 @@ end
 
 local FINISH_TIME = 5
 
+local updateBranchDisplayers = {}
+
 local repoList: PluginUI.ItemList
 local loadingFrame: Frame
 local finishedFrame: Frame
@@ -504,7 +506,9 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 	objectValue.Parent = Manager.Storage
 	
 	local rootNameChangedConn
-	local proxy: Types.RepoProxy = {
+	local cancel
+	local historyThread
+	local proxy: Types.RepoProxy; proxy = {
 		DisplayName = display_name,
 		RepoId = repo_id,
 		Root = root,
@@ -512,6 +516,9 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 		Remove = function()
 			repoDropdown:Destroy()
 			objectValue:Destroy()
+			cancel()
+			task.cancel(historyThread)
+			updateBranchDisplayers[proxy] = nil
 			if rootNameChangedConn then
 				rootNameChangedConn:Disconnect()
 			end
@@ -552,14 +559,362 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 	button.InputBegan:Connect(function(input)
 		if input.UserInputState ~= Enum.UserInputState.Begin then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			plugin:StartDrag(Manager.getSetPropertyDragInfo(objectValue, "Value"))
+			plugin:StartDrag(Manager.getSetPropertyDragInfo({objectValue}, "Value"))
 		end
 	end)
-
-	local repoIdBox = PluginUI.createAttributeBox(repoDropdown, "Repo Id (my-name/repo_name)", repo_id)
+	
+	local updateBranchDisplay
+	local repoIdBox = PluginUI.createAttributeBox(repoDropdown, "Repo Id (my-name/repo_name)", repo_id, function()
+		updateBranchDisplay()
+	end)
 	local branchBox = PluginUI.createAttributeBox(repoDropdown, "Branch", "main")
 	local pathBox = PluginUI.createAttributeBox(repoDropdown, "Path", "src")
+	
+	local branchGraphContainer = Instance.new("Frame")
+	branchGraphContainer.Parent = repoDropdown.Container
+	
+	branchGraphContainer:AddTag("JEXP_Background")
+	branchGraphContainer:AddTag("JEXP_GrayBorder")
+	
+	local canvas = Instance.new("CanvasGroup")
+	canvas.BackgroundTransparency = 1
+	canvas.Size = UDim2.fromScale(1, 1)
+	canvas.ZIndex = 5
+	canvas.Parent = branchGraphContainer
+	
+	local branchGraphScroller = Instance.new("ScrollingFrame")
+	branchGraphScroller.AutomaticCanvasSize = Enum.AutomaticSize.XY
+	branchGraphScroller.CanvasSize = UDim2.fromScale(0, 0)
+	branchGraphScroller:AddTag("JEXP_ScrollingFrame")
+	branchGraphScroller.ZIndex = 5
+	branchGraphScroller.BackgroundTransparency = 1
+	branchGraphScroller.Size = UDim2.new(1, 0, 1, 0)
+	branchGraphScroller.Parent = canvas
+	
+	local horizontal = Instance.new("Frame")
+	horizontal.ZIndex = 4
+	horizontal:AddTag("JEXP_ScrollBackgroundHorizontal")
+	horizontal:AddTag("JEXP_DarkBackground")
+	horizontal:AddTag("JEXP_GrayBorder")
+	horizontal.Parent = branchGraphContainer
+	local vertical = Instance.new("Frame")
+	vertical.ZIndex = 4
+	vertical.Parent = branchGraphContainer
+	vertical:AddTag("JEXP_ScrollBackgroundVertical")
+	vertical:AddTag("JEXP_DarkBackground")
+	vertical:AddTag("JEXP_GrayBorder")
+	
+	branchGraphContainer.Size = UDim2.new(1, 0, 0, 200)
+	
+	local content = Instance.new("Frame")
+	content.AutomaticSize = Enum.AutomaticSize.XY
+	content.Size = UDim2.fromScale(1, 1)
+	content.BackgroundTransparency = 0
+	content:AddTag("JEXP_Background")
+	content.ZIndex = 5
+	content.Parent = branchGraphScroller
 
+	local simulationContent = Instance.new("CanvasGroup")
+	simulationContent.AutomaticSize = Enum.AutomaticSize.XY
+	simulationContent.GroupTransparency = 1
+	simulationContent.Size = UDim2.fromScale(1, 1)
+	simulationContent.BackgroundTransparency = 1
+	simulationContent.ZIndex = 0
+	simulationContent.Parent = branchGraphScroller
+	
+	do
+		local listlayout = Instance.new("UIListLayout")
+		listlayout.SortOrder = Enum.SortOrder.LayoutOrder
+		listlayout.Parent = content
+	end
+	do
+		local listlayout = Instance.new("UIListLayout")
+		listlayout.SortOrder = Enum.SortOrder.LayoutOrder
+		listlayout.Parent = simulationContent
+	end
+	
+	local allLines = {}
+
+	-- Track branches: maps branch name to {connection, color, column}
+	local branches: {
+		[string]: {
+			connection: GuiObject?,
+			color: Color3,
+			column: number
+		}
+	} = {}
+	local nextColumn = 0
+	local columnWidth = 24 -- pixels between columns
+
+	-- Color palette for branches
+	local branchColors = {
+		Color3.fromRGB(88, 166, 255),  -- Blue
+		Color3.fromRGB(139, 233, 139), -- Green
+		Color3.fromRGB(255, 184, 108), -- Orange
+		Color3.fromRGB(219, 112, 147), -- Pink
+		Color3.fromRGB(186, 85, 211),  -- Purple
+		Color3.fromRGB(255, 215, 0),   -- Gold
+	}
+	local colorIndex = 1
+
+	local function getNextColor()
+		local color = branchColors[colorIndex]
+		colorIndex = (colorIndex % #branchColors) + 1
+		return color
+	end
+	
+	local function createCommit(branchName: string, message: string, options: {
+			parentBranch: string?,
+			mergeFrom: string?,
+			createBranch: boolean?
+		})
+		options = options or {}
+		local isMerge = options.mergeFrom
+		local isNewBranch = options.createBranch
+		local parentBranch = options.parentBranch or branchName
+
+		-- Initialize branch if it doesn't exist
+		if not branches[branchName] then
+			branches[branchName] = {
+				connection = nil,
+				color = getNextColor(),
+				column = nextColumn
+			}
+			nextColumn += 1
+		end
+
+		local branch = branches[branchName]
+		local column = branch.column
+
+		-- Create container
+		local container = Instance.new("Frame")
+		container.Size = UDim2.new(1, 0, 0, 24)
+		container.BackgroundTransparency = 1
+		container.Parent = simulationContent
+
+		-- Create connection point
+		local connection = Instance.new("Frame")
+		connection.Size = UDim2.new(0, 12, 0, 12)
+		connection.BackgroundColor3 = branch.color
+		connection.BorderSizePixel = 2
+		connection.BorderColor3 = Color3.fromRGB(40, 40, 40)
+		connection.AnchorPoint = Vector2.new(0.5, 0.5)
+		connection.Position = UDim2.new(0, column * columnWidth + 12, 0.5, 0)
+		connection.Parent = container
+
+		-- Make it circular
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(1, 0)
+		corner.Parent = connection
+
+		-- Create commit message
+		local text = Instance.new("TextLabel")
+		text.Text = message
+		text.BackgroundTransparency = 1
+		text.TextXAlignment = Enum.TextXAlignment.Left
+		text.TextSize = 12
+		text.Font = Enum.Font.SourceSans
+		text.Size = UDim2.new(1, -((nextColumn) * columnWidth + 24), 1, 0)
+		text.Position = UDim2.new(0, (nextColumn) * columnWidth + 24, 0, 0)
+		text:AddTag("JEXP_Text")
+		text.Parent = container
+
+		-- Draw connections after layout updates
+		task.wait()
+
+		local startPos = connection.AbsolutePosition + connection.AbsoluteSize / 2
+		local contentPos = content.AbsolutePosition
+
+		-- Convert to relative position within content
+		local relStartPos = UDim2.fromOffset(
+			startPos.X - contentPos.X,
+			startPos.Y - contentPos.Y
+		)
+		
+		-- Draw line from parent branch
+		if branches[parentBranch] and branches[parentBranch].connection then
+			local parentConnection = branches[parentBranch].connection
+			assert(parentConnection)
+			
+			local parentPos = parentConnection.AbsolutePosition + parentConnection.AbsoluteSize / 2
+			local relParentPos = UDim2.fromOffset(
+				parentPos.X - contentPos.X,
+				parentPos.Y - contentPos.Y
+			)
+
+			-- Calculate curve parameters based on horizontal distance
+			local horizontalDist = math.abs(startPos.X - parentPos.X)
+			local verticalDist = math.abs(startPos.Y - parentPos.Y)
+
+			if isNewBranch and parentBranch ~= branchName then
+				-- Branching off - use curves for smooth transition
+				local radius = math.min(verticalDist / 2, 30)
+				local xoffset = horizontalDist / 2
+
+				local line = PluginUI.createLine(
+					nil,
+					relParentPos,
+					relStartPos,
+					xoffset, radius,
+					-xoffset, radius,
+					branches[parentBranch].color
+				)
+				table.insert(allLines, line)
+			else
+				-- Same branch - straight line
+				local line = PluginUI.createLine(
+					nil,
+					relParentPos,
+					relStartPos,
+					0, 0,
+					0, 0,
+					branch.color
+				)
+				table.insert(allLines, line)
+			end
+		end
+
+		-- Draw merge line if this is a merge commit
+		if isMerge and branches[isMerge] and branches[isMerge].connection then
+			local mergeConnection = branches[isMerge].connection
+			assert(mergeConnection)
+			
+			local mergePos = mergeConnection.AbsolutePosition + mergeConnection.AbsoluteSize / 2
+
+			local relMergePos = UDim2.fromOffset(
+				mergePos.X - contentPos.X,
+				mergePos.Y - contentPos.Y
+			)
+
+			-- Calculate curve for merge
+			local horizontalDist = math.abs(startPos.X - mergePos.X)
+			local verticalDist = math.abs(startPos.Y - mergePos.Y)
+			local radius = math.min(verticalDist / 2, 30)
+			local xoffset = horizontalDist / 2
+
+			local line = PluginUI.createLine(
+				nil,
+				relMergePos,
+				relStartPos,
+				-xoffset, radius,
+				xoffset, radius,
+				branches[isMerge].color
+			)
+			table.insert(allLines, line)
+
+			-- Clear the merged branch's connection so it doesn't get drawn again
+			branches[isMerge].connection = nil
+		end
+
+		-- Update branch tracking
+		branch.connection = connection
+		return container
+	end
+	
+	local isrunning = false
+	function updateBranchDisplay()
+		if isrunning then return false end
+		
+		local token = VersionControl.Token
+		if not token then
+			return false
+		end
+
+		local result = GitAPI.getFullCommitHistoryFromBranch(token, repoIdBox:Get(), branchBox:Get(), 100)
+		if not result.Success then
+			--warn(`error({result.Code}): '{result.Message}'`)
+			return false
+		end
+		isrunning = true
+		
+		local labelsToDestroy = {}
+		local linesToDestroy = {}
+		for _, v in labels do
+			table.insert(labelsToDestroy, v)
+		end
+		for _, v in allLines do
+			table.insert(linesToDestroy, v)
+		end
+		table.clear(labels)
+		table.clear(allLines)
+		table.clear(branches)
+		colorIndex = 1
+		nextColumn = 0
+		
+		-- Track which branch each commit belongs to
+		local commitToBranch = {}
+		local processedCommits = {}
+		local mainBranchName = branchBox:Get()
+
+		local function processCommitHistory(history, currentBranch: string, isNewBranch: boolean, parentBranch: string?)
+			for _, info in history do
+				-- Skip if already processed
+				if processedCommits[info.sha] then
+					continue
+				end
+				processedCommits[info.sha] = true
+				commitToBranch[info.sha] = currentBranch
+
+				local isMerge = #info.parents > 1
+				local options = {}
+
+				-- Only set createBranch for the first commit of a new branch
+				if isNewBranch then
+					options.createBranch = true
+					options.parentBranch = parentBranch or mainBranchName
+					isNewBranch = false -- Only the first commit creates the branch
+				end
+
+				-- Set mergeFrom if this is a merge commit on the main branch
+				if isMerge and currentBranch == mainBranchName and info.parents[2] then
+					-- The second parent is the branch being merged in
+					options.mergeFrom = commitToBranch[info.parents[2].sha] or info.parents[2].sha
+				end
+
+				table.insert(labels, createCommit(currentBranch, info.message, options))
+
+				-- Process first parent (continues on same branch)
+				if info.parents[1] then
+					local parentResult = GitAPI.getFullCommitHistory(token, info.parents[1].url)
+					if parentResult.Success then
+						processCommitHistory(parentResult:Unwrap(), currentBranch, false, nil)
+					end
+				end
+
+				-- Process additional parents (they are from merged branches)
+				for i = 2, #info.parents do
+					local parentSha = info.parents[i].sha
+					if not processedCommits[parentSha] then
+						local parentResult = GitAPI.getFullCommitHistory(token, info.parents[i].url)
+						if parentResult.Success then
+							-- Create a branch name for the merged branch
+							local branchName = `merge-{parentSha:sub(1, 7)}`
+							processCommitHistory(parentResult:Unwrap(), branchName, true, currentBranch)
+						end
+					end
+				end
+			end
+		end
+
+		-- Start with the main branch
+		processCommitHistory(result:Unwrap(), mainBranchName, true, nil)
+		for _, v in labelsToDestroy do
+			v:Destroy()
+		end
+		for _, v in linesToDestroy do
+			v:Destroy()
+		end
+		for _, v in labels do
+			v.Parent = content
+		end
+		for _, v in allLines do
+			v.Parent = content
+		end
+		isrunning = false
+		return true
+	end
+	
+	updateBranchDisplayers[proxy] = updateBranchDisplay
 	do
 		local pushDropdown = PluginUI.createDropDownItemList({
 			Visible = true,
@@ -617,7 +972,7 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 			task.wait(FINISH_TIME)
 			finishedFrame.Visible = false
 		end)
-		PluginUI.createButton(repoDropdown, "Revert Last Commit", function()
+		PluginUI.createButton(pushDropdown, "Revert Last Commit", function()
 			if loadingFrame.Visible then return end
 			local commitMsg = commitMsgBox:Get()
 			local repoId = repoIdBox:Get()
@@ -663,7 +1018,33 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 		end
 		task.wait(FINISH_TIME)
 		finishedFrame.Visible = false
+		Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 	end)
+	local pollIntervalBox = PluginUI.createAttributeBox(repoDropdown, "Polling Interval", "10")
+	
+	cancel = GitAPI.watchBranchCommits(function()
+		return {
+			token = VersionControl.Token,
+			repoId = repoIdBox:Get(),
+			branch = branchBox:Get(),
+			pollInterval = assert(tonumber(pollIntervalBox:Get()))
+		}
+	end, function(info)
+		updateBranchDisplay()
+	end)
+	
+	local labels: {Instance} = {}
+	historyThread = task.spawn(function()
+		while true do
+			local success = updateBranchDisplay()
+			if success then
+				task.wait(10)
+			else
+				task.wait(5)
+			end
+		end
+	end)
+	
 	return proxy
 end
 
@@ -689,7 +1070,7 @@ function VersionControl.init(_m)
 		VersionControl.InstanceHistoryWidget = widget
 		Manager.Style:Link(widget)
 		
-		local list = PluginUI.createItemListFromExisting(main, mainframe.Items)
+		local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 		VersionControl.InstanceHistoryUIList = list
 	end
 	do
@@ -697,7 +1078,7 @@ function VersionControl.init(_m)
 		VersionControl.VersionViewerWidget = widget
 		Manager.Style:Link(widget)
 
-		local list = PluginUI.createItemListFromExisting(main, mainframe.Items)
+		local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 		VersionControl.VersionViewerUIList = list
 	end
 	do
@@ -719,7 +1100,7 @@ function VersionControl.init(_m)
 		listFrame.Name = "LineFrame"
 		listFrame.BackgroundTransparency = 1
 		listFrame.AutomaticSize = Enum.AutomaticSize.XY
-		listFrame.Parent = mainframe.Items
+		listFrame.Parent = mainframe.Items.Content
 		
 		local list = Instance.new("UIListLayout")
 		list.Padding = UDim.new(0, 4)
@@ -734,15 +1115,15 @@ function VersionControl.init(_m)
 		innerFrame.BorderSizePixel = 0
 		innerFrame.AutomaticSize = Enum.AutomaticSize.Y
 		
-		mainframe.Items.UIListLayout:Destroy()
-		innerFrame.Parent = mainframe.Items
+		mainframe.Items.Content.UIListLayout:Destroy()
+		innerFrame.Parent = mainframe.Items.Content
 		
 		listFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 			innerFrame.Position = UDim2.fromOffset(listFrame.AbsoluteSize.X, 0)
 		end)
 	end
 	
-	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items)
+	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 	PluginUI.createHeader(list, "WARNING: The github sync functionality is still early in functionality, be careful using this in production!")
 	
 	do
@@ -901,8 +1282,11 @@ function VersionControl.init(_m)
 				local token = GitAPI.AuthToken.new(token_str, "fine_grained")
 				VersionControl.Token = token
 			end
+			for _, v in updateBranchDisplayers do
+				v()
+			end
 		end)
-
+		
 		local inst: any = tokenFrame.Instance
 		inst.NameLabel:GetPropertyChangedSignal("Text"):Connect(function()
 			tokenInfo.display_name = inst.NameLabel.Text

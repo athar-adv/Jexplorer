@@ -1,6 +1,21 @@
 local ReflectionService = game:GetService("ReflectionService")
 
-local propMapCache = {}
+local propMapCache: {[string]: ReflectedProperties} = {
+	-- This is just for TaggedProperty validation checks
+	-- For some reason these classes arent present in ReflectionService
+	["PluginGuiService"] = {
+		["ClassName"] = {},
+		["Name"] = {}
+	},
+	["CoreGui"] = {
+		["ClassName"] = {},
+		["Name"] = {}
+	},
+	["DockWidgetPluginGui"] = {
+		["ClassName"] = {},
+		["Name"] = {}
+	}
+}
 
 return function(className: string): {[string]: ReflectedProperty}
 	local cached = propMapCache[className]

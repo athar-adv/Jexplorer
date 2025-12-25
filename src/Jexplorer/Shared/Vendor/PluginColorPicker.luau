@@ -206,7 +206,7 @@ function PluginColorPicker.new(plugin: Plugin, pluginGuiId : string) : PluginCol
 	
 	local self = setmetatable({}, PluginColorPicker)
 	
-	local dockWidgetPluginGui = plugin:CreateDockWidgetPluginGui(pluginGuiId, DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 287, 419))
+	local dockWidgetPluginGui = plugin:CreateDockWidgetPluginGuiAsync(pluginGuiId, DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 287, 419))
 	dockWidgetPluginGui.Title = 'Select Color'
 
 	-- create gui objects
