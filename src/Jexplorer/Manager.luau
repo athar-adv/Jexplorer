@@ -1,4 +1,5 @@
 --!strict
+--!optimize 2
 
 local global = shared
 local plugin = script:FindFirstAncestorOfClass("Plugin")
@@ -98,6 +99,8 @@ local components: Types.Components do
 		FrameTagAssignTicket = comp(),
 		
 		FRAMEWORLD_FrameSetParentTicket = comp(),
+		FRAMEWORLD_Main = comp(),
+		QUERYWORLD_ComponentHash = comp(),
 
 		Instance = comp(),
 		Frame = comp(),
@@ -105,8 +108,6 @@ local components: Types.Components do
 		FrameState = comp(),
 
 		Connections = comp(),
-		FavoriteProxy = comp(),
-		FavoriteProxySource = comp(),
 		ScriptErrors = comp(),
 		ScriptWarns = comp(),
 		QueryLinkedEntities = comp(),
@@ -267,9 +268,9 @@ local function getPropertyCt(world: World, propName: string)
 	return ct
 end
 
-local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?, allowBinding: boolean?)
+local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?)
 	local action = plugin:CreatePluginAction(
-		actionId, text, statusTip, iconId, allowBinding
+		actionId, text, "[Jexplorer] "..statusTip, iconId, true
 	)
 	action.Name = actionId
 	return action
@@ -1093,6 +1094,7 @@ function Manager.loadState(savedState)
 			local rules, tokens = {}, {}
 			local function deserialize_rules(source: any, destination: any)
 				for _, r in source do
+					if table.find(r.tags, "Default") then continue end
 					local props = {}
 					for k, v in r.props do
 						props[k] = UDF.from(v)
@@ -1155,8 +1157,7 @@ end
 
 local function initRegisterPluginMenusAndActions(
 	state: Types.WidgetState,
-	components: typeof(Manager.Components),
-	favoritedInstancesEntity: ExplorerEntity
+	components: typeof(Manager.Components)
 )
 	local world = state.World
 	local connections = state.Connections
@@ -1360,69 +1361,7 @@ local function initRegisterPluginMenusAndActions(
 			VirtualScroller.update(Manager, false)
 		end)
 	end
-
-	local toggleFavoriteAction do
-		toggleFavoriteAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_ToggleFavorite", true), "Toggle Favorite", "Puts this instance into the favorited list.", "rbxassetid://12982756171"
-		)
-		toggleFavoriteAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local existingProxy = world:get(entity, components.FavoriteProxy)
-				local proxySource = world:get(entity, components.FavoriteProxySource)
-				if proxySource then
-					world:remove(proxySource, components.FavoriteProxy)
-
-					local idx = table.find(state.Favorited, entity)
-					if idx then
-						table.remove(state.Favorited, idx)
-					end
-
-					HierarchyState.cleanupEntity(Manager, entity)
-					continue
-				end
-				local instance = world:get(entity, components.Instance)
-				if not instance then return end
-				if Manager.AbstractEntClasses[instance.ClassName] then continue end
-				if existingProxy == nil then
-					-- Add proxy
-					local proxy = HierarchyState.createInstanceEntity(Manager, instance, favoritedInstancesEntity, true)
-					if not proxy then continue end
-					world:add(proxy, components.ArrowInvisible)
-
-					if not proxy then
-						warn(`could not create favorite proxy for '{instance}'`)
-						return
-					end
-
-					world:set(entity, components.FavoriteProxy, proxy)
-					world:set(proxy, components.FavoriteProxySource, entity)
-
-					if world:has(favoritedInstancesEntity, components.Expanded) then
-						local frame = ExplorerFrame.getExplorerFrame(Manager)
-						ExplorerFrame.assignExplorerFrame(Manager, frame, proxy, favoritedInstancesEntity, false)
-					end
-					HierarchyState.updateEntityOrder(Manager, proxy)
-
-					table.insert(state.Favorited, proxy)
-				else
-					-- Remove proxy
-					local idx = table.find(state.Favorited, existingProxy)
-					if idx then
-						table.remove(state.Favorited, idx)
-					end
-					world:remove(entity, components.FavoriteProxy)
-
-					HierarchyState.cleanupEntity(Manager, entity)
-				end
-			end
-			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-			ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
-
-			HierarchyState.flushEntityPropAssignQueue(Manager)
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-		end)
-	end
-
+	
 	local hideClassAction do
 		hideClassAction = createPluginAction(
 			getId("Jexplorer_ContextMenu_HideClass", true), "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
@@ -1829,8 +1768,7 @@ local function initRegisterPluginMenusAndActions(
 
 		SaveToFile = saveToFileAction,
 		SaveToRoblox = saveToRobloxAction,
-
-		ToggleFavorite = toggleFavoriteAction,
+		
 		RemoveFromTab = removeFromTabAction,
 
 		GroupAsModel = groupAsModelAction,
@@ -1900,8 +1838,7 @@ local function initRegisterPluginMenusAndActions(
 		"SaveToRoblox",
 
 		"---",
-
-		"ToggleFavorite",
+		
 		"RemoveFromTab",
 
 		"---",
@@ -1934,8 +1871,7 @@ local function initRegisterPluginMenusAndActions(
 			"InsertObject",
 
 			"---",
-
-			"ToggleFavorite",
+			
 			"RemoveFromTab",
 
 			"---",
@@ -2122,7 +2058,6 @@ function initCreateEntities(state: Types.WidgetState, components: typeof(Manager
 		ExplorerFrame.assignExplorerFrame(Manager, frame, entity, nil, true)
 	end
 	
-	ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
 	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	VirtualScroller.rebuildAndUpdate(Manager, false)
 	profileend()
@@ -2146,9 +2081,6 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			if not docScript then return end
 
 			VersionControl.addPendingChange(docScript, "Source", document:GetText())
-		end),
-		instanceTree:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-			Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
 		end),
 		instanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 			VirtualScroller.update(Manager, true)
@@ -2237,7 +2169,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				end
 
 				local id = ChangeHistoryService:TryBeginRecording("Drop", "Drop")
-				local isExpanded = Manager.isExplorerEntityExpanded(foundDropEntity)
+				
 				for _, dragEntity in dragEntities do
 					local child = world:get(dragEntity, components.Instance)
 					if not child then continue end
@@ -2251,27 +2183,19 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 					pcall(rawnewindex, child, "Parent", newParentInstance)
 					HierarchyState.updateEntityOrder(Manager, dragEntity)
-
-					local dragFrame = world:get(dragEntity, components.Frame)
-					if dragFrame then
-						ExplorerFrame.queueForExplorerFrameReuse(Manager, dragFrame)
-					end
+					VirtualScroller.invalidateEntityHeightCache(Manager, dragEntity)
 				end
-
+				
 				ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-				if not isExpanded then
-					world:add(foundDropEntity, components.Expanded)
-					HierarchyState.invalidateEntityStateCache(foundDropEntity)
-
-					ExplorerFrame.updateExpandedVisuals(Manager)
-				else
-					VirtualScroller.invalidateEntityHeightCache(Manager, foundDropEntity)
-				end
-
+				
+				world:add(foundDropEntity, components.Expanded)
+				HierarchyState.invalidateEntityStateCache(foundDropEntity)
+				ExplorerFrame.updateExpandedVisuals(Manager)
+				
 				for _, e in dragEntities do
 					world:remove(e, components.AncestryLocked)
 				end
-				Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+				VirtualScroller.rebuildAndUpdate(Manager, false)
 
 				if id then
 					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
@@ -2622,6 +2546,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 			Manager.setExplorerEntitiesAsSelection(queried, true)
 		end),
+		instanceTree:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
+		end)
 	}
 end
 
@@ -2665,10 +2592,7 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		OnClose = onClose,
 		IsDragging = false
 	}
-	Manager.AbstractEntClasses = {
-		Favorited = "JEXP_ABSTRACT_Favorited"
-	}
-
+	
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local topbar = jexplorerUi.Topbar
@@ -2721,55 +2645,55 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		end
 	end
 
-	local favoritedInstancesEntity = HierarchyState.createVirtualEntity(
-		Manager,
-		{
-			ClassName = Manager.AbstractEntClasses.Favorited,
-			Name = "Favorites",
-			ChildAmount = 0,
-			ClassIcon = {
-				Image = "rbxassetid://12982756171",
-				ImageRectOffset = Vector2.zero,
-				ImageRectSize = Vector2.zero
-			},
-			PropTags = {
-				getPropertyCt(world, "ClassName"),
-				getPropertyCt(world, "Name")
-			}
-		},
-		{
-			GetChildren = function(self)
-				return state.Favorited
-			end,
-			IsDescendantOf = function(self)
-				return false
-			end,
-			IsA = function(self, classname)
-				return classname == Manager.AbstractEntClasses.Favorited
-			end,
-			GetTags = function()
-				return {}
-			end,
-			FindFirstChildOfClass = function()
-				return nil
-			end,
-			GetDebugId = function()
-				return "JEXP_FAVORITED"
-			end,
-		}
-	)
+	--local favoritedInstancesEntity = HierarchyState.createVirtualEntity(
+	--	Manager,
+	--	{
+	--		ClassName = Manager.AbstractEntClasses.Favorited,
+	--		Name = "Favorites",
+	--		ChildAmount = 0,
+	--		ClassIcon = {
+	--			Image = "rbxassetid://12982756171",
+	--			ImageRectOffset = Vector2.zero,
+	--			ImageRectSize = Vector2.zero
+	--		},
+	--		PropTags = {
+	--			getPropertyCt(world, "ClassName"),
+	--			getPropertyCt(world, "Name")
+	--		}
+	--	},
+	--	{
+	--		GetChildren = function(self)
+	--			return state.Favorited
+	--		end,
+	--		IsDescendantOf = function(self)
+	--			return false
+	--		end,
+	--		IsA = function(self, classname)
+	--			return classname == Manager.AbstractEntClasses.Favorited
+	--		end,
+	--		GetTags = function()
+	--			return {}
+	--		end,
+	--		FindFirstChildOfClass = function()
+	--			return nil
+	--		end,
+	--		GetDebugId = function()
+	--			return "JEXP_FAVORITED"
+	--		end,
+	--	}
+	--)
 	
 	ExplorerFrame.initializeFrameCaches(Manager)
 	local topbarMenuDropdown = CreateOptionsDropdown(Manager, components, topbar)
 
-	initRegisterPluginMenusAndActions(state, components, favoritedInstancesEntity)
+	initRegisterPluginMenusAndActions(state, components)
 	
 	InsertMenu.init(Manager)
 
 	local tagAddedSignals, tagRemovedSignals, tagAdded, tagRemoved = initRegisterTagListeners(state, components)
 	local scrollTrackerConnection, scrollTrackerThread = initStartTrackScrolling(state)
 
-	local entities = {favoritedInstancesEntity}
+	local entities = {}
 	initCreateEntities(state, components, entities)
 
 	ContextMenuEditor.init(Manager)
@@ -2830,9 +2754,11 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		local suc1 = HierarchyState.flushOnChildAddedQueue(Manager)
 		local suc2 = HierarchyState.flushOnChildRemovedQueue(Manager)
 		local suc3 = HierarchyState.flushEntityCleanupQueue(Manager)
-		ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-		ExplorerFrame.flushFrameReuseQueue(Manager)
-		ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+		task.defer(task.defer, task.defer, task.defer, function()
+			ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+			ExplorerFrame.flushFrameReuseQueue(Manager)
+			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+		end)
 		
 		if suc1 or suc2 or suc3 then
 			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
@@ -2886,6 +2812,8 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	})
 
 	jexplorerUi.Parent = jexplorerWidget
+	sheet:UpdateTokens()
+	Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
 end
 
 Manager.ChildOf = ChildOf

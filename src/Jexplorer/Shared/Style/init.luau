@@ -31,10 +31,12 @@ export type Style = {
 	GetDependencies: (Style, expr: string) -> {string},
 
 	AddRules: (Style, rules: {[any]: any}) -> (),
-	FindRule: (Style, selector: string) -> StyleRule?,
+	FindRule: (Style, selector: string) -> Rule?,
 	GetTagged: (Style, tag: string) -> {Rule},
 	GetWithoutTags: (Style, ...string) -> {Rule},
 	Replace: (Style, newStyle: Style) -> (),
+	
+	SlctrToRule: {[string]: Rule},
 
 	RuleAdded: SimpleSignal.SimpleSignal<Rule>,
 	RuleRemoved: SimpleSignal.SimpleSignal<Rule>,
@@ -429,8 +431,8 @@ function StyleMethods:AddRules(newRules)
 end
 
 function StyleMethods:FindRule(selector)
-	local rule = self.Sheet:FindFirstChild(RULE_NAME_FORMAT:format(selector))
-	return rule :: StyleRule
+	local rule = self.SlctrToRule[selector]
+	return rule
 end
 
 function StyleMethods:GetTagged(tag: string): {Rule}
@@ -515,7 +517,7 @@ function RuleMethods:SetProperty(k, v)
 		realProps[k] = evaluated
 	elseif type(v) == "string" and v:sub(1, 1) == "$" then
 		self.PropertyDependencies[k] = getDependencies(v)
-		local evaluated = style.AppliedTokens[k]
+		local evaluated = style.AppliedTokens[v:sub(2, -1)]
 		realProps[k] = evaluated
 	else
 		self.PropertyDependencies[k] = {}
@@ -536,7 +538,7 @@ function RuleMethods:AddRules(rules)
 				rule.AppliedProperties[k] = evaluated
 			elseif type(v) == "string" and v:sub(1, 1) == "$" then
 				rule.PropertyDependencies[k] = getDependencies(v)
-				local evaluated = self.Sheet.AppliedTokens[k]
+				local evaluated = self.Sheet.AppliedTokens[v:sub(2, -1)]
 				rule.AppliedProperties[k] = evaluated
 			else
 				rule.PropertyDependencies[k] = {}
@@ -611,6 +613,8 @@ function RuleMethods:init(sheet)
 	assert(not self.__initialized, `rule '{self:GetName()}' has already been initialized.`)
 	self.__initialized = true
 	self.Sheet = sheet
+	
+	sheet.SlctrToRule[self.Rule.Selector] = self
 
 	local rule = self.Rule
 	local realProps = self.AppliedProperties
@@ -729,12 +733,8 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		props[i] = nil
 	end
 
-	rule:GetPropertyChangedSignal("Selector"):Connect(function()
-		rule.Name = RULE_NAME_FORMAT:format(rule.Selector)
-	end)
-
 	local realProps = {}
-	local ruleTbl = setmetatable({
+	local ruleTbl: Rule = setmetatable({
 		Rule = rule,
 		RawProperties = props,
 		AppliedProperties = realProps,
@@ -747,6 +747,13 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new()
 	} :: Rule, RuleMethods) :: any
+	
+	rule:GetPropertyChangedSignal("Selector"):Connect(function()
+		if ruleTbl.Sheet then
+			ruleTbl.Sheet.SlctrToRule[rule.Selector] = ruleTbl
+		end
+		rule.Name = RULE_NAME_FORMAT:format(rule.Selector)
+	end)
 
 	return ruleTbl
 end
@@ -766,7 +773,8 @@ function Style.create(rules: {[any]: any}): Style
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new(),
 		TokenChanged = SimpleSignal.new(),
-		AppliedTokenChanged = SimpleSignal.new()
+		AppliedTokenChanged = SimpleSignal.new(),
+		SlctrToRule = {}
 	} :: Style, StyleMethods) :: any
 
 	filterRules(style, rules, tokens)

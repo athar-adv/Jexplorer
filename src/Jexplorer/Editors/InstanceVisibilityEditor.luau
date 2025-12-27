@@ -49,55 +49,59 @@ function InstanceVisibilityEditor.init(Manager)
 
 	local classVisibilityDropdown = PluginUI.createDropDownItemList({Name = "InvisibleClassesDropdown", Visible = true}, "Invisible Classes")
 	classVisibilityDropdown:Parent(list)
-
-	local i = 1
+	
 	local jsonBox
-	for _, info in ReflectionService:GetClasses() do
-		local className = info.Name
-		local icon = ClassIcon.getIcon(className)
-		if not icon then continue end
+	local thread = task.spawn(function()
+		local i = 1
+		for _, info in ReflectionService:GetClasses() do
+			local className = info.Name
+			local icon = ClassIcon.getIcon(className)
+			if not icon then continue end
+			if i % 2 == 0 then task.wait(0.1) end
 
-		-- Now invisible is the primary state
-		local invisible = InstanceVisibilityEditor.InvisibleClasses[className]
-		if invisible == nil then
-			invisible = false
-			InstanceVisibilityEditor.InvisibleClasses[className] = false
-		end
+			-- Now invisible is the primary state
+			local invisible = InstanceVisibilityEditor.InvisibleClasses[className]
+			if invisible == nil then
+				invisible = false
+				InstanceVisibilityEditor.InvisibleClasses[className] = false
+			end
 
-		local button
+			local button
 
-		local function toggle(_invisible: boolean?)
-			invisible = if _invisible ~= nil then _invisible else not invisible
+			local function toggle(_invisible: boolean?)
+				invisible = if _invisible ~= nil then _invisible else not invisible
+				if invisible then
+					-- Invisible: dark background
+					button.Instance:RemoveTag("JEXP_Background")
+					button.Instance:AddTag("JEXP_DarkBackground")
+				else
+					-- Visible: normal background
+					button.Instance:RemoveTag("JEXP_DarkBackground")
+					button.Instance:AddTag("JEXP_Background")
+				end
+				InstanceVisibilityEditor.InvisibleClasses[className] = invisible
+				if _invisible == nil then
+					-- Update JSON box with invisible classes
+					jsonBox:Set(HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses))
+					Manager.VirtualScroller.update(Manager, false)
+				end
+			end
+
+			button = PluginUI.createButtonWithIcon(classVisibilityDropdown, className, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, toggle)
 			if invisible then
-				-- Invisible: dark background
 				button.Instance:RemoveTag("JEXP_Background")
 				button.Instance:AddTag("JEXP_DarkBackground")
-			else
-				-- Visible: normal background
-				button.Instance:RemoveTag("JEXP_DarkBackground")
-				button.Instance:AddTag("JEXP_Background")
 			end
-			InstanceVisibilityEditor.InvisibleClasses[className] = invisible
-			if _invisible == nil then
-				-- Update JSON box with invisible classes
-				jsonBox:Set(HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses))
-				Manager.VirtualScroller.update(Manager, false)
-			end
-		end
 
-		button = PluginUI.createButtonWithIcon(classVisibilityDropdown, className, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, toggle)
-		if invisible then
-			button.Instance:RemoveTag("JEXP_Background")
-			button.Instance:AddTag("JEXP_DarkBackground")
+			items[className] = {
+				className = className,
+				button = button.Instance,
+				toggle = toggle
+			}
+			i += 1
 		end
-
-		items[className] = {
-			className = className,
-			button = button.Instance,
-			toggle = toggle
-		}
-		i += 1
-	end
+	end)
+	connections:extend(task.cancel, {thread})
 
 	-- JSON box now stores invisible classes directly
 	jsonBox = PluginUI.createAttributeBox(list, "Invisible Classes JSON", HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses), function(newValue)

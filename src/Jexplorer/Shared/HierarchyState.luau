@@ -9,7 +9,6 @@ local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
-local cachedQuery = require("./Small/CachedQuery")
 
 local ItemGroup = require("./Vendor/ItemGroup")
 
@@ -34,6 +33,13 @@ local classPriorityCache = {}
 --local lastCacheVersion = -1
 local lastPriorityVersion = -1
 
+local flatCache = {
+	flattenedEntities = nil :: any,
+	entityToIndex = nil :: any,
+	indexToIndentOffset = nil :: any,
+	version = 0
+}
+
 local entityStateCache = {}
 
 local function getClassPriority(className: string): number
@@ -49,7 +55,7 @@ local function addEntityPriorities(Manager: Manager, children: {ExplorerEntity},
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
-
+	
 	if OrderEditor.PriorityVersion and OrderEditor.PriorityVersion ~= lastPriorityVersion then
 		table.clear(classPriorityCache)
 		lastPriorityVersion = OrderEditor.PriorityVersion
@@ -83,6 +89,7 @@ local function addEntityPriorities(Manager: Manager, children: {ExplorerEntity},
 end
 
 local HierarchyState = {
+	StateCache = entityStateCache,
 	ChildrenMap = hierarchyCache.childrenMap
 } :: Types.HierarchyState
 
@@ -120,6 +127,7 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 			continue
 		end
 		
+		HierarchyState.invalidateEntityStateCache(eid)
 		local parent = Manager.parentOf(eid)
 		if not parent then
 			table.insert(roots, eid)
@@ -179,40 +187,47 @@ end
 function HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroller)
 	profilebegin("Jexplorer::getFlattenedVisibleEntities")
 
+	-- Return cached result if valid
+	if flatCache.flattenedEntities then
+		profileend()
+		return flatCache.flattenedEntities, flatCache.entityToIndex, flatCache.indexToIndentOffset
+	end
+
 	local state = Manager.WidgetState
 	local components = Manager.Components
-
 	local childrenMap = hierarchyCache.childrenMap
 	local roots = hierarchyCache.roots
 
-	local flatList = table.create(100)
-	local indexToIndentOffset = {}
+	local flatList = table.create(1000) -- Pre-allocate larger
+	local indexToIndentOffset = table.create(1000)
 	local entityToIndex = {}
 	local flatIndex = 0
-	local invisibleIndex = #invisible
-	local stack = table.create(200)
+
+	local stack = table.create(500)
 	local stackSize = 0
-	local indentStack = table.create(200) -- Track indent level for each stack item
+	local indentStack = table.create(500)
+
+	-- flatCache function references (avoid lookups)
+	local entityinvisible = Manager.isExplorerEntityInvisible
+	local entitydeleted = Manager.isExplorerEntityDeleted
+	local entityexpanded = Manager.isExplorerEntityExpanded
 
 	profilebegin("traverse")
 
-	-- Unroll root insertion (minor optimization)
+	-- Push roots onto stack
 	local rootCount = #roots
 	for i = rootCount, 1, -1 do
 		stackSize += 1
 		stack[stackSize] = roots[i]
-		indentStack[stackSize] = 0 -- Roots have indent offset 0
+		indentStack[stackSize] = 0
 	end
-
-	local entityinvisible = Manager.isExplorerEntityInvisible
-	local entitydeleted = Manager.isExplorerEntityDeleted
-	local entityexpanded = Manager.isExplorerEntityExpanded
 
 	while stackSize > 0 do
 		local entity = stack[stackSize]
 		local currentIndent = indentStack[stackSize]
 		stackSize -= 1
 
+		-- Get cached state
 		local state = entityStateCache[entity]
 		if not state then
 			profilebegin("generateentitystate")
@@ -223,34 +238,35 @@ function HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroll
 			profileend()
 		end
 
-		if state.invisible then
-			invisibleIndex += 1
-			invisible[invisibleIndex] = entity
-		else
+		if not state.invisible then -- Skip invisible entirely
 			flatIndex += 1
 			flatList[flatIndex] = entity
-			indexToIndentOffset[flatIndex] = currentIndent -- Store indent offset
+			indexToIndentOffset[flatIndex] = currentIndent
+			entityToIndex[entity] = flatIndex -- Build inline
+
 			if state.expanded then
 				local children = childrenMap[entity]
 				if children then
 					local childCount = #children
-					local childIndent = currentIndent + 1 -- Children have +1 indent
-					for i = 1, childCount do
-						stackSize += 1
-						stack[stackSize] = children[childCount - i + 1]
-						indentStack[stackSize] = childIndent
+					if childCount > 0 then
+						local childIndent = currentIndent + 1
+						-- Push in reverse order for correct traversal
+						for i = childCount, 1, -1 do
+							stackSize += 1
+							stack[stackSize] = children[i]
+							indentStack[stackSize] = childIndent
+						end
 					end
 				end
 			end
 		end
 	end
-	profileend()
 
-	profilebegin("fillentitytoindex")
-	for idx, v in flatList do
-		entityToIndex[v] = idx
-	end
 	profileend()
+	
+	flatCache.flattenedEntities = flatList
+	flatCache.entityToIndex = entityToIndex
+	flatCache.indexToIndentOffset = indexToIndentOffset
 
 	profileend()
 	return flatList, entityToIndex, indexToIndentOffset
@@ -261,7 +277,7 @@ function HierarchyState.flushEntityCreationQueue(Manager)
 	local world = state.World
 	local components = Manager.Components
 	
-	local query = cachedQuery(world, "creation-ticket", components.CreationTicket)
+	local query = Jecs.cached_query(world, components.CreationTicket)
 	
 	local any = false
 	for parent, ticketData in query:iter() do
@@ -306,9 +322,10 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 	local entities = state.Entities
 	local entitiesWithTicket = {}
 	
-	local query = cachedQuery(world, "cleanup-ticket", components.CleanupTicket)
+	local query = Jecs.cached_query(world, components.CleanupTicket)
 
 	for entity, ticketData in query:iter() do
+		world:remove(entity, components.CleanupTicket)
 		-- Prevent double cleanups
 		if seen[entity] then continue end
 		seen[entity] = true
@@ -339,7 +356,7 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		if frame then
 			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 		end
-
+		
 		world:add(entity, components.Deleted)
 
 		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
@@ -373,7 +390,6 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 	
 	profileend()
 	return true
-
 end
 
 function HierarchyState.queueForEntityCleanup(Manager, entity)
@@ -393,7 +409,7 @@ function HierarchyState.flushOnChildAddedQueue(Manager)
 	local anyChanged = false
 	local seen = {}
 	
-	local query = cachedQuery(world, "child-added-ticket", components.ChildAddedTicket)
+	local query = Jecs.cached_query(world, components.ChildAddedTicket)
 	
 	for newParent, ticketData in query:iter() do
 		world:remove(newParent, components.ChildAddedTicket)
@@ -423,6 +439,8 @@ function HierarchyState.flushOnChildAddedQueue(Manager)
 		end
 		anyChanged = true
 	end
+	if not anyChanged then return false end
+	
 	HierarchyState.flushEntityPropAssignQueue(Manager)
 	
 	profileend()
@@ -454,7 +472,7 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 	local anyChanged = false
 	local seen = {}
 	
-	local query = cachedQuery(world, "child-moved-ticket", components.ChildMovedTicket)
+	local query = Jecs.cached_query(world, components.ChildMovedTicket)
 
 	for oldParent, ticketData in query:iter() do
 		world:remove(oldParent, components.ChildMovedTicket)
@@ -483,28 +501,29 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 				if newParent then
 					local childEntity = Manager.InstanceToEntity[childInst]
 					if childEntity then
-						Manager.updateParent(childEntity, newParent)
 						if Manager.isExplorerEntityExpanded(newParent) then
 							Manager.VirtualScroller.invalidateEntityHeightCache(Manager, childEntity)
 						end
+						Manager.updateParent(childEntity, newParent)
 
 						HierarchyState.updateEntityOrder(Manager, childEntity)
-						local childFrame = world:get(childEntity, components.Frame)
-						if childFrame then
-							Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, childFrame)
-						end
+						--local childFrame = world:get(childEntity, components.Frame)
+						--if childFrame then
+						--	Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, childFrame)
+						--end
 						anyChanged = true
 					end
 				end
 			end
 		end
 
-		-- Invalidate old parent's cache
+		-- Invalidate old parent's flatCache
 		if Manager.isExplorerEntityExpanded(oldParent) then
 			Manager.VirtualScroller.invalidateEntityHeightCache(Manager, oldParent)
 		end
 	end
-
+	if not anyChanged then return false end
+	
 	HierarchyState.flushEntityPropAssignQueue(Manager)
 	
 	profileend()
@@ -546,22 +565,7 @@ function HierarchyState.stepFlushEntityDeletionQueue(Manager)
 		local idx = table.find(state.Entities, entity)
 		if idx then table.remove(state.Entities, idx) end
 
-		local queryEntity = world:get(entity, components.LinkedQueryEntity)
-		world:delete(entity)
-
-		if not queryEntity then continue end
-		local linked = queryWorld:get(queryEntity, components.QueryLinkedEntities)
-
-		if not linked then continue end
-
-		local n = #linked
-		if n > 1 then
-			local idx = table.find(linked, entity)
-			if idx then linked[idx] = linked[n];linked[n] = nil end
-			continue
-		end
-
-		queryWorld:delete(queryEntity)
+		HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	end
 	
 	return any
@@ -586,7 +590,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 	local debugIdToInstance = Manager.DebugIdToInstance
 	local any = false
 	
-	local query = cachedQuery(world, "prop-assign-ticket", components.PropAssignTicket)
+	local query = Jecs.cached_query(world, components.PropAssignTicket)
 	
 	profilebegin("Jexplorer::flushEntityPropAssignQueue")
 	for ent, ticketData in query:iter() do
@@ -661,7 +665,12 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 						if frameInst then
 							local main = frameInst:FindFirstChild("Main")
 							if main and main:FindFirstChild("InstanceName") and main.InstanceName.Text ~= instance.Name then
-								main.InstanceName.Text = instance.Name
+								local instanceName = main.InstanceName
+								instanceName.Text = instance.Name
+								local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+								local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+								main.Insert.Position = UDim2.new(0, x + 10, 0.5)
+								main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
 							end
 						end
 					end
@@ -717,6 +726,8 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 	return any
 end
 
+local archetypeToQueryEntity = {}
+
 function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	local components = Manager.Components
 	local state = Manager.WidgetState
@@ -729,6 +740,10 @@ function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 		if linked then
 			if #linked == 1 then
 				queryWorld:delete(queryEntity)
+				local hash = queryWorld:get(queryEntity, components.QUERYWORLD_ComponentHash)
+				if hash then
+					archetypeToQueryEntity[hash] = nil
+				end
 			else
 				local idx = table.find(linked, entity)
 				if idx then
@@ -755,21 +770,27 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags)
 	if tags then
 		table.move(tags, 1, #tags, #classComponents + 1, classComponents)
 	end
-
+	
 	local queryTbl = table.clone(classComponents)
-	table.insert(queryTbl, 1, components.QueryLinkedEntities)
-
-	for queryEntity, linked in queryWorld:query(unpack(queryTbl)):iter() do
+	local hash = table.concat(queryTbl, ",")
+	local existingQueryEntity = archetypeToQueryEntity[hash]
+	if existingQueryEntity then
+		local linked = queryWorld:get(existingQueryEntity, components.QueryLinkedEntities)
+		assert(linked)
+		
+		world:set(entity, components.LinkedQueryEntity, existingQueryEntity)
 		table.insert(linked, entity)
-		world:set(entity, components.LinkedQueryEntity, queryEntity)
-		return queryEntity
+		return existingQueryEntity
 	end
-
+	
 	-- Query entity not found, create new
 	local queryEntity = queryWorld:entity()
 	local linked = {entity}
+	queryWorld:set(queryEntity, components.QUERYWORLD_ComponentHash, hash)
 	queryWorld:set(queryEntity, components.QueryLinkedEntities, linked)
 	world:set(entity, components.LinkedQueryEntity, queryEntity)
+	
+	archetypeToQueryEntity[hash] = queryEntity
 	
 	Jecs.bulk_insert(queryWorld::World, queryEntity, classComponents, {})
 	return queryEntity
@@ -920,6 +941,8 @@ end
 
 function HierarchyState.invalidateEntityStateCache(entity: ExplorerEntity)
 	entityStateCache[entity] = nil
+	flatCache.version += 1
+	flatCache.flattenedEntities = nil
 end
 
 return HierarchyState

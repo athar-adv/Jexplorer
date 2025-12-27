@@ -34,18 +34,8 @@ return {
 		FrameSetParentFlushStep = {
 			Type = "number",
 			Display = "ExplorerFrame Set Parent Flush Step",
-			Default = 10,
+			Default = 40,
 		},
-		ImmediateFlushFrameSetParentQueue = {
-			Type = "boolean",
-			Display = "Immediately Flush Frame Set Parent Queue",
-			Default = false
-		},
-		SetFrameVisibleOnReuse = {
-			Type = "boolean",
-			Display = "Set Frame Visible On Reuse & Assign",
-			Default = true
-		}
 	},
 	ExpandBehavior = {
 		AutoExpandOnSelect = {

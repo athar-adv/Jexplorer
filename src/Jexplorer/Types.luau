@@ -136,7 +136,7 @@ export type FrameState = {
 	hasBeenSelected: boolean,
 	shouldDeselect: boolean,
 	lastClickTime: number,
-	packageIconConn: RBXScriptConnection?,
+	packageIconConns: {RBXScriptConnection},
 	lastPackageIconPos: number,
 	isAssigning: boolean
 }
@@ -162,10 +162,12 @@ export type Components = {
 	CreationTicket: Jecs.Id<{children: {Instance}}>,
 	PropAssignTicket: Jecs.Id<{ty: "virtual" | "instance"}>,
 	
-	FrameReuseTicket: Jecs.Id<{}>,
+	FrameReuseTicket: Jecs.Id<{frame: ExplorerFrame}>,
 	FrameTagAssignTicket: Jecs.Id<{frame: ExplorerFrame}>,
 	
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Id<{newParent: Instance?}>,
+	FRAMEWORLD_Main: typeof(main.__legacy.UI.InstanceFrame.Main),
+	QUERYWORLD_ComponentHash: Jecs.Id<string>,
 	
 	Instance: Jecs.Id<Instance>,
 	Frame: Jecs.Id<ExplorerFrame>,
@@ -173,8 +175,6 @@ export type Components = {
 	FrameState: Jecs.Id<FrameState>,
 
 	Connections: Jecs.Id<ItemGroup<RBXScriptConnection>>,
-	FavoriteProxy: Jecs.Id<ExplorerEntity>,
-	FavoriteProxySource: Jecs.Id<ExplorerEntity>,
 	ScriptErrors: Jecs.Id<{string}>,
 	ScriptWarns: Jecs.Id<{string}>,
 	QueryLinkedEntities: Jecs.Id<{ExplorerEntity}>,
@@ -211,6 +211,7 @@ export type WidgetState = {
 }
 
 export type HierarchyState = {
+	StateCache: {[ExplorerEntity]: {invisible: boolean, expanded: boolean}},
 	ChildrenMap: {[ExplorerEntity]: {ExplorerEntity}},
 
 	cleanupEntities: (Manager) -> boolean,
@@ -269,9 +270,7 @@ export type ExplorerFrameLib = {
 	queueForExplorerFrameReuse: (Manager, ExplorerFrame) -> (),
 	flushFrameReuseQueue: (Manager) -> boolean,
 	stepFlushFrameSetParentQueue: (Manager) -> boolean,
-
-	flushFrameSetParentQueueIfConfigured: (Manager) -> boolean,
-
+	
 	updateSelectionVisuals: (Manager, updateSelection: boolean) -> (),
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
@@ -317,9 +316,6 @@ export type Manager = {
 
 	ItemLists: {
 		InsertInstance: PluginUI.ItemList
-	},
-	AbstractEntClasses: {
-		Favorited: "JEXP_ABSTRACT_Favorited"
 	},
 	Style: Style.Style,
 	AllTab: Tab,

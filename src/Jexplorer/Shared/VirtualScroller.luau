@@ -1,4 +1,5 @@
 --!strict
+--!optimize 2
 
 local Jecs = require("../Jecs")
 local Types = require("../Types")
@@ -60,7 +61,7 @@ local function calculateDeepHeightOptimized(
 			end
 		end
 	end
-	
+
 	heightCache[entity] = totalHeight
 	dirtyHeights[entity] = nil
 	return totalHeight
@@ -87,93 +88,92 @@ function VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 	heightCacheVersion += 1
 end
 
+local lastVisible: {any} = {}
 local function filterVisible(Manager: Manager, top: number, viewportHeight: number, isScroller: boolean)
 	profilebegin("Jexplorer::filterVisible")
-	local components = Manager.Components
-	local sheet = Manager.Style
-	local state = Manager.WidgetState
-	local world = state.World
+	local height: number = Manager.getSetting("FrameHeight")
+	local indentWidth: number = Manager.getSetting("IndentWidth")
+	local frameBuffer = Manager.getSetting("VirtualScrollFrameBuffer")
 
-	local HierarchyState = Manager.HierarchyState
+	local viewportBuffer = height * frameBuffer
+	local viewportTop = top - viewportBuffer
+	local viewportBottom = top + viewportHeight + viewportBuffer
+	local effectiveViewportHeight = viewportHeight + viewportBuffer
+
+	local flattenedEntities, entityToIndex, indexToIndentOffset = 
+		Manager.HierarchyState.getFlattenedVisibleEntities(Manager, {}, isScroller)
+	local flatCount = #flattenedEntities
+
+	local startIndex = math.max(1, math.floor(viewportTop / height) + 1)
+	local endIndex = math.min(flatCount, math.ceil(viewportBottom / height) + 1)
+
+	local visible = table.create(endIndex - startIndex + 1)
+	local invisible = {}
+	
+	local expandedHeightIndex = {}
 
 	local isEntityExpanded = Manager.isExplorerEntityExpanded
 	local isEntityInvisible = Manager.isExplorerEntityInvisible
 	local isEntityDeleted = Manager.isExplorerEntityDeleted
-
-	local height: number = Manager.getSetting("FrameHeight")
-	local indentWidth: number = Manager.getSetting("IndentWidth")
+	local components = Manager.Components
+	local world = Manager.WidgetState.World
+	local HierarchyState = Manager.HierarchyState
+	local stateCache = HierarchyState.StateCache
 	
-	local visible = {}
-	local invisible = {}
-	local expandedHeightIndex = {}
-
-	local frameBuffer = Manager.getSetting("VirtualScrollFrameBuffer")
-	local viewportBuffer = height * frameBuffer
-	local effectiveViewportHeight = viewportHeight + viewportBuffer
-
-	local flattenedEntities, entityToIndex, indexToIndentOffset = HierarchyState.getFlattenedVisibleEntities(Manager, invisible, isScroller)
-	
-	local flatCount = #flattenedEntities
-	--local visibleList = table.create(math.min(flatCount, 100))
-	
+	profilebegin("fill expanded states")
 	local expandedStates = {}
-	for index, entity in flattenedEntities do
-		expandedStates[index] = isEntityExpanded(entity)
+	for index = startIndex, endIndex do
+		local entity = flattenedEntities[index]
+		local state = stateCache[entity]
+		expandedStates[index] = if state then state.expanded else isEntityExpanded(entity)
 	end
+	profileend()
 	
-	for index, entity in flattenedEntities do
-		profilebegin("Jexplorer::filterVisible::visibleCheck")
-		
+	profilebegin("visible check")
+	local visibleSet = {}
+	for index = startIndex, endIndex do
+		local entity = flattenedEntities[index]
 		local absoluteYOffset = height * (index - 1)
 		local shouldBeVisible = false
 		local isExpanded = expandedStates[index]
-		
+
 		if not isExpanded then
-			shouldBeVisible = absoluteYOffset >= (top - viewportBuffer) and absoluteYOffset <= (top + effectiveViewportHeight)
+			shouldBeVisible = true
 		else
 			local expandedHeight = calculateDeepHeightOptimized(
-				world,
-				components.Expanded,
-				components.QueryExpanded,
-				HierarchyState.ChildrenMap,
-				Manager.ChildAmountCache,
-				isEntityInvisible,
-				isEntityDeleted,
-				entity
+				world, components.Expanded, components.QueryExpanded,
+				HierarchyState.ChildrenMap, Manager.ChildAmountCache,
+				isEntityInvisible, isEntityDeleted, entity
 			)
 			local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
 			expandedHeightIndex[entity] = expandedHeight
-			
-			local viewportBottom = top + effectiveViewportHeight
-			local viewportTop = top - viewportBuffer
-			
-			local topIsVisible =
-				absoluteYOffset >= viewportTop
-			and	absoluteYOffset <= viewportBottom
-			local bottomIsVisible =
-				expandedBottomOffset >= viewportTop
-			and	expandedBottomOffset <= viewportBottom
-			local spanIsVisible1 =
-				absoluteYOffset >= viewportTop
-			and	expandedBottomOffset <= viewportBottom
-			local spanIsVisible2 =
-				expandedBottomOffset >= viewportTop
-			and	absoluteYOffset <= viewportBottom
-			
-			shouldBeVisible = topIsVisible or bottomIsVisible or spanIsVisible1 or spanIsVisible2
+
+			shouldBeVisible =  expandedBottomOffset >= viewportTop and absoluteYOffset <= viewportBottom
 		end
 		
 		if not shouldBeVisible then
 			table.insert(invisible, entity)
 		else
+			visibleSet[entity] = true
 			table.insert(visible, {
 				entity = entity,
 				yoffset = absoluteYOffset,
 				indentoffset = indexToIndentOffset[index] * indentWidth,
 			})
 		end
-		profileend()
 	end
+	profileend()
+	
+	profilebegin("invisible check")
+	for _, info in lastVisible do
+		local entity = info.entity
+		if not visibleSet[entity] then
+			table.insert(invisible, entity)
+		end
+	end
+	lastVisible = visible
+	profileend()
+
 	profileend()
 	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
 end
@@ -187,7 +187,7 @@ function VirtualScroller.update(Manager, isScroller)
 
 	local ExplorerFrame = Manager.ExplorerFrame
 	local HierarchyState = Manager.HierarchyState
-	
+
 	if isScroller and isVirtualScrollerUpdating then
 		--task.defer(updateVirtualScroller)
 		return
@@ -199,6 +199,7 @@ function VirtualScroller.update(Manager, isScroller)
 	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount = filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
 
 	local currentTime = os.clock()
+	local any = false
 	for _, entity in invisible do
 		local frame = world:get(entity, components.Frame)
 		if frame and not isScrolling then
@@ -206,27 +207,32 @@ function VirtualScroller.update(Manager, isScroller)
 
 			if currentTime - lastReuseTime > Manager.getSetting("VirtualReuseCooldown") then
 				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+				any = true
 				reuseDebounceTime[entity] = currentTime
 			end
 		end
 	end
-	
+	if any and not isScroller then
+		ExplorerFrame.flushFrameReuseQueue(Manager)
+	end
+
 	local parentOf = Manager.parentOf
 	local frameOf = Manager.frameOf
 	local assign = ExplorerFrame.assignExplorerFrame
 	local reuse = ExplorerFrame.queueForExplorerFrameReuse
 	local allocateFrame = ExplorerFrame.getExplorerFrame
-	
+
 	local childrenMap = HierarchyState.ChildrenMap
 	local isEntityInvisible = Manager.isExplorerEntityInvisible
 	local childAmountCache = Manager.ChildAmountCache
+	local instanceTree = jexplorerUi.InstanceTree
 
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
-		
+
 		local frame = world:get(entity, components.Frame)
-		
+
 		reuseDebounceTime[entity] = nil
 
 		local parent = parentOf(entity)
@@ -239,7 +245,7 @@ function VirtualScroller.update(Manager, isScroller)
 			frame = f
 		end
 		if not frame then continue end
-		
+
 		local frameInst = frameOf(frame)
 		if not frameInst then continue end
 
@@ -247,12 +253,7 @@ function VirtualScroller.update(Manager, isScroller)
 
 		local children = childrenMap[entity]
 		if not isScroller and children then
-			local n = 0
-			for _, child in children do
-				if isEntityInvisible(child) then continue end
-				n += 1
-			end
-			childAmountCache[entity] = n
+			childAmountCache[entity] = #children
 		end
 
 		if world:has(entity, components.ArrowInvisible) then
@@ -260,9 +261,8 @@ function VirtualScroller.update(Manager, isScroller)
 		else
 			local visible = (childAmountCache[entity] or 0) > 0
 			frameInst.Main.Arrow.Visible = visible
-			--frameInst.Children.Visible = visible
 		end
-		
+
 		frameInst.Position = UDim2.fromOffset(info.indentoffset, absoluteYOffset)
 		local expandedHeight = expandedHeightIndex[entity]
 		if expandedHeight then
@@ -273,11 +273,11 @@ function VirtualScroller.update(Manager, isScroller)
 			local ruler = frameInst.Ruler
 			ruler.Visible = false
 		end
+		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = instanceTree})
 	end
-	ExplorerFrame.flushFrameSetParentQueueIfConfigured(Manager)
-	
+
 	jexplorerUi.InstanceTree.CanvasSize = UDim2.new(5, 0, 0, flatCount * height)
-	
+
 	isVirtualScrollerUpdating = false
 	profileend()
 end

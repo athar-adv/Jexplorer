@@ -109,12 +109,21 @@ function StyleEditor.init(Manager)
 		local box
 		box = PluginUI.createAttributeBox(dropdown, k, defaultStr, callback or function(newValue)
 			assert(rule, "unexpected error: style rule not found while creating style property box")
+			
+			local current: Style.Rule? = rule
+			while current do
+				current:RemoveTag("DontSaveRule")
+				current = current.ParentRule
+			end
+			
 			if newValue == defaultStr then 
 				rule:SetProperty(k, defaultValue)
+				sheet:UpdateTokens()
 				return 
 			end
 			local value = UDF.from(newValue)
 			rule:SetProperty(k, value)
+			sheet:UpdateTokens()
 		end)
 		
 		local conn2
@@ -182,6 +191,11 @@ function StyleEditor.init(Manager)
 			local conn = rule.PropertyChanged:Connect(function(name, newValue)
 				if name ~= k then return end
 				box.Instance.ValueBox.Text = UDF.to(newValue)
+				local current: Style.Rule? = rule
+				while current do
+					current:RemoveTag("DontSaveRule")
+					current = current.ParentRule
+				end
 			end);
 			(box.Instance :: GuiObject).InputBegan:Connect(function(input: InputObject)
 				if input.UserInputState ~= Enum.UserInputState.Begin then return end

@@ -390,6 +390,10 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 	
 	local frameInst = Manager.frameOf(frame)
 	if frameInst then
+		local bounds: Vector2 = rawindex(frameInst.Main.InstanceName, "TextBounds")
+		local x = frameInst.Main.InstanceName:GetStyled("Position").X.Offset + bounds.X
+		frameInst.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+		
 		frameInst.Main.PendingChanges.Visible = true
 	end
 end
@@ -421,7 +425,11 @@ function VersionControl.appendPendingChanges(inst)
 		if frame then
 			local frameInst = Manager.frameOf(frame)
 			if frameInst then
-				frameInst.Main.PendingChanges.Visible = false
+				local bounds: Vector2 = rawindex(frameInst.Main.InstanceName, "TextBounds")
+				local x = frameInst.Main.InstanceName:GetStyled("Position").X.Offset + bounds.X
+				frameInst.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+
+				frameInst.Main.PendingChanges.Visible = true
 			end
 		end
 	end

@@ -6,7 +6,7 @@ local ClassIcon = require(script.Parent.Parent.Small.ClassIcon)
 local Types = require(script.Parent.Parent.Parent.Types)
 local InstClasses = require(script.Parent.Parent.Info.InstClasses)
 
-local _rule = Style.rule
+local rule = Style.rule
 local var = Style.var
 local cloned = Style.cloned
 
@@ -18,7 +18,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 	local theme = studioSettings.Theme :: StudioTheme
 	
 	local defaultTokens = {
-		["SelectedColor"] = Color3.fromRGB(25, 148, 255),
+		["SelectedColor"] = Color3.fromRGB(15, 91, 153),
 		["ScriptErrorColor"] = Color3.fromRGB(255, 44, 44),
 		["ScriptWarnColor"] = Color3.fromRGB(255, 211, 53),
 		["HoverColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(30, 30, 30) : $BackgroundColor + rgb(30, 30, 30)",
@@ -48,15 +48,17 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["Theme"] = var "brightness($BackgroundColor) > 0.5 ? 'Light' : 'Dark'",
 		["DownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/DropdownArrow.png'",
 		["LegacyDownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/ArrowDown.png'",
-		["FadedTextColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)"
+		["FadedColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)",
+		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
+		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)"
 	}
 	
-	local rule = function(...)
-		local newrule = _rule(...)
-		newrule:AddTag("Default")
-		newrule:AddTag("DontSaveRule")
-		return newrule
-	end :: typeof(_rule)
+	--local rule = function(...)
+	--	local newrule = _rule(...)
+	--	newrule:AddTag("Default")
+	--	newrule:AddTag("DontSaveRule")
+	--	return newrule
+	--end :: typeof(_rule)
 		
 	local defaultRules = {
 		rule("UniversalProps", "GuiObject", 0, {
@@ -273,7 +275,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		),
 		rule("FadedTextStyle",
 			getClassTagSlctr(".JEXP_FadedText", "TextLabel", "TextButton", "TextBox"), 1, {
-				TextColor3 = "$FadedTextColor"
+				TextColor3 = "$FadedColor"
 			}
 		),
 		rule("UIBorder", ".JEXP_Border ::UIStroke", 0, {
@@ -328,7 +330,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				TextColor3 = "rgb(255, 255, 255)",
 			})
 		}),
-		rule("InstanceFrameStyle", "#InstanceFrame Frame", 0, {
+		rule("ExplorerFrameStyle", "#InstanceFrame Frame", 0, {
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.XY,
 			SizeConstraint = Enum.SizeConstraint.RelativeXX,
@@ -375,7 +377,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			rule("MainFrameStyle", "> #Main", 0, {
 				Size = "$InstanceFrameSize",
 				BackgroundTransparency = 1,
-				ZIndex = 2,
+				ZIndex = 1,
 				
 				rule("OverlayStyle", "> #Overlay Frame", 0, {
 					AnchorPoint = Vector2.new(0.5, 0),
@@ -467,21 +469,31 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				})
 			})
 		}),
-		rule("SelectedInstanceNameStyle",
-			".JEXP_Selected Frame > #Main > #InstanceName", 10, {
-				TextColor3 = "$TextColor"
-			}
-		),
-		rule("InstanceNameStyleDisabled",
-			`{Selector.getTaggedPropertySelector("Enabled", "false")} > #Main > #InstanceName`, 1, {
-				TextSize = "$InstanceFrameTextSize",
-				TextColor3 = "$TextColorDark"
-			}
-		),
-		rule("SelectedStyle", 
-			".JEXP_Selected Frame > #Main > #Overlay", 20, {
-				BackgroundTransparency = 0.6,
+		rule("SelectedExplorerFrameStyle", ".JEXP_Selected Frame", 11, {
+			rule("InstanceNameStyle", "> #Main > #InstanceName", 1, {
+				TextColor3 = Color3.fromRGB(255, 255, 255)
+			}),
+			rule("IconStyle", "> #Main > #ClassIcon", 1, {
+				ImageTransparency = 0
+			}),
+			rule("OverlayStyle", "> #Main > #Overlay", 1, {
+				BackgroundTransparency = 0.2,
 				BackgroundColor3 = "$SelectedColor",
+			}),
+			rule("ArrowStyle", "> #Main > #Arrow", 1, {
+				ImageColor3 = "$SelectedMonochromeColor",
+				Image = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$SelectedTheme]/Standard/ArrowDown.png'",
+			})
+		}),
+		rule("ExplorerFrameStyleDisabled",
+			Selector.getTaggedPropertySelector("Enabled", "false"), 10, {
+				rule("InstanceNameStyle", "> #Main > #InstanceName", 1, {
+					TextSize = "$InstanceFrameTextSize",
+					TextColor3 = "$FadedColor"
+				}),
+				rule("IconStyle", "> #Main > #ClassIcon", 1, {
+					ImageTransparency = 0.5
+				}),
 			}
 		),
 		rule("ScriptErrorStyle", 
@@ -526,7 +538,37 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
+		
+		rule("LocalScriptIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "LocalScript")} > #Main > #ClassIcon`, 100, {
+			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/LegacyClientRunContext.png'",
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero
+		}),
+		rule("LegacyRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Legacy")} > #Main > #ClassIcon`, 100, {
+			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/LegacyServerRunContext.png'",
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero
+		}),
+		rule("ServerRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Server")} > #Main > #ClassIcon`, 100, {
+			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/ServerRunContext.png'",
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero
+		}),
+		rule("ClientRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Client")} > #Main > #ClassIcon`, 100, {
+			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/ClientRunContext.png'",
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero
+		}),
+		rule("PluginRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Plugin")} > #Main > #ClassIcon`, 100, {
+			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/PluginRunContext.png'",
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero
+		}),
 	}
+	for _, v: Style.Rule in defaultRules do
+		v:AddTag("Default")
+		v:AddTag("DontSaveRule")
+	end
 	
 	return defaultTokens, defaultRules
 end
