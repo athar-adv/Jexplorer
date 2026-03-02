@@ -393,28 +393,62 @@ do
 		return path:match("(.-)%.") or ""
 	end
 
-	-- Recursive function to build instance tree
-	function GitAPI.reconstructInstances(authToken, repoId: string, branch: string, path: string, parent: Instance?)
+	function GitAPI.reconstructInstances(
+		authToken,
+		repoId: string,
+		branch: string,
+		path: string,
+		parent: Instance?,
+		containerName: string? -- NEW
+	)
 		local contents = GitAPI.getFileContentsInFolder(authToken, repoId, branch, path)
 
-		-- Check if this folder contains an init.luau or init.lua
+		-- Detect init file in current folder
 		local initFile = nil
+		local initType = nil
 		for _, item in contents do
 			if item.Type == "File" then
 				local result = item.Result:Unwrap()
-				if result.name == "init.luau" or result.name == "init.lua" then
+				if getBaseName(result.name) == "init" then
+					initType = getExtension(result.name)
 					initFile = result
 					break
 				end
 			end
 		end
+		
+		local currentParent = parent
 
+		-- If this call has containerName, we wrap everything inside it
+		if containerName and parent then
+			local container: Instance
+
+			if initFile then
+				local class = "ModuleScript"
+				if initType == "lua" or initType == "luau" then
+					class = "ModuleScript"
+				elseif initType == "server" then
+					class = "Script"
+				elseif initType == "client" then
+					class = "LocalScript"
+				end
+				container = Instance.new(class);
+				(container :: any).Source = initFile.content
+			else
+				container = Instance.new("Folder")
+			end
+
+			container.Name = containerName
+			container.Parent = parent
+
+			currentParent = container
+		end
+		
 		for _, item in contents do
 			if item.Type == "File" then
 				local result = item.Result:Unwrap()
 
-				-- Skip init files, they are handled by the folder logic
-				if result.name == "init.luau" or result.name == "init.lua" then
+				if getBaseName(result.name) == "init" then
 					continue
 				end
 
@@ -436,46 +470,54 @@ do
 					instance.Source = result.content
 				end
 
-				if instance and parent then
-					instance.Parent = parent
+				if instance and currentParent then
+					instance.Parent = currentParent
 				end
+
 			elseif item.Type == "Folder" then
 				local result = item.Result:Unwrap()
 
-				-- Peek inside the subfolder for an init file
+				-- Peek for subfolder init
 				local subContents = GitAPI.getFileContentsInFolder(authToken, repoId, branch, result.path)
 				local subInitFile = nil
+
 				for _, subItem in subContents do
 					if subItem.Type == "File" then
 						local subResult = subItem.Result:Unwrap()
-						if subResult.name == "init.luau" or subResult.name == "init.lua" then
+						if getBaseName(subResult.name) == "init" then
 							subInitFile = subResult
 							break
 						end
 					end
 				end
 
-				local container: any
+				local container: Instance
+
 				if subInitFile then
-					-- Folder has an init file: make it a ModuleScript
-					container = Instance.new("ModuleScript")
-					container.Source = subInitFile.content
+					container = Instance.new("ModuleScript");
+					(container :: any).Source = subInitFile.content
 				else
 					container = Instance.new("Folder")
 				end
 
 				container.Name = result.name
-				if parent then
-					container.Parent = parent
+
+				if currentParent then
+					container.Parent = currentParent
 				end
 
-				-- Recursively process subfolder (passing subContents would be ideal,
-				-- but since reconstructInstances fetches internally we just recurse normally)
-				GitAPI.reconstructInstances(authToken, repoId, branch, result.path, container)
+				GitAPI.reconstructInstances(
+					authToken,
+					repoId,
+					branch,
+					result.path,
+					container
+				)
 			end
 		end
 	end
 end
+
 function GitAPI.getLatestBranchInfo(authToken: LuaSecret, repoId: string, branch: string): APIResult<GitBranchInfo>
 	LuaSecret.assert_is(authToken)
 	

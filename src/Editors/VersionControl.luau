@@ -509,6 +509,11 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 			if rootNameChangedConn then
 				rootNameChangedConn:Disconnect()
 			end
+
+			local idx = table.find(Manager.WidgetState.RepoProxies, proxy)
+			if idx then
+				table.remove(Manager.WidgetState.RepoProxies, idx)
+			end
 		end,
 	}
 	PluginUI.createDeleteButton(repoDropdown.Backdrop:WaitForChild("DropDownHeader"), proxy.Remove)
@@ -999,15 +1004,18 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 
 		assert(VersionControl.Token)
 		loadingFrame.Visible = true
-		root:ClearAllChildren()
-		local succ, result = (pcall::any)(GitAPI.reconstructInstances, VersionControl.Token, repoId, branch, path, root)
+		--root:ClearAllChildren()
+		local succ, err = pcall(function()
+			GitAPI.reconstructInstances(VersionControl.Token, repoId, branch, path, root, repoId)
+			return ""
+		end)
 		loadingFrame.Visible = false
 		
 		finishedFrame.Visible = true
 		if succ then
 			finishedText.Text = "Successfully pulled"
 		else
-			finishedText.Text = `Pull failed: '{result}'`
+			finishedText.Text = `Pull failed: '{err}'`
 		end
 		task.wait(FINISH_TIME)
 		finishedFrame.Visible = false
@@ -1315,7 +1323,6 @@ function VersionControl.init(_m)
 		textFrame.Visible = false
 		local proxy = VersionControl.createRepoProxy("Repo", "", inst, true)
 		table.insert(Manager.WidgetState.RepoProxies, proxy)
-		print(Manager.WidgetState.RepoProxies)
 	end)
 end
 
