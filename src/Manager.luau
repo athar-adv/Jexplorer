@@ -981,7 +981,7 @@ function Manager.saveState()
 			ser[PLACE_ID] = icons
 			
 			for entity, inst, color in world:query(components.Instance, components.FrameIconColor):iter() do
-				icons[inst:GetDebugId()] = UDF.to(color)
+				icons[Manager.getInstId(inst)] = UDF.to(color)
 			end
 		end),
 		repo_proxies = computedtbl(function(ser)
@@ -1830,7 +1830,7 @@ local function initRegisterPluginMenusAndActions(
 						world:remove(entity, components.FrameIconColor)
 						local frame = world:get(entity, components.Frame)
 						if frame then
-							ExplorerFrame.setExplorerFrameIconColor(Manager, frame, Color3.fromRGB(255, 255, 255))
+							ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil)
 						end
 					end
 				end
@@ -1887,7 +1887,7 @@ local function initRegisterPluginMenusAndActions(
 						else
 							world:remove(entity, components.FrameIconColor)
 							if frame then
-								ExplorerFrame.setExplorerFrameIconColor(Manager, frame, Color3.fromRGB(255, 255, 255))
+								ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil)
 							end
 						end
 					end
@@ -2951,7 +2951,7 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	end
 	
 	for _, v in game:GetDescendants() do
-		Manager.DebugIdToInstance[v:GetDebugId()] = v
+		Manager.DebugIdToInstance[Manager.getInstId(v)] = v
 	end
 	
 	ExplorerFrame.initializeFrameCaches(Manager)
@@ -3006,10 +3006,10 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		scrollTrackerConnection,
 		
 		game.DescendantAdded:Connect(function(descendant)
-			Manager.DebugIdToInstance[descendant:GetDebugId()] = descendant
+			Manager.DebugIdToInstance[Manager.getInstId(descendant)] = descendant
 		end),
 		game.DescendantRemoving:Connect(function(descendant)
-			Manager.DebugIdToInstance[descendant:GetDebugId()] = nil
+			Manager.DebugIdToInstance[Manager.getInstId(descendant)] = nil
 		end)
 	})
 	

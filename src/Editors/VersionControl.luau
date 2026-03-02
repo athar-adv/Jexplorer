@@ -307,7 +307,7 @@ function VersionControl.showInstanceHistoryWidget(inst)
 	
 	VersionControl.InstanceHistoryWidget.Enabled = true
 	
-	local versions = VersionControl.Versions[inst:GetDebugId()]
+	local versions = VersionControl.Versions[Manager.getInstId(inst)]
 	if not versions then return end
 	for verIndex, vinfo in versions do
 		local verString = vinfo.timestamp:FormatLocalTime("HH:mm/MM/DD/YY", LocalizationService.SystemLocaleId)
@@ -325,7 +325,7 @@ function VersionControl.createInstanceVersion(inst, changedProp, newValue)
 	if not init then return false end
 	local currentTime = os.time()
 	
-	local id = inst:GetDebugId()
+	local id = Manager.getInstId(inst)
 	local versions = VersionControl.Versions[id]
 	if not versions then
 		versions = {}
@@ -350,7 +350,7 @@ end
 
 function VersionControl.addPendingChange(inst, changedProp, newValue)
 	if not init then return end
-	local id = inst:GetDebugId()
+	local id = Manager.getInstId(inst)
 	local changes = VersionControl.PendingChanges[id]
 	if not changes then
 		changes = {}
@@ -391,7 +391,7 @@ end
 
 function VersionControl.appendPendingChanges(inst)
 	if not init then return false end
-	local id = inst:GetDebugId()
+	local id = Manager.getInstId(inst)
 	local changes = VersionControl.PendingChanges[id]
 	
 	if not changes then return false end
@@ -421,7 +421,7 @@ end
 
 function VersionControl.createPendingChanges(inst)
 	if not init then return false end
-	local id = inst:GetDebugId()
+	local id = Manager.getInstId(inst)
 	local changes = VersionControl.PendingChanges[id]
 	
 	if not changes then return false end
@@ -453,7 +453,7 @@ function VersionControl.appendInstanceVersion(inst, changedProp, newValue)
 	if not init then return false end
 	local currentTime = os.time()
 	
-	local id = inst:GetDebugId()
+	local id = Manager.getInstId(inst)
 	local versions = VersionControl.Versions[id]
 	if not versions then
 		versions = {}

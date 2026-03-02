@@ -602,7 +602,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		if not instance then continue end
 
 		local connections = assert(world:get(ent, components.Connections))
-		local color = Manager.IconColorMap[instance:GetDebugId()]
+		local color = Manager.IconColorMap[Manager.getInstId(instance)]
 		if color then
 			world:set(ent, components.FrameIconColor, color)
 		end

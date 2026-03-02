@@ -830,14 +830,14 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local scriptWarns = world:get(entity, components.ScriptWarns)
 		
 		local frameIconColor = world:get(entity, components.FrameIconColor)
-		if frameIconColor then
-			local iconLabel = frameState.icon
-			local currentColor = frameState.setIconColor
-			if frameIconColor and currentColor ~= frameIconColor then
-				iconLabel.ImageColor3 = frameIconColor
-			elseif not frameIconColor then
-				iconLabel.ImageColor3 = Color3.fromRGB(255, 255, 255)
-			end
+		local iconLabel = frameState.icon
+		local currentColor = frameState.setIconColor
+		if frameIconColor and currentColor ~= frameIconColor then
+			iconLabel.ImageColor3 = frameIconColor
+			frameState.setIconColor = frameIconColor
+		elseif not frameIconColor and currentColor ~= nil then
+			iconLabel.ImageColor3 = Color3.fromRGB(255, 255, 255)
+			frameState.setIconColor = nil
 		end
 		
 		local newTags = {}
@@ -924,6 +924,6 @@ function ExplorerFrame.setExplorerFrameIconColor(Manager, frame, color)
 	if not frameState then return end
 	
 	frameState.setIconColor = color
-	frameState.icon.ImageColor3 = color
+	frameState.icon.ImageColor3 = color or Color3.fromRGB(255, 255, 255)
 end
 return ExplorerFrame

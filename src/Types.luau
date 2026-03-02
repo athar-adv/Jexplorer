@@ -281,7 +281,7 @@ export type ExplorerFrameLib = {
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
 	
-	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3) -> ()
+	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3?) -> ()
 }
 
 export type VirtualScroller = {
