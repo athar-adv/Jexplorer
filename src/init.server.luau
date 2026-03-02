@@ -1,0 +1,160 @@
+--!strict
+--!optimize 2
+
+--[[
+	JExplorer
+	This plugin is distributed under the MIT license (2026). 
+	
+	Author: athar_adv
+]]
+
+if not plugin then return end
+local VERSION = "1.2.0"
+
+local global = shared
+local shared = script.Shared
+local editors = script.Editors
+--local ui = script.UI
+
+local Jecs = require(script.Jecs)
+local Manager = require(script.Manager)
+
+local PluginUI = require(shared.PluginUI)
+local ItemGroup = require(shared.Vendor.ItemGroup)
+local SavedState = require(shared.SavedState)
+local Types = require(script.Types)
+local cleanup = ItemGroup.cleanup
+
+local connections = ItemGroup.create(cleanup.disconnect)
+
+local finished_init = false
+local function onClose()
+	if Manager.Storage then
+		Manager.Storage:Destroy()
+	end
+	global.Jexplorer.__close:Fire()
+	
+	if finished_init and Manager.getSetting("SaveOnClose") then
+		Manager.saveState()
+	end 
+	plugin:Destroy()
+	connections:free()
+end
+
+connections:add_many({
+	plugin.Unloading:Connect(onClose),
+	plugin.Destroying:Connect(onClose),
+	script.Destroying:Connect(onClose)
+})
+
+local function getevent(name: string): BindableEvent
+	local ev
+	if global.Jexplorer and global.Jexplorer[name] then
+		ev = global.Jexplorer[name]
+	else
+		ev = Instance.new("BindableEvent")
+	end
+	return ev
+end
+
+-- Public jexplorer plugin api
+local onLoadEvent = getevent("__load")
+local onCloseEvent = getevent("__close")
+local modifyIconEvent = getevent("__modify")
+
+local jexplorerApi: Types.Jexplorer = {
+	Manager = Manager,
+	StyleEditor = require(editors.StyleEditor),
+	SettingEditor = require(editors.SettingEditor),
+	OrderEditor = require(editors.OrderEditor),
+	VersionControl = require(editors.VersionControl),
+	PropertyEditor = require(editors.PropertyEditor),
+	
+	Dependencies = {
+		Selector = require(shared.Small.Selector),
+		Style = require(shared.Style),
+		PluginUI = require(shared.PluginUI),
+		ClassIcon = require(shared.Small.ClassIcon),
+		UDF = require(shared.UDF),
+		SavedState = SavedState,
+		GitAPI = require(shared.GitAPI)
+	},
+	
+	OnLoad = onLoadEvent.Event,
+	OnClose = onCloseEvent.Event,
+	ModifyIconStep = modifyIconEvent.Event,
+	
+	__load = onLoadEvent,
+	__close = onCloseEvent,
+	__modify = modifyIconEvent
+}
+
+local getId = PluginUI.getId
+
+global.Jexplorer = jexplorerApi
+local success
+local pluginToolbar
+while true do
+	success, pluginToolbar = pcall(plugin.CreateToolbar, plugin, "athar_adv's tools")
+	if success then break end
+	task.wait()
+end
+local uiToggleButton
+while true do
+	success, uiToggleButton = pcall(pluginToolbar.CreateButton, pluginToolbar,
+		getId("ToggleUI"), "Toggle the explorer widget visibility",
+		"rbxassetid://112696382020883", "Jexplorer"
+	)
+	if success then break end
+	task.wait()
+end
+
+local jexplorerWidget
+while true do
+	success, jexplorerWidget = pcall(plugin.CreateDockWidgetPluginGuiAsync, plugin,
+		getId("Jexplorer"), DockWidgetPluginGuiInfo.new(
+			Enum.InitialDockState.Left,
+			false,
+			false
+		)
+	)
+	if success then break end
+	task.wait()
+end
+
+jexplorerWidget:AddTag("JEXP_Widget")
+jexplorerWidget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+jexplorerWidget.Title = `Jexplorer [{VERSION}]`
+jexplorerWidget.Name = "Jexplorer"
+
+jexplorerWidget:BindToClose(function()
+	uiToggleButton:SetActive(false)
+	jexplorerWidget.Enabled = not jexplorerWidget.Enabled
+end)
+
+local function init()
+	finished_init = true
+	Manager.Toolbar = pluginToolbar
+	Manager.init(onClose, connections, jexplorerWidget)
+	onLoadEvent:Fire()
+	
+	jexplorerWidget.Enabled = true
+	uiToggleButton:SetActive(true)
+end
+
+uiToggleButton.ClickableWhenViewportHidden = true
+uiToggleButton.Click:Connect(function()
+	if not finished_init then
+		uiToggleButton:SetActive(false)
+		init()
+	else
+		local state = Manager.WidgetState
+		local widget = state.Widget
+		
+		widget.Enabled = not widget.Enabled
+	end
+end)
+
+if jexplorerWidget.HostWidgetWasRestored and not finished_init then
+	init()
+end
