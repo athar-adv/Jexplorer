@@ -2,10 +2,17 @@ return {
 	Input = {
 		"ProximityPrompt",
 		"ClickDetector",
-		"DragDetector"
+		"DragDetector",
+		"UIDragDetector",
+		"InputAction",
+		"InputBinding",
+		"InputContext"
 	},
 	
 	UI = {
+		"SurfaceGui",
+		"BillboardGui",
+		"ScreenGui",
 		"Frame",
 		"TextLabel",
 		"TextButton",
@@ -26,7 +33,13 @@ return {
 		"UISizeConstraint",
 		"UITextSizeConstraint",
 		"UIAspectRatioConstraint",
-		"ViewportFrame"
+		"ViewportFrame",
+		"Path2D"
+	},
+	
+	Chatting = {
+		"TextChatCommand",
+		"TextChannel"
 	},
 
 	Scripting = {
@@ -37,6 +50,7 @@ return {
 		"RemoteFunction",
 		"BindableEvent",
 		"BindableFunction",
+		"Actor"
 	},
 	
 	Value = {
@@ -51,6 +65,13 @@ return {
 		"BrickColorValue",
 		"RayValue"
 	},
+	
+	Style = {
+		"StyleSheet",
+		"StyleRule",
+		"StyleDerive",
+		"StyleLink"
+	},
 
 	Parts = {
 		"Part",
@@ -63,6 +84,7 @@ return {
 	},
 
 	Lighting = {
+		"Camera",
 		"PointLight",
 		"SpotLight",
 		"SurfaceLight",
@@ -77,6 +99,9 @@ return {
 	},
 
 	Constraints = {
+		"Motor6D",
+		"Weld",
+		"AnimationConstraint",
 		"AlignOrientation",
 		"AlignPosition",
 		"AngularVelocity",
@@ -95,6 +120,11 @@ return {
 		"NoCollisionConstraint",
 		"UniversalConstraint"
 	},
+	
+	Pathfinding = {
+		"PathfindingLink",
+		"PathfindingModifier"
+	},
 
 	Sounds = {
 		"Sound",
@@ -108,9 +138,31 @@ return {
 		"PitchShiftSoundEffect",
 		"ReverbSoundEffect",
 		"TremoloSoundEffect",
-		
+	},
+	
+	Audio = {
+		"AudioTextToSpeech",
+		"AudioSpeechToText",
+		"Wire",
+		"AudioDeviceInput",
+		"AudioDeviceOutput",
 		"AudioPlayer",
-		"AudioAnalyzer"
+		"AudioAnalyzer",
+		"AudioChannelMixer",
+		"AudioChannelSplitter",
+		"AudioChorus",
+		"AudioCompressor",
+		"AudioEcho",
+		"AudioDistortion",
+		"AudioGate",
+		"AudioLimiter",
+		"AudioListener",
+		"AudioEmitter",
+		"AudioFilter",
+		"AudioFlanger",
+		"AudioReverb",
+		"AudioPitchShifter",
+		"AudioTremolo"
 	},
 
 	Meshes = {
@@ -123,9 +175,8 @@ return {
 	Textures = {
 		"Texture",
 		"Decal",
-		"SurfaceGui",
-		"BillboardGui",
-		"ScreenGui"
+		"SurfaceAppearance",
+		"MaterialVariant"
 	},
 
 	Gameplay = {
@@ -136,7 +187,9 @@ return {
 		"Tool",
 		"HopperBin",
 		"Flag",
-		"FlagStand"
+		"FlagStand",
+		"Dialog",
+		"DialogChoice"
 	},
 
 	Humanoid = {
@@ -147,28 +200,29 @@ return {
 		"Shirt",
 		"Pants",
 		"ShirtGraphic",
-		"BodyAngularVelocity",
-		"BodyForce",
-		"BodyPosition",
-		"BodyThrust",
-		"BodyVelocity",
-		"RocketPropulsion"
+		"BodyColors",
+		"BodyPartDescription",
+		
+		"ControllerManager",
+		"ControllerPartSensor",
+		"AirController",
+		"ClimbController",
+		"GroundController",
+		"SwimController"
 	},
 
 	Animation = {
+		"Animator",
 		"Animation",
 		"AnimationController",
 		"Keyframe",
 		"KeyframeSequence",
-		"Motor6D",
-		"Weld",
 	},
 
 	Grouping = {
 		"Model",
 		"Folder",
-		"Configuration",
-		"Camera"
+		"Configuration"
 	},
 
 	Effects = {
@@ -179,6 +233,7 @@ return {
 		"ParticleEmitter",
 		"Trail",
 		"Beam",
+		"Highlight"
 	},
 	
 	Adornments = {
@@ -190,13 +245,16 @@ return {
 	},
 
 	Physics = {
-		"BodyAngularVelocity",
-		"BodyForce",
-		"BodyPosition",
-		"BodyThrust",
-		"BodyVelocity",
-		"RocketPropulsion",
-		"AssemblyAngularVelocity",
-		"AssemblyLinearVelocity"
+		"LinearVelocity",
+		"VectorForce",
+		"LineForce",
+		"WorldModel",
+		"IKControl"
 	},
+	
+	Sensors = {
+		"AtmosphereSensor",
+		"FluidForceSensor",
+		"BuoyancySensor"
+	}
 } :: {[string]: {string}}

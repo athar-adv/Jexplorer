@@ -602,9 +602,12 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		if not instance then continue end
 
 		local connections = assert(world:get(ent, components.Connections))
-		local color = Manager.IconColorMap[Manager.getInstId(instance)]
-		if color then
-			world:set(ent, components.FrameIconColor, color)
+		local id = Manager.getInstId(instance)
+		if id then
+			local color = Manager.IconColorMap[id]
+			if color then
+				world:set(ent, components.FrameIconColor, color)
+			end
 		end
 
 		local className = instance.ClassName
@@ -651,10 +654,10 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 			handlers[v] = onChange
 		end
 
-		if instance:IsA("LuaSourceContainer") then
-			local src = ScriptEditorService:GetEditorSource(instance)
-			VersionControl.createInstanceVersion(instance, "Source", src)
-		end
+		--if instance:IsA("LuaSourceContainer") then
+		--	local src = ScriptEditorService:GetEditorSource(instance)
+		--	VersionControl.createInstanceVersion(instance, "Source", src)
+		--end
 		
 		local usages = Manager.AttributeUsageAmounts
 		local currentAttributes = {}

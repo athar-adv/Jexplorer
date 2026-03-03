@@ -58,7 +58,13 @@ migrations = {
 	end,
 	v19_to_v20 = function(self, state, manager)
 		state.icon_colors = {}
-	end
+	end,
+	v20_to_v21 = function(self, state, manager)
+		state.icon_colors = {}
+		state.versions = {}
+		state.tabs = {}
+		state.repo_proxies = {}
+	end,
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

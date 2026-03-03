@@ -328,7 +328,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		}),
 		rule("TabFrameStyle", ".JEXP_TabFrame Frame", 0, {
 			rule("NameBoxStyle", "> #NameBox TextBox", 0, {
-				Position = UDim2.new(0, 2, 0.5, 0),
+				Position = UDim2.new(0, 22, 0.5, 0),  -- shifted right to make room for icon
 				AnchorPoint = Vector2.new(0, 0.5),
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextYAlignment = Enum.TextYAlignment.Center,
@@ -337,6 +337,16 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				TextSize = 6,
 				Active = false,
 				BackgroundTransparency = 1,
+			}),
+			rule("IconStyle", "> #Icon ImageLabel", 0, {
+				Size = UDim2.new(0, 16, 0, 16),
+				Position = UDim2.new(0, 2, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 0.5),
+				BackgroundTransparency = 1,
+				
+				rule("RoundCorner", "::UICorner", 0, {
+					CornerRadius = UDim.new(0, 5)
+				})
 			}),
 			rule("ButtonStyle", "> #Button TextButton", 0, {
 				Transparency = 1,

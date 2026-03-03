@@ -8,6 +8,10 @@ local StudioService = game:GetService("StudioService")
 local RawInst = require(script.Parent.Small.RawInst)
 local index, newindex = RawInst.index, RawInst.newindex
 
+local FIXED_DISTANCE = 140
+local PADDING = 4
+local EQUALS_WIDTH = 16
+
 export type ItemList = {
 	Backdrop: Frame & any,
 	Container: ScrollingFrame,
@@ -601,7 +605,7 @@ function PluginUI.createButtonWithIcon(list: ItemList, text: string, icon: strin
 	button:AddTag("JEXP_Hover")
 	
 	button.Name = "ButtonWithIconItem"
-	button.Size = UDim2.new(1, 0, 0, 24)
+	button.Size = UDim2.new(1, 0, 0, 20)
 	button.BorderSizePixel = 0
 	
 	local iconLabel = Instance.new("ImageLabel")
@@ -625,7 +629,7 @@ function PluginUI.createButtonWithIcon(list: ItemList, text: string, icon: strin
 	label.Text = text or "Button"
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Font = Enum.Font.SourceSans
-	label.TextSize = 14
+	label.TextSize = 13
 	label.Parent = button
 	
 	-- Click handling
@@ -680,21 +684,26 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 	checkBoxVisual:AddTag("JEXP_Border")
 	
 	checkBoxVisual.Parent = checkBox
-	checkBoxVisual.Size = UDim2.new(0, 16, 0, 16)
-	checkBoxVisual.Position = UDim2.new(0.55, 0, 0.5, -8)
+	checkBoxVisual.Size = UDim2.new(0, 14, 0, 14)
+	checkBoxVisual.AnchorPoint = Vector2.new(0, 0.5)
+	checkBoxVisual.Position = UDim2.new(0.55, 0, 0.5, 0)
 	checkBoxVisual.BorderSizePixel = 0
 	
 	local checkMark = Instance.new("TextLabel")
 	checkMark.Name = "CheckMark"
-	checkMark:AddTag("JEXP_Text")
 	
 	checkMark.Parent = checkBoxVisual
 	checkMark.Size = UDim2.new(1, 0, 1, 0)
 	checkMark.BackgroundTransparency = 1
-	checkMark.Text = "✓"
+	checkMark.Text = "T"
 	checkMark.TextScaled = true
 	checkMark.Font = Enum.Font.SourceSansBold
 	checkMark.Visible = checked or false
+	
+	if checked then
+		checkBoxVisual:AddTag("JEXP_SelectedColor")
+		checkMark:AddTag("JEXP_SelectedColor")
+	end
 	
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"
@@ -730,11 +739,25 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 		Set = function(self, v)
 			isChecked = v
 			checkMark.Visible = v
+			if isChecked then
+				checkBoxVisual:AddTag("JEXP_SelectedColor")
+				checkMark:AddTag("JEXP_SelectedColor")
+			else
+				checkBoxVisual:RemoveTag("JEXP_SelectedColor")
+				checkMark:RemoveTag("JEXP_SelectedColor")
+			end
 		end,
 		SetText = function(self, new)
 			local is = new == "true"
 			checkMark.Visible = is
 			isChecked = is
+			if isChecked then
+				checkBoxVisual:AddTag("JEXP_SelectedColor")
+				checkMark:AddTag("JEXP_SelectedColor")
+			else
+				checkBoxVisual:RemoveTag("JEXP_SelectedColor")
+				checkMark:RemoveTag("JEXP_SelectedColor")
+			end
 		end,
 		OnChange = function(self, fn)
 			table.insert(callbacks, fn)
@@ -777,11 +800,32 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 	button.MouseButton1Click:Connect(function()
 		isChecked = not isChecked
 		checkMark.Visible = isChecked
+		if isChecked then
+			checkBoxVisual:AddTag("JEXP_SelectedColor")
+			checkMark:AddTag("JEXP_SelectedColor")
+		else
+			checkBoxVisual:RemoveTag("JEXP_SelectedColor")
+			checkMark:RemoveTag("JEXP_SelectedColor")
+		end
 		
 		for _, v in callbacks do
 			v(isChecked)
 		end
 	end)
+	
+	local function updateValueBox()
+		local nameLabelLocalX = label.AbsolutePosition.X - checkBox.AbsolutePosition.X
+		local textRightEdge = nameLabelLocalX + label.TextBounds.X + PADDING
+		local fixedEdge = nameLabelLocalX + FIXED_DISTANCE + PADDING
+
+		local x = math.max(fixedEdge, textRightEdge)
+		
+		checkBoxVisual.Position = UDim2.new(0, x, 0.5, 0)
+	end
+
+	label:GetPropertyChangedSignal("TextBounds"):Connect(updateValueBox)
+	label:GetPropertyChangedSignal("AbsolutePosition"):Connect(updateValueBox)
+	task.defer(updateValueBox)
 	
 	return item
 end
@@ -794,7 +838,7 @@ function PluginUI.createButton(list: ItemList, text: string?, callback: (() -> (
 	
 	button.BorderSizePixel = 0
 	button.Name = "ButtonItem"
-	button.Size = UDim2.new(1, 0, 0, 24)
+	button.Size = UDim2.new(1, 0, 0, 20)
 	
 	-- Label
 	local label = Instance.new(isimage and "ImageLabel" or "TextLabel")
@@ -802,18 +846,30 @@ function PluginUI.createButton(list: ItemList, text: string?, callback: (() -> (
 	label:AddTag("JEXP_Text")
 	
 	label.BorderSizePixel = 0
-	label.Size = UDim2.new(1, -16, 1, 0)
-	label.Position = UDim2.new(0, 8, 0, 0)
+	--label.Size = UDim2.new(1, -16, 1, 0)
+	label.Size = UDim2.new(0, 0, 1, 0)
+	label.Position = UDim2.new(0, 22, 0, 0)
+	label.AutomaticSize = Enum.AutomaticSize.X
 	label.BackgroundTransparency = 1
 	if isimage then
 		label.Image = text or ""
 	else
 		label.Text = text or "Button"
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.Font = Enum.Font.SourceSans
+		label.TextSize = 13
 	end
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Font = Enum.Font.SourceSans
-	label.TextSize = 14
 	label.Parent = button
+	
+	local cursorIcon = Instance.new("ImageLabel")
+	cursorIcon.Name = "CursorInterest"
+	cursorIcon.Image = "rbxassetid://12804017021"
+	cursorIcon:AddTag("JEXP_MonochromeImage")
+	cursorIcon.Size = UDim2.fromOffset(14, 16)
+	cursorIcon.Position = UDim2.new(0, 4, 0.5, 0)
+	cursorIcon.AnchorPoint = Vector2.new(0, 0.5)
+	cursorIcon.BackgroundTransparency = 1
+	cursorIcon.Parent = button
 	
 	-- Click handling
 	local clickButton = Instance.new("TextButton")
@@ -821,6 +877,7 @@ function PluginUI.createButton(list: ItemList, text: string?, callback: (() -> (
 	clickButton.Size = UDim2.new(1, 0, 1, 0)
 	clickButton.BackgroundTransparency = 1
 	clickButton.Text = ""
+	clickButton.ZIndex = 2
 	clickButton.Parent = button
 	
 	if list then
@@ -869,13 +926,14 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	nameLabel.BorderSizePixel = 0
 	nameLabel:AddTag("JEXP_Text")
 	
-	nameLabel.Size = UDim2.new(0.5 - 0.1, 0, 1 - 0.1, 0)
+	nameLabel.Size = UDim2.new(0, 150, 1 - 0.1, 0)
 	nameLabel.AnchorPoint = Vector2.new(0, 0.5)
 	nameLabel.Position = UDim2.new(0 + 0.05, 0, 0.5, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = attributeName or "Attribute Name"
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.Font = Enum.Font.SourceSans
+	nameLabel.AutomaticSize = Enum.AutomaticSize.X
 	nameLabel.TextSize = 12
 	nameLabel.ZIndex = 4
 	nameLabel.Parent = attrBox
@@ -890,9 +948,7 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	valueBox.BorderSizePixel = 0
 	valueBox.TextTruncate = Enum.TextTruncate.AtEnd
 	valueBox.ClearTextOnFocus = false
-	valueBox.AnchorPoint = Vector2.new(1, 0.5)
-	valueBox.Size = UDim2.new(0.5 - 0.1, 0, 1 - 0.1, 0)
-	valueBox.Position = UDim2.new(1 - 0.05, 0, 0.5, 0)
+	valueBox.AnchorPoint = Vector2.new(0, 0.5)
 	valueBox.Text = tostring(attributeValue or "")
 	valueBox.TextXAlignment = Enum.TextXAlignment.Left
 	valueBox.Font = Enum.Font.SourceSans
@@ -902,6 +958,55 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	valueBox.PlaceholderColor3 = Color3.fromRGB(128, 128, 128)
 	valueBox.ZIndex = 4
 	valueBox.Parent = attrBox
+	
+	-- Equals label
+	local equalsLabel = Instance.new("TextLabel")
+	equalsLabel.Name = "EqualsLabel"
+	equalsLabel:AddTag("JEXP_Text")
+	equalsLabel.BorderSizePixel = 0
+	equalsLabel.BackgroundTransparency = 1
+	equalsLabel.Text = "="
+	equalsLabel.Font = Enum.Font.SourceSans
+	equalsLabel.TextSize = 12
+	equalsLabel.AnchorPoint = Vector2.new(0, 0.5)
+	equalsLabel.Position = UDim2.new(0, 0, 0.5, 0) -- updated in updateValueBox
+	equalsLabel.Size = UDim2.new(0, 16, 1 - 0.1, 0)
+	equalsLabel.ZIndex = 4
+	equalsLabel.Parent = attrBox
+
+	local function updateValueBox()
+		local nameLabelLocalX = nameLabel.AbsolutePosition.X - attrBox.AbsolutePosition.X
+		local textRightEdge = nameLabelLocalX + nameLabel.TextBounds.X + PADDING
+		local fixedEdge = nameLabelLocalX + FIXED_DISTANCE + PADDING
+
+		local equalsX = math.max(fixedEdge, textRightEdge)
+		local valueX = equalsX + EQUALS_WIDTH
+		
+		equalsLabel.Position = UDim2.new(0, equalsX, 0.5, 0)
+		valueBox.Position = UDim2.new(0, valueX, 0.5, 0)
+		valueBox.Size = UDim2.new(1, -valueX, 1 - 0.1, 0)
+		
+		local bindex = 0
+		for _, v in valueBox:GetChildren() do
+			if v.Name == "SideButton" then
+				bindex += 1
+			end
+		end
+		if bindex == 0 then return end
+		
+		local pos = valueBox.Position
+		valueBox.Position = UDim2.new(
+			pos.X.Scale,
+			pos.X.Offset + 6 + (12 * bindex),
+			pos.Y.Scale,
+			pos.Y.Offset
+		)
+	end
+
+	nameLabel:GetPropertyChangedSignal("TextBounds"):Connect(updateValueBox)
+	nameLabel:GetPropertyChangedSignal("AbsolutePosition"):Connect(updateValueBox)
+	attrBox:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateValueBox)
+	task.defer(updateValueBox)
 	
 	--borderFrame(UDim2.fromScale(0.5, 0), UDim2.fromScale(0.5, 1), valueBox)
 	
@@ -1477,6 +1582,7 @@ function PluginUI.createSideButtonImage(image: string, imageRectOffset: Vector2,
 	local sideButton = Instance.new("ImageButton")
 	sideButton:AddTag("JEXP_LightBackground")
 	
+	sideButton.Name = "SideButton"
 	sideButton.BorderSizePixel = 0
 	sideButton.AnchorPoint = Vector2.new(1, 0.5)
 	sideButton.Position = UDim2.new(0, -(6 + (12 * bindex)), 0.5, 0)
@@ -1485,12 +1591,12 @@ function PluginUI.createSideButtonImage(image: string, imageRectOffset: Vector2,
 	sideButton.ImageRectOffset = imageRectOffset
 	sideButton.ImageRectSize = imageRectSize
 	
-	local size = container.Size
-	container.Size = UDim2.new(
-		size.X.Scale,
-		-(sideButton.Size.X.Offset + (6 + (12 * bindex))),
-		size.Y.Scale,
-		size.Y.Offset
+	local pos = container.Position
+	container.Position = UDim2.new(
+		pos.X.Scale,
+		pos.X.Offset + (sideButton.Size.X.Offset + (6 + (12 * bindex))),
+		pos.Y.Scale,
+		pos.Y.Offset
 	)
 	sideButton.Parent = container
 	
@@ -1508,12 +1614,12 @@ function PluginUI.createSideButtonText(text: string, container: GuiObject, binde
 	sideButton.Size = UDim2.fromOffset(12, 12)
 	sideButton.Text = text
 	
-	local size = container.Size
-	container.Size = UDim2.new(
-		size.X.Scale,
-		-(sideButton.Size.X.Offset + (6 + (12 * bindex))),
-		size.Y.Scale,
-		size.Y.Offset
+	local pos = container.Position
+	container.Position = UDim2.new(
+		pos.X.Scale,
+		pos.X.Offset + (sideButton.Size.X.Offset + (6 + (12 * bindex))),
+		pos.Y.Scale,
+		pos.Y.Offset
 	)
 	sideButton.Parent = container
 
@@ -1705,7 +1811,8 @@ function PluginUI.createPopupWidget(title: string, items: {ValueUIItem})
 	widget.Title = title
 	widget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	widget:BindToClose(function()
-		widget.Enabled = not widget.Enabled
+		widget.Enabled = false
+		widget:Destroy()
 	end)
 
 	editorFrame:AddTag("JEXP_Background")

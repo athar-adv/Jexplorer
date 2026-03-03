@@ -16,7 +16,8 @@ local ColorPicker = require(shared.Vendor.PluginColorPicker)
 local Jecs = require(main.Jecs)
 
 type Array<T> = {T}
-type InstanceId = string
+export type InstanceId = string
+export type TempId = string
 type UDFValue = string
 type PlaceId = string
 
@@ -38,6 +39,8 @@ export type SavedState = {
 	tabs: {
 		[PlaceId]: Array<{
 			display_name: string,
+			icon: string,
+			icon_color: UDFValue,
 			inst_ids: {InstanceId}
 		}>
 	},
@@ -57,7 +60,7 @@ export type SavedState = {
 	},
 	versions: {
 		[PlaceId]: {
-			[string]: {
+			[InstanceId]: {
 				{
 					timestamp: typeof(DateTime.now():ToUniversalTime()),
 					props: {[string]: UDFValue},
@@ -98,9 +101,12 @@ export type Tab = {
 	InsertButton: GuiButton?,
 	RemoveButton: GuiButton?,
 	NameBox: TextBox,
+	IconLabel: ImageLabel,
 
 	Roots: {ExplorerEntity},
 	Name: string,
+	Icon: string,
+	IconColor: Color3,
 
 	Toggle: () -> (),
 	Remove: () -> (),
@@ -307,7 +313,10 @@ export type Manager = {
 	WidgetState: WidgetState,
 	Components: Components,
 	Toolbar: PluginToolbar,
-	Storage: Folder,
+	Storage: {
+		repoRoots: Instance,
+		idObjects: Instance
+	},
 
 	InstTreeAbsoluteSizeY: number,
 	
@@ -339,7 +348,14 @@ export type Manager = {
 	ChildAmountCache: {[ExplorerEntity]: number},
 	ClassNameCache: {[ExplorerEntity]: string},
 	NameCache: {[ExplorerEntity]: string},
-	DebugIdToInstance: {[string]: Instance},
+	
+	IdToInstance: {[InstanceId]: Instance},
+	InstanceToId: {[Instance]: InstanceId},
+	IdToObjectValue: {[InstanceId]: ObjectValue},
+	
+	TempIdToInstance: {[TempId]: Instance},
+	InstanceToTempId: {[Instance]: TempId},
+	
 	TabFrameToTab: {[Instance]: Tab},
 	
 	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string) -> PluginAction,
@@ -349,7 +365,7 @@ export type Manager = {
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
 
-	registerTab: (name: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
+	registerTab: (name: string, icon: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
 
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 
@@ -365,8 +381,12 @@ export type Manager = {
 	onTagAdded: (inst: Instance, callback: (tag: string) -> ()) -> RBXScriptConnection,
 	onTagRemoved: (inst: Instance, callback: (tag: string) -> ()) -> RBXScriptConnection,
 
-	getInstId: (instance: Instance) -> string,
+	getOrCreateInstId: (instance: Instance) -> string,
+	getInstId: (instance: Instance) -> string?,
 	getInstFromId: (id: string) -> Instance?,
+	
+	getTempId: (instance: Instance) -> string,
+	getInstFromTempId: (id: string) -> Instance,
 
 	getSetting: (name: string) -> any,
 	setSetting: (name: string, value: any) -> (),
@@ -405,7 +425,7 @@ export type Manager = {
 		icon_colors: () -> (),
 		style: () -> Style.Style,
 		versions: () -> {
-			[string]: {
+			[Instance]: {
 				{
 					timestamp: DateTime,
 					props: {[string]: any},
@@ -457,7 +477,7 @@ export type VersionControl = Editor & {
 	Token: GitAPI.LuaSecret?,
 	RepoId: string,
 	Versions: {
-		[string]: {
+		[Instance]: {
 			{
 				timestamp: DateTime,
 				props: {[string]: any},
@@ -465,7 +485,7 @@ export type VersionControl = Editor & {
 		}
 	},
 	PendingChanges: {
-		[string]: {
+		[Instance]: {
 			[string]: any
 		}
 	},
@@ -504,6 +524,10 @@ export type ContextMenuEditor = Editor & {
 }
 
 export type JextensionEditor = Editor & {
+
+}
+
+export type StateEditor = Editor & {
 
 }
 

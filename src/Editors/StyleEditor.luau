@@ -322,7 +322,7 @@ function StyleEditor.init(Manager)
 				box.Instance.ValueBox.Text = UDF.to(newSelector)
 				rule.Rule.Selector = newSelector
 			else
-				rule.Rule.Selector = newValue
+				rule.Rule.Selector = UDF.from(newValue)
 			end
 		end)
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)

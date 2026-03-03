@@ -52,6 +52,170 @@ function UDF.to(input: any): string
 	return "[nil]"
 end
 
+local function evalMathExpression(expr: string): number
+	local trimmed = expr:match("^%s*(.-)%s*$")
+	assert(trimmed)
+
+	-- Fast path: plain integer  (optional leading minus, digits only)
+	do
+		local n = trimmed:match("^%-?%d+$")
+		if n then return tonumber(n) :: number end
+	end
+
+	-- Fast path: plain decimal  (optional leading minus, digits with ONE dot)
+	do
+		local n = trimmed:match("^%-?%d*%.%d+$") or trimmed:match("^%-?%d+%.%d*$")
+		if n then return tonumber(n) :: number end
+	end
+
+	-- Fast path: hex literal    0x / 0X prefix, optional leading minus
+	do
+		local sign, digits = trimmed:match("^(%-?)0[xX]([%x]+)$")
+		if digits then
+			local value = tonumber(digits, 16) :: number
+			return (sign == "-") and -value or value
+		end
+	end
+
+	-- Fast path: binary literal  0b / 0B prefix, optional leading minus
+	do
+		local sign, digits = trimmed:match("^(%-?)0[bB]([01]+)$")
+		if digits then
+			local value = 0
+			for i = 1, #digits do
+				value = value * 2 + (digits:sub(i, i) == "1" and 1 or 0)
+			end
+			return (sign == "-") and -value or value
+		end
+	end
+
+	-- ── Full recursive-descent parser ─────────────────────────────────────────
+	local pos = 1
+	local s = expr:gsub("%s+", "") -- strip all whitespace
+
+	local function peek(): string?
+		return s:sub(pos, pos) ~= "" and s:sub(pos, pos) or nil
+	end
+
+	local function consume(n: number?): string
+		local chunk = s:sub(pos, pos + (n or 1) - 1)
+		pos += (n or 1)
+		return chunk
+	end
+
+	local parseExpr -- forward declaration
+
+	-- Parses one numeric literal at the current position.
+	-- Handles: hex (0x…), binary (0b…), plain integer/decimal.
+	local function parseNumber(): number
+		-- Hex: 0x…
+		if s:sub(pos, pos + 1):lower() == "0x" then
+			pos += 2
+			local start = pos
+			while s:sub(pos, pos):match("[%x]") do pos += 1 end
+			local digits = s:sub(start, pos - 1)
+			assert(#digits > 0, "Empty hex literal")
+			return tonumber(digits, 16) :: number
+		end
+
+		-- Binary: 0b…
+		if s:sub(pos, pos + 1):lower() == "0b" then
+			pos += 2
+			local start = pos
+			while s:sub(pos, pos):match("[01]") do pos += 1 end
+			local digits = s:sub(start, pos - 1)
+			assert(#digits > 0, "Empty binary literal")
+			local value = 0
+			for i = 1, #digits do
+				value = value * 2 + (digits:sub(i, i) == "1" and 1 or 0)
+			end
+			return value
+		end
+
+		-- Plain integer / decimal
+		local start = pos
+		while s:sub(pos, pos):match("[%d%.]") do pos += 1 end
+		local numStr = s:sub(start, pos - 1)
+		local n = tonumber(numStr)
+		assert(n, "Invalid number: '" .. numStr .. "'")
+		return n :: number
+	end
+
+	local function parsePrimary(): number
+		local ch = peek()
+		assert(ch, "Unexpected end of expression")
+
+		if ch == "(" then
+			consume()                               -- '('
+			local val = parseExpr()
+			assert(peek() == ")", "Expected closing ')'")
+			consume()                               -- ')'
+			return val
+		elseif ch == "-" then
+			consume()                               -- unary minus
+			return -parsePrimary()
+		elseif ch == "+" then
+			consume()                               -- unary plus (no-op)
+			return parsePrimary()
+		else
+			return parseNumber()
+		end
+	end
+
+	-- Power (right-associative): 2^2^3 = 2^(2^3) = 256
+	local function parsePower(): number
+		local base = parsePrimary()
+		if peek() == "^" then
+			consume()
+			return base ^ parsePower()
+		end
+		return base
+	end
+
+	-- *, /, %
+	local function parseTerm(): number
+		local left = parsePower()
+		while true do
+			local ch = peek()
+			if ch == "*" then
+				consume(); left = left * parsePower()
+			elseif ch == "/" then
+				consume()
+				local divisor = parsePower()
+				assert(divisor ~= 0, "Division by zero")
+				left = left / divisor
+			elseif ch == "%" then
+				consume(); left = left % parsePower()
+			else
+				break
+			end
+		end
+		return left
+	end
+
+	-- +, -
+	parseExpr = function(): number
+		local left = parseTerm()
+		while true do
+			local ch = peek()
+			if ch == "+" then
+				consume(); left = left + parseTerm()
+			elseif ch == "-" then
+				consume(); left = left - parseTerm()
+			else
+				break
+			end
+		end
+		return left
+	end
+
+	local result = parseExpr()
+	assert(pos > #s,
+		"Unexpected token at position " .. pos .. ": '" .. s:sub(pos) .. "'")
+	return result
+end
+
+local tonumber = evalMathExpression
 function UDF.from(input: string): any
 	if input == "" then return "" end
 	-- Truncate leading whitespace
@@ -71,7 +235,6 @@ function UDF.from(input: string): any
 		elseif shorthand == "$" then
 			return Style.var(val) -- JSLExpression
 		elseif shorthand == "@" then
-			-- Selector macro
 			local value = Selector.parseSelectorMacro(val)
 			assert(value, `'{val}' is not a valid selector macro`)
 			return value
@@ -81,8 +244,8 @@ function UDF.from(input: string): any
 	-- Check if input starts with [DATATYPE] format
 	local datatype = input:match("^%b[]")
 	if datatype == "[nil]" then return "" end
-	
-	if not datatype then 
+
+	if not datatype then
 		error(`UDFValue '{input}' must start with [DATATYPE] tag or shorthand punctuation`)
 	end
 
@@ -117,7 +280,7 @@ function UDF.from(input: string): any
 			return
 		end
 
-		local item = (enum::any):FromName(input)
+		local item = (enum :: any):FromName(input)
 		if not item then
 			warn(`'{input}' is not a valid member of 'Enum.{datatype}'`)
 			return
@@ -136,11 +299,10 @@ function UDF.from(input: string): any
 		)
 	elseif datatype == "udim2" then
 		local values = string.split(input, ",")
-
 		return UDim2.new(
-			tonumber(values[1]), 
+			tonumber(values[1]),
 			tonumber(values[2]),
-			tonumber(values[3]), 
+			tonumber(values[3]),
 			tonumber(values[4])
 		)
 	elseif datatype == "udim" then
@@ -152,9 +314,9 @@ function UDF.from(input: string): any
 	elseif datatype == "vec3" then
 		local values = string.split(input, ",")
 		return vector.create(
-			tonumber(values[1])::number,
-			tonumber(values[2])::number,
-			tonumber(values[3])::number
+			tonumber(values[1]) :: number,
+			tonumber(values[2]) :: number,
+			tonumber(values[3]) :: number
 		)
 	elseif datatype == "expr" then
 		return Style.var(input)
@@ -163,8 +325,24 @@ function UDF.from(input: string): any
 	elseif datatype == "selector" then
 		local value = Selector.parseSelectorMacro(input)
 		assert(value, `'{input}' is not a valid selector macro`)
-
 		return value
+	elseif datatype == "slctr" then
+		-- Tokenise on whitespace. Each token is either:
+		--   • an @macro(...) token  → expanded via parseSelectorMacro
+		--   • anything else         → kept verbatim (e.g. `.JEXP_Tagged`, `>`, `#Image`)
+		-- Tokens are rejoined with spaces to form the final selector string.
+		local parts = {}
+		for token in input:gmatch("%S+") do
+			if token:sub(1, 1) == "@" then
+				local expanded, kind = Selector.parseSelectorMacro(token)
+				assert(expanded and kind ~= "none", `'{token}' is not a valid selector macro`)
+				table.insert(parts, expanded)
+			else
+				table.insert(parts, token)
+			end
+		end
+		assert(#parts > 0, `[slctr] value '{input}' produced an empty selector`)
+		return table.concat(parts, " ")
 	elseif datatype == "font_asset" then
 		local values = string.split(input, " ")
 		if #values < 3 then

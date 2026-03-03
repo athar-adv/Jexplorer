@@ -9,6 +9,7 @@ local OrderEditor = require("../Editors/OrderEditor")
 local InstanceVisibilityEditor = require("../Editors/InstanceVisibilityEditor")
 local ContextMenuEditor = require("../Editors/ContextMenuEditor")
 local JextensionEditor = require("../Editors/JextensionEditor")
+local StateEditor = require("../Editors/StateEditor")
 
 local Types = require("../Types")
 
@@ -19,21 +20,6 @@ local Style = require("./Style")
 local studioSettings = settings().Studio
 
 local IS_EDIT = game:GetService("RunService"):IsEdit()
-
-local function getPrintableTable(tbl): {[any]: any}
-	local newtbl = {}
-	for k, v in tbl do
-		if typeof(v) == "table" then
-			if #v > 10 then
-				v = "Array"
-			else
-				v = getPrintableTable(v)
-			end
-		end
-		newtbl[k] = v
-	end
-	return newtbl
-end
 
 return function(Manager: Types.Manager, components: Types.Components, topbar: Instance)
 	local state = Manager.WidgetState
@@ -122,6 +108,16 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 					topbarMenuDropdown:Hide()
 				end
 			)
+			PluginUI.createButtonWithIcon(
+				topbarMenuDropdown, 
+				"Open State Editor",
+				`rbxasset://studio_svg_textures/Shared/InsertableObjects/{themeExtension}/Standard/Actor.png`,
+				Vector2.zero, Vector2.new(16, 16),
+				function()
+					StateEditor.Widget.Enabled = true
+					topbarMenuDropdown:Hide()
+				end
+			)
 
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButtonWithIcon(
@@ -133,86 +129,6 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 					Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 				end
 			)
-			PluginUI.createSeparator(topbarMenuDropdown)
-			PluginUI.createButton(topbarMenuDropdown, "Save State", function()
-				Manager.saveState()
-				print("SavedState: ", getPrintableTable(SavedState.load(Manager)))
-				topbarMenuDropdown:Hide()
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Load State", function()
-				local loaders = Manager.loadState(SavedState.load(Manager))
-				for _, v: any in loaders do v() end
-				print(getPrintableTable(state.SavedState))
-				topbarMenuDropdown:Hide()
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Reset State to Default", function()
-				topbarMenuDropdown:Hide()
-				for _, tab in state.Tabs do
-					tab.Remove()
-				end
-				table.clear(state.Tabs)
-
-				for _, repo in state.RepoProxies do
-					repo.Remove()
-				end
-				table.clear(state.RepoProxies)
-
-				local oldStyle = Manager.Style
-				local loaders = Manager.loadState(SavedState.get_default(Manager))
-				for _, v: any in loaders do
-					v()
-				end
-
-				local customRules = {}
-				for _, v in oldStyle:GetWithoutTags("Default") do
-					table.insert(customRules, v)
-				end
-				oldStyle:Replace(Manager.Style)
-				oldStyle:AddRules(customRules)
-
-				Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Reset Styles to Default", function()
-				topbarMenuDropdown:Hide()
-
-				local customRules = {}
-				for _, v in Manager.Style:GetWithoutTags("Default") do
-					table.insert(customRules, v)
-				end
-				local tokens, rules = require("./Defaults/DefaultStyle")(Manager)
-				local style = Style.fromRulesTokens(rules, tokens)
-
-				style:AddRules(customRules)
-				Manager.Style:Replace(style)
-
-				local style = Manager.Style
-
-				Manager.VirtualScroller.update(Manager, false)
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Reset Settings to Default", function()
-				topbarMenuDropdown:Hide()
-				local settings = require("./Defaults/DefaultSettings")
-				for _, t in settings do
-					for k, v in t do
-						Manager.setSetting(k, v.Default)
-					end
-				end
-
-				Manager.VirtualScroller.update(Manager, false)
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Reset Order to Default", function()
-				topbarMenuDropdown:Hide()
-
-				OrderEditor.ClassPriorities = require("./Defaults/DefaultOrder")(Manager)
-				OrderEditor.DefaultPriority = 999
-
-				Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Reset Versions", function()
-				topbarMenuDropdown:Hide()
-
-				VersionControl.Versions = {}
-			end)
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButton(topbarMenuDropdown, "Kill Jexplorer", function()
 				local onClose = state.OnClose

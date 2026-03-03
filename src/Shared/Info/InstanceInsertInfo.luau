@@ -457,7 +457,10 @@ local INSTANCE_INSERT_INFO: {
 	-- Scripts
 	["Script"] = {
 		SideEffect = function(inst)
-			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+			task.defer(function()
+				local success, err = game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+				if not success then warn(`Could not open new ScriptDocument: '{err}'`) end
+			end)
 		end,
 		Props = {
 			Source = "print('Hello World!')\n",
@@ -467,7 +470,10 @@ local INSTANCE_INSERT_INFO: {
 
 	["LocalScript"] = {
 		SideEffect = function(inst)
-			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+			task.defer(function()
+				local success, err = game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+				if not success then warn(`Could not open new ScriptDocument: '{err}'`) end
+			end)
 		end,
 		Props = {
 			Source = "print('Hello World!')\n",
@@ -477,7 +483,10 @@ local INSTANCE_INSERT_INFO: {
 
 	["ModuleScript"] = {
 		SideEffect = function(inst)
-			game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+			task.defer(function()
+				local success, err = game:GetService("ScriptEditorService"):OpenScriptDocumentAsync(inst)
+				if not success then warn(`Could not open new ScriptDocument: '{err}'`) end
+			end)
 		end,
 		Props = {
 			Source = "local module = {}\n\nreturn module\n",

@@ -179,17 +179,18 @@ function OrderEditor.init(Manager)
 		end)
 	end
 	
-	local insertClassPriority do
-		insertClassPriority = PluginUI.createItemList({
-			Name = "InsertClassPriority"
-		})
-		insertClassPriority.Backdrop.Parent = jexplorerUi
+	local header = dropdown.Backdrop:WaitForChild("DropDownHeader")
+	PluginUI.createInsertButton(header, function()
+		local nameBox = PluginUI.createAttributeBox(nil, "ClassName", "")
+		local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Insert Priority Class", {nameBox})
 		
-		local nameBox = PluginUI.createAttributeBox(insertClassPriority, "Class Name", nil)
-		PluginUI.createButton(insertClassPriority, "Create", function()
-			insertClassPriority:Hide()
+		cancel:OnTrigger(function()
+			close()
+		end)
+		
+		confirm:OnTrigger(function()
 			local name = nameBox:Get()
-			
+
 			table.insert(OrderEditor.ClassPriorities, 1, name)
 			for i, class in OrderEditor.ClassPriorities do
 				for button, buttonClass in buttonToClass do
@@ -200,12 +201,8 @@ function OrderEditor.init(Manager)
 				end
 			end
 			createClassPriorityBox(name, 1)
+			close()
 		end)
-	end
-	
-	local header = dropdown.Backdrop:WaitForChild("DropDownHeader")
-	PluginUI.createInsertButton(header, function()
-		insertClassPriority:Show()
 	end)
 	
 	for i, v in OrderEditor.ClassPriorities do

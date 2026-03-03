@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "1.2.0"
+local VERSION = "2.0.0"
 
 local global = shared
 local shared = script.Shared
@@ -30,7 +30,9 @@ local connections = ItemGroup.create(cleanup.disconnect)
 local finished_init = false
 local function onClose()
 	if Manager.Storage then
-		Manager.Storage:Destroy()
+		if Manager.Storage.repoRoots then
+			Manager.Storage.repoRoots:ClearAllChildren()
+		end
 	end
 	global.Jexplorer.__close:Fire()
 	

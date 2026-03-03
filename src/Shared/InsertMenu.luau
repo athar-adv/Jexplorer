@@ -247,9 +247,9 @@ function InsertMenu.init(Manager)
 
 			for _, class in tbl do
 				local success, icon: Types.StudioIconResult = xpcall(
-					StudioService.GetClassIcon, function()end, StudioService, class
+					StudioService.GetClassIcon, function(err) warn(`Could not create class constructor '{class}' with error '{err}'`) end, StudioService, class
 				)
-				if not success then return end
+				if not success then continue end
 
 				local buttonItem = PluginUI.createButtonWithIcon(
 					insertInstanceList, class, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, 

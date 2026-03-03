@@ -11,6 +11,7 @@ local StudioService = game:GetService("StudioService")
 local SerializationService = game:GetService("SerializationService")
 local CollectionService = game:GetService("CollectionService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
+local TextService = game:GetService("TextService")
 
 local Jecs = require("./Jecs")
 local Types = require("./Types")
@@ -38,6 +39,7 @@ local StyleEditor = require("./Editors/StyleEditor")
 local VersionControl = require("./Editors/VersionControl")
 local PropertyEditor = require("./Editors/PropertyEditor")
 local OrderEditor = require("./Editors/OrderEditor")
+local StateEditor = require("./Editors/StateEditor")
 local InstanceVisibilityEditor = require("./Editors/InstanceVisibilityEditor")
 local ContextMenuEditor = require("./Editors/ContextMenuEditor")
 local JextensionEditor = require("./Editors/JextensionEditor")
@@ -74,6 +76,8 @@ local sharedTabState = {
 
 local PLACE_ID = tostring(game.PlaceId)
 local IS_EDIT = game:GetService("RunService"):IsEdit()
+local ID_ATTR = "JexId"
+local ID_FORMAT = "JexId(%s)"
 
 local components: Types.Components do
 	local comp = Jecs.component
@@ -144,7 +148,9 @@ local Manager = {
 	ChildAmountCache = {},
 	ClassNameCache = {},
 	NameCache = {},
-	DebugIdToInstance = {},
+	IdToInstance = {},
+	InstanceToId = {},
+	IdToObjectValue = {},
 	TabFrameToTab = {}
 } :: Types.Manager
 
@@ -163,6 +169,51 @@ local function copySelection(world: World)
 			SerializationService:SerializeInstancesAsync(instances)
 		)
 	)
+end
+
+local function truncate(num: number)
+	return string.format("%.2f", num)
+end
+
+local function asnumber(x)
+	return assert(tonumber(x))
+end
+
+type diff = {[any]: {nested: false, old: any?, new: any?} | {nested: true, [any]: diff}}
+local function deepDiff(a: {[any]: any}, b: {[any]: any}): diff
+	local diff: {[any]: any} = {}
+
+	-- Keys in a
+	for k, v in a do
+		local bv = b[k]
+		if type(v) == "table" and type(bv) == "table" then
+			local nested: {[any]: any} = deepDiff(v, bv)
+			if next(nested) ~= nil then
+				nested.nested = true
+				diff[k] = nested
+			end
+		elseif v ~= bv then
+			diff[k] = { nested = false, old = v, new = bv }
+		end
+	end
+
+	-- Keys only in b
+	for k, v in b do
+		if a[k] == nil then
+			diff[k] = { nested = false, old = nil, new = v }
+		end
+	end
+
+	return diff
+end
+
+local function findOrCreateInstance(parent: Instance, name: string, classIfNotFound: string)
+	local child = parent:FindFirstChild(name)
+	if child then return child end
+	local new = Instance.new(classIfNotFound)
+	new.Name = name
+	new.Parent = parent
+	return new
 end
 
 local function getCommonAncestor(instances: {Instance}): Instance?
@@ -482,18 +533,51 @@ function Manager.isInputActive(input)
 	return activeInputs[input] == true
 end
 
+function Manager.getOrCreateInstId(inst)
+	local id = Manager.InstanceToId[inst]
+	if id then return id end
+	
+	local id = ID_FORMAT:format(HttpService:GenerateGUID(false))
+	Manager.InstanceToId[inst] = id
+	Manager.IdToInstance[id] = inst
+	
+	local obj = Instance.new("ObjectValue")
+	obj.Value = inst
+	obj:SetAttribute(ID_ATTR, id)
+	obj.Parent = Manager.Storage.idObjects
+	
+	Manager.IdToObjectValue[id] = obj
+	
+	return id
+end
+
 function Manager.getInstId(inst)
-	return inst:GetDebugId()
+	return Manager.InstanceToId[inst]
 end
 
 function Manager.getInstFromId(id)
-	return Manager.DebugIdToInstance[id]
+	return Manager.IdToInstance[id]
+end
+
+function Manager.getTempId(inst)
+	local id = Manager.InstanceToTempId[inst]
+	if id then return id end
+	
+	local id = inst:GetDebugId()
+	Manager.InstanceToTempId[inst] = id
+	Manager.TempIdToInstance[id] = inst
+	
+	return id
+end
+
+function Manager.getInstFromTempId(id)
+	return Manager.TempIdToInstance[id]
 end
 
 function Manager.getSetPropertyDragInfo(instances, propName)
 	local ids = {}
 	for _, v in instances do
-		table.insert(ids, Manager.getInstId(v))
+		table.insert(ids, Manager.getTempId(v))
 	end
 	return {
 		Sender = "setproperty",
@@ -537,7 +621,7 @@ function Manager.unpackDragInfo(info)
 		local data = HttpService:JSONDecode(info.Data)
 		local instances = {}
 		for _, id in data.ids do
-			table.insert(instances, assert(Manager.getInstFromId(id)))
+			table.insert(instances, assert(Manager.getInstFromTempId(id)))
 		end
 
 		return {
@@ -747,7 +831,7 @@ function Manager.getEntityAt(x, y, filteredParent)
 	return newParentFrame, entity
 end
 
-function Manager.registerTab(name, stored, createDeleteButton, createInsertButton, registerIntoTabs)
+function Manager.registerTab(name, icon, stored, createDeleteButton, createInsertButton, registerIntoTabs)
 	local state = Manager.WidgetState
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
@@ -761,6 +845,9 @@ function Manager.registerTab(name, stored, createDeleteButton, createInsertButto
 	local tabFrame = UITemplates.TabFrame()
 
 	local nameBox = assert(tabFrame:FindFirstChild("NameBox")) :: TextBox
+	local iconLabel = assert(tabFrame:FindFirstChild("Icon")) :: ImageLabel
+	
+	iconLabel.Image = icon
 
 	nameBox.Text = name
 	local bounds = nameBox.TextBounds
@@ -773,6 +860,9 @@ function Manager.registerTab(name, stored, createDeleteButton, createInsertButto
 	local tab = {
 		Roots = stored,
 		Name = name,
+		Icon = icon,
+		IconColor = Color3.fromRGB(255, 255, 255),
+		IconLabel = iconLabel,
 
 		TabFrame = tabFrame,
 		Button = button,
@@ -932,18 +1022,34 @@ function Manager.registerTab(name, stored, createDeleteButton, createInsertButto
 		deleteButton.Size = UDim2.fromOffset(16, 16)
 		deleteButton.AnchorPoint = Vector2.new(1, 0.5)
 	end
+	
+	local function updateSize()
+		local text = nameBox.Text
+		if text == "" then
+			tabFrame.Size = UDim2.new(0, 70, 1, 0)
+			nameBox.Size = UDim2.new(0, 0, 1, 0)
+			return
+		end
 
+		local bounds = nameBox.TextBounds
+		local textWidth = math.ceil(bounds.X) + 2
+
+		nameBox.Size = UDim2.fromOffset(textWidth, nameBox.AbsoluteSize.Y)
+		local tabWidth = textWidth + 30
+		if createInsertButton then
+			tabWidth += 10
+		end
+		if createDeleteButton then
+			tabWidth += 10
+		end
+		if createInsertButton or createDeleteButton then
+			tabWidth += 4 -- padding
+		end
+		tabFrame.Size = UDim2.fromOffset(tabWidth, tabFrame.AbsoluteSize.Y)
+	end
 	tabConnections:add_many({
-		nameBox:GetPropertyChangedSignal("TextBounds"):Connect(function()
-			local bounds = nameBox.TextBounds
-			nameBox.Size = UDim2.new(0, bounds.X, 1, 0)
-
-			if bounds.X == 0 then
-				tabFrame.Size = UDim2.new(0, 70, 1, 0)
-				return
-			end
-			tabFrame.Size = UDim2.new(0, bounds.X + 32 + 10, 1, 0)
-		end),
+		nameBox:GetPropertyChangedSignal("Text"):Connect(updateSize),
+		nameBox:GetPropertyChangedSignal("TextBounds"):Connect(updateSize),
 		nameBox:GetPropertyChangedSignal("Text"):Connect(function()
 			tab.Name = nameBox.Text
 		end),
@@ -965,7 +1071,8 @@ function Manager.registerTab(name, stored, createDeleteButton, createInsertButto
 			end
 		end)
 	})
-
+	task.delay(0.1,updateSize)
+	
 	return tab
 end
 
@@ -975,27 +1082,33 @@ function Manager.saveState()
 	local ct = Manager.Components
 	local curr_state = state.SavedState
 
+	-- Collect all IDs that will be referenced in the new save
+	local usedIds: {[Types.InstanceId]: true} = {}
+
 	local savedState: SavedState.SavedState = {
 		icon_colors = computedtbl(function(ser)
 			local icons = {}
 			ser[PLACE_ID] = icons
-			
+
 			for entity, inst, color in world:query(components.Instance, components.FrameIconColor):iter() do
-				icons[Manager.getInstId(inst)] = UDF.to(color)
+				local id = Manager.getOrCreateInstId(inst)
+				icons[id] = UDF.to(color)
+				usedIds[id] = true
 			end
 		end),
 		repo_proxies = computedtbl(function(ser)
 			for k, v in curr_state.repo_proxies do
 				ser[k] = v
 			end
-
 			local proxies = state.RepoProxies
 			ser[PLACE_ID] = {}
 			for _, v in proxies do
+				local id = Manager.getOrCreateInstId(v.Root)
+				usedIds[id] = true
 				table.insert(ser[PLACE_ID], {
 					display_name = v.DisplayName,
 					repo_id = v.RepoId,
-					root_inst_id = Manager.getInstId(v.Root),
+					root_inst_id = id,
 				})
 			end
 		end),
@@ -1003,7 +1116,6 @@ function Manager.saveState()
 			for k, v in curr_state.tabs do
 				ser[k] = v
 			end
-
 			local tabs = state.Tabs
 			ser[PLACE_ID] = {}
 			for _, v in tabs do
@@ -1011,43 +1123,24 @@ function Manager.saveState()
 				for _, ent in v.Roots do
 					local inst = world:get(ent, ct.Instance)
 					if not inst then continue end
-
-					table.insert(inst_ids, Manager.getInstId(inst))
+					local id = Manager.getOrCreateInstId(inst)
+					usedIds[id] = true
+					table.insert(inst_ids, id)
 				end
 				table.insert(ser[PLACE_ID], {
 					display_name = v.Name,
+					icon = v.Icon,
+					icon_color = UDF.to(v.IconColor),
 					inst_ids = inst_ids
 				})
 			end
 		end),
-		display_order = computedtbl(function(ser)
-			ser.default_order = OrderEditor.DefaultPriority
-			ser.class_order = OrderEditor.ClassPriorities
-		end),
-		invisible = InstanceVisibilityEditor.InvisibleClasses,
-		settings = computedtbl(function(ser)
-			for k, v in SettingEditor.Configs do
-				local udf = UDF.to(v)
-				ser[k] = udf
-			end
-		end),
-		style = computedtbl(function(ser)
-			local style = Manager.Style
-			local rules: {Types.SerializedStyleRule} = {}
-			local tokens = {}
-			
-			SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
-			for k, v in style.Tokens do
-				tokens[k] = UDF.to(v)
-			end
-			ser.rules = rules
-			ser.tokens = tokens
-		end),
 		versions = computedtbl(function(ser)
 			local inst_vers = {}
 			ser[PLACE_ID] = inst_vers
-
-			for inst_id, versions in VersionControl.Versions do
+			for inst, versions in VersionControl.Versions do
+				local inst_id = Manager.getOrCreateInstId(inst)
+				usedIds[inst_id] = true
 				local ser_versions = {}
 				for i, version in versions do
 					local ser_props = {}
@@ -1062,8 +1155,45 @@ function Manager.saveState()
 				inst_vers[inst_id] = ser_versions
 			end
 		end),
+		display_order = computedtbl(function(ser)
+			ser.default_order = OrderEditor.DefaultPriority
+			ser.class_order = OrderEditor.ClassPriorities
+		end),
+		invisible = InstanceVisibilityEditor.InvisibleClasses,
+		settings = computedtbl(function(ser)
+			for k, v in SettingEditor.Configs do
+				ser[k] = UDF.to(v)
+			end
+		end),
+		style = computedtbl(function(ser)
+			local style = Manager.Style
+			local rules: {Types.SerializedStyleRule} = {}
+			local tokens = {}
+			SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
+			for k, v in style.Tokens do
+				tokens[k] = UDF.to(v)
+			end
+			ser.rules = rules
+			ser.tokens = tokens
+		end),
 		data_version = SavedState.data_version
 	}
+	
+	for id in table.clone(Manager.IdToObjectValue) do
+		if not usedIds[id] then
+			local inst = Manager.IdToInstance[id]
+			Manager.IdToInstance[id] = nil
+			if inst then
+				Manager.InstanceToId[inst] = nil
+			end
+			local obj = Manager.IdToObjectValue[id]
+			Manager.IdToObjectValue[id] = nil
+			if obj then
+				obj:Destroy()
+			end
+		end
+	end
+
 	SavedState.save(savedState)
 	return savedState
 end
@@ -1102,7 +1232,8 @@ function Manager.loadState(savedState)
 
 					table.insert(roots, ent)
 				end
-				Manager.registerTab(t.display_name, roots, true, true, true)
+				local tab = Manager.registerTab(t.display_name, t.icon, roots, true, true, true)
+				tab.IconLabel.ImageColor3 = UDF.from(t.icon_color)
 			end
 		end,
 		repo_proxies = function()
@@ -1164,6 +1295,9 @@ function Manager.loadState(savedState)
 
 			local de = {}
 			for inst_id, versions in ser do
+				local inst = Manager.getInstFromId(inst_id)
+				if not inst then continue end
+				
 				local de_versions = {}
 				for i, version in versions do
 					local t = version.timestamp
@@ -1176,7 +1310,7 @@ function Manager.loadState(savedState)
 						props = de_props
 					}
 				end
-				de[inst_id] = de_versions
+				de[inst] = de_versions
 			end
 			return de
 		end,
@@ -1207,12 +1341,51 @@ local function initRegisterPluginMenusAndActions(
 			box:CaptureFocus()
 		end)
 	end
+	
+	local tabEditIcon do
+		tabEditIcon = createPluginAction(
+			getId("EditIcon", true), "Edit Icon", "Edits the icon of a tab."
+		)
+
+		tabEditIcon.Triggered:Connect(function()
+			local tab = sharedTabState.contextTargetTab
+			if not tab then return end
+			
+			local colorBox = PluginUI.createAttributeBox(nil, "Icon Color", `{truncate(tab.IconColor.R * 255)}, {truncate(tab.IconColor.G * 255)}, {truncate(tab.IconColor.B * 255)}`)
+			local iconBox = PluginUI.createAttributeBox(nil, "Icon Image", tab.Icon)
+			
+			local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", {
+				iconBox, colorBox
+			})
+			Manager.Style:Link(widget)
+			
+			cancel:OnTrigger(function()
+				close()
+			end)
+			confirm:OnTrigger(function()
+				local icon = iconBox:Get()
+				local r, g, b = xyz(colorBox:Get())
+				local color = Color3.fromRGB(
+					asnumber(r),
+					asnumber(g),
+					asnumber(b)
+				)
+				tab.IconLabel.Image = icon
+				tab.Icon = icon
+				
+				tab.IconLabel.ImageColor3 = color
+				tab.IconColor = color
+				
+				close()
+			end)
+		end)
+	end
 
 	local tabBar = topbar.TabBar
 
 	do
 		local insertButton = PluginUI.createInsertButton(tabBar.Tabs, function()
-			Manager.registerTab("Tab", {}, true, true, true)
+			Manager.registerTab("Tab", "", {}, true, true, true)
 		end)
 
 		insertButton.LayoutOrder = math.huge
@@ -1855,10 +2028,6 @@ local function initRegisterPluginMenusAndActions(
 				for _, entity in state.CurrentSelection do
 					originalStates[entity] = world:get(entity, components.FrameIconColor) -- Color3 or nil
 				end
-				
-				local function truncate(num: number)
-					return string.format("%.2f", num)
-				end
 
 				picker:BindToChange(function(newColor)
 					currentColor = newColor
@@ -1907,10 +2076,6 @@ local function initRegisterPluginMenusAndActions(
 			local selectionChangedConn = game.Selection.SelectionChanged:Connect(function()
 				refreshFromSelection()
 			end)
-
-			local function asnumber(x)
-				return assert(tonumber(x))
-			end
 
 			box:OnChange(function(newValue)
 				local x, y, z = xyz(newValue)
@@ -1979,7 +2144,8 @@ local function initRegisterPluginMenusAndActions(
 		Ungroup = ungroupAction,
 		ChangeIconColor = changeIconColorAction,
 
-		Tab_EditName = tabEditName
+		Tab_EditName = tabEditName,
+		Tab_EditIcon = tabEditIcon
 	}
 
 	state.DefaultInstanceActionsArray = {
@@ -2084,7 +2250,8 @@ local function initRegisterPluginMenusAndActions(
 	local tabMenu = Manager.createContextMenu(
 		getId("Jexplorer_TabContextMenu", true),
 		{
-			"Tab_EditName"
+			"Tab_EditName",
+			"Tab_EditIcon"
 		}
 	)
 
@@ -2868,12 +3035,12 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	}
 
 	local instanceTree = jexplorerUi.InstanceTree
-
-	local name = "jexplorer_instance_storage"
-	local storage = game:GetService("ServerStorage"):FindFirstChild(name) or Instance.new("Folder")
-	storage.Name = name
-	storage.Parent = game:GetService("ServerStorage")
-	Manager.Storage = storage
+	
+	local storage = findOrCreateInstance(game:GetService("ServerStorage"), "jexplorer_instance_storage", "Folder")
+	Manager.Storage = {
+		repoRoots = findOrCreateInstance(storage, "repo_roots", "Folder"),
+		idObjects = findOrCreateInstance(storage, "jexplorer_ids", "Folder")
+	}
 	
 	local world = Jecs.world()
 	local queryWorld = Jecs.world()
@@ -2950,10 +3117,21 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		end
 	end
 	
-	for _, v in game:GetDescendants() do
-		Manager.DebugIdToInstance[Manager.getInstId(v)] = v
+	for _, obj in Manager.Storage.idObjects:GetChildren() do
+		assert(obj:IsA("ObjectValue"))
+		
+		local inst = obj.Value
+		if not inst then
+			obj:Destroy()
+			continue
+		end
+		
+		local id = obj:GetAttribute(ID_ATTR)
+		
+		Manager.InstanceToId[inst] = id
+		Manager.IdToInstance[id] = inst
+		Manager.IdToObjectValue[id] = obj
 	end
-	
 	ExplorerFrame.initializeFrameCaches(Manager)
 	local topbarMenuDropdown = CreateOptionsDropdown(Manager, components, topbar)
 
@@ -2972,8 +3150,9 @@ function Manager.init(onClose, connections, jexplorerWidget)
 
 	ContextMenuEditor.init(Manager)
 	JextensionEditor.init(Manager)
+	StateEditor.init(Manager)
 
-	Manager.AllTab = Manager.registerTab("All", entities, false, false, false)
+	Manager.AllTab = Manager.registerTab("All", "rbxassetid://13641691796", entities, false, false, false)
 	-- Wait until robloxs scrollingframe update
 	task.delay(1.5, Manager.AllTab.Toggle)
 
@@ -2989,13 +3168,13 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		VersionControl.SourceViewerWidget,
 		VersionControl.VersionViewerWidget,
 		InstanceVisibilityEditor.Widget,
+		StateEditor.Widget,
 		PropertyEditor.Widget,
 		ContextMenuEditor.Widget
 	}
 
 	instances:add_many({
 		plugin,
-		storage
 	})
 
 	local scriptConnections = initConnections(state, components, topbarMenuDropdown)
@@ -3004,13 +3183,6 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		tagAdded,
 		tagRemoved,
 		scrollTrackerConnection,
-		
-		game.DescendantAdded:Connect(function(descendant)
-			Manager.DebugIdToInstance[Manager.getInstId(descendant)] = descendant
-		end),
-		game.DescendantRemoving:Connect(function(descendant)
-			Manager.DebugIdToInstance[Manager.getInstId(descendant)] = nil
-		end)
 	})
 	
 	connections:extend(cleanup.call, {

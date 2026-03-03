@@ -213,6 +213,9 @@ return {
 		},
 		template "TextButton" {
 			Name = "Button",
+		},
+		template "ImageLabel" {
+			Name = "Icon"
 		}
 	}
 }
