@@ -912,7 +912,8 @@ function PluginUI.createButton(list: ItemList, text: string?, callback: (() -> (
 	return item
 end
 
-function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, attributeValue: any?, callback: ((string) -> ())?, nameLabelIsBox: boolean?)
+function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, attributeValue: any?, callback: ((string) -> ())?, nameLabelIsBox: boolean?, equalsVisible: boolean?)
+	local equalsVisible = if equalsVisible == nil then true else false
 	local attrBox = Instance.new("Frame")
 	attrBox.Name = "AttributeBoxItem"
 	attrBox.BackgroundTransparency = 1
@@ -972,6 +973,7 @@ function PluginUI.createAttributeBox(list: ItemList?, attributeName: string?, at
 	equalsLabel.Position = UDim2.new(0, 0, 0.5, 0) -- updated in updateValueBox
 	equalsLabel.Size = UDim2.new(0, 16, 1 - 0.1, 0)
 	equalsLabel.ZIndex = 4
+	equalsLabel.Visible = equalsVisible
 	equalsLabel.Parent = attrBox
 
 	local function updateValueBox()

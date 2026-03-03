@@ -927,7 +927,13 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 			local path = pathBox:Get()
 			local branch = branchBox:Get()
 
-			assert(VersionControl.Token)
+			if not VersionControl.Token then
+				finishedFrame.Visible = true
+				finishedText.Text = "Please select a valid AuthToken"
+				task.wait(FINISH_TIME)
+				finishedFrame.Visible = false
+				return
+			end
 			loadingFrame.Visible = true
 			local succ, result = pcall(GitAPI.batchOverwrite, VersionControl.Token, repoId, branch, path, GitAPI.getFileOpsForInstances(root), commitMsg)
 			loadingFrame.Visible = false
@@ -951,8 +957,14 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 			local repoId = repoIdBox:Get()
 			local path = pathBox:Get()
 			local branch = branchBox:Get()
-
-			assert(VersionControl.Token)
+			
+			if not VersionControl.Token then
+				finishedFrame.Visible = true
+				finishedText.Text = "Please select a valid AuthToken"
+				task.wait(FINISH_TIME)
+				finishedFrame.Visible = false
+				return
+			end
 			loadingFrame.Visible = true
 			local succ, result = pcall(GitAPI.batchCreateOrUpdate, VersionControl.Token, repoId, branch, GitAPI.getFileOpsForInstances(root), commitMsg)
 			loadingFrame.Visible = false
@@ -976,8 +988,14 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 			local repoId = repoIdBox:Get()
 			local path = pathBox:Get()
 			local branch = branchBox:Get()
-
-			assert(VersionControl.Token)
+			
+			if not VersionControl.Token then
+				finishedFrame.Visible = true
+				finishedText.Text = "Please select a valid AuthToken"
+				task.wait(FINISH_TIME)
+				finishedFrame.Visible = false
+				return
+			end
 			local succ, result = pcall(GitAPI.revertLastCommit, VersionControl.Token, repoId, branch, commitMsg)
 			
 			finishedFrame.Visible = true
@@ -1002,7 +1020,13 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 		local path = pathBox:Get()
 		local branch = branchBox:Get()
 
-		assert(VersionControl.Token)
+		if not VersionControl.Token then
+			finishedFrame.Visible = true
+			finishedText.Text = "Please select a valid AuthToken"
+			task.wait(FINISH_TIME)
+			finishedFrame.Visible = false
+			return
+		end
 		loadingFrame.Visible = true
 		--root:ClearAllChildren()
 		local succ, err = pcall(function()
@@ -1231,7 +1255,7 @@ function VersionControl.init(_m)
 	local currentSelectedSideButton: any
 	
 	local function create_token_box(name: string, token: string, _token_info: any)
-		local tokenFrame = PluginUI.createAttributeBox(tokenList, name, string.rep("*", #token), nil, true)
+		local tokenFrame = PluginUI.createAttributeBox(tokenList, name, string.rep("*", #token), nil, true, false)
 		local selectToken = PluginUI.createSideButtonImage("rbxassetid://93307505425754", Vector2.zero, Vector2.zero, tokenFrame.Instance.ValueBox)
 		local deleteButton = PluginUI.createSideButtonText("-", tokenFrame.Instance.ValueBox, 1)
 		deleteButton:AddTag("JEXP_Text")
