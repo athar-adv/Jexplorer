@@ -313,7 +313,7 @@ function VirtualScroller.update(Manager, isScroller)
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
 	
-	local size = UDim2.new(5, 0, 0, flatCount * height)
+	local size = UDim2.new(5, 0, 0, (flatCount + 1) * height)
 	state.TreeScroller.CanvasSize = size
 
 	VirtualScroller.IsVirtualScrollerUpdating = false

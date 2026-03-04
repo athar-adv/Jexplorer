@@ -16,6 +16,7 @@ local cleanup = ItemGroup.cleanup
 
 local DefaultStyle = require(shared.Defaults.DefaultStyle)
 local DefaultSettings = require(shared.Defaults.DefaultSettings)
+local DefaultInvisible = require(shared.Defaults.DefaultInvisibleClasses)
 local DefaultOrder = require(shared.Defaults.DefaultOrder)
 
 local OrderEditor = require("./OrderEditor")
@@ -23,6 +24,8 @@ local VersionControl = require("./VersionControl")
 local InstanceVisibilityEditor = require("./InstanceVisibilityEditor")
 
 local Types = require(main.Types)
+
+local PRINT_SAVEDSTATE_PREFIX = "SavedState: "
 
 local StateEditor = {} :: Types.StateEditor
 
@@ -113,23 +116,40 @@ function StateEditor.init(Manager)
 		table.clear(state.RepoProxies)
 	end
 	local function resetInvisible()
-		for v in InstanceVisibilityEditor.InvisibleClasses do
-			InstanceVisibilityEditor.setInvisible(v, false)
+		local tbl = {}
+		for _, class in DefaultInvisible do
+			InstanceVisibilityEditor.setInvisible(class, true)
+			tbl[class] = true
 		end
+		InstanceVisibilityEditor.InvisibleClasses = tbl
+		task.wait()
+		Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
 	end
 	
 	local mainList = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 	
+	local function onsaved()
+		print(PRINT_SAVEDSTATE_PREFIX, getPrintableTable(SavedState.load(Manager)))
+	end
+	
+	local function onload()
+		print(PRINT_SAVEDSTATE_PREFIX, getPrintableTable(state.SavedState))
+	end
+	
 	PluginUI.createHeader(mainList, `Latest DataVersion: {SavedState.data_version}`)
 	PluginUI.createButton(mainList, "Save State", function()
-		Manager.saveState()
-		print("SavedState: ", getPrintableTable(SavedState.load(Manager)))
+		local saver = Manager.saveState()
+		saver.all()
+		saver.save()
+		
+		onsaved()
 		widget.Enabled = false
 	end)
 	PluginUI.createButton(mainList, "Load State", function()
 		local loaders = Manager.loadState(SavedState.load(Manager))
 		for _, v: any in loaders do v() end
-		print(getPrintableTable(state.SavedState))
+		
+		onload()
 		widget.Enabled = false
 	end)
 	PluginUI.createButton(mainList, "Reset All To Default", function()
@@ -153,9 +173,19 @@ function StateEditor.init(Manager)
 			resetStyles()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.style()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			Manager.Style:Replace(loaders.style())
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -169,9 +199,19 @@ function StateEditor.init(Manager)
 			resetSettings()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.settings()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			loaders.settings()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -185,25 +225,45 @@ function StateEditor.init(Manager)
 			resetOrder()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.order()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			loaders.order()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
 	do
 		local list = PluginUI.createDropDownItemList({
 			Visible = true
-		}, "SavedState: Sorting Order")
+		}, "SavedState: Versions")
 		list:Parent(mainList)
 
 		PluginUI.createButton(list, "Reset To Default", function()
 			resetVersions()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.versions()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			VersionControl.Versions = loaders.versions()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -217,9 +277,19 @@ function StateEditor.init(Manager)
 			resetIconColors()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.icon_colors()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			VersionControl.Versions = loaders.icon_colors()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -233,9 +303,19 @@ function StateEditor.init(Manager)
 			resetTabs()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.tabs()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			VersionControl.Versions = loaders.tabs()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -249,9 +329,19 @@ function StateEditor.init(Manager)
 			resetRepoProxies()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.repo_proxies()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			VersionControl.Versions = loaders.repo_proxies()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end
@@ -265,9 +355,19 @@ function StateEditor.init(Manager)
 			resetInvisible()
 			widget.Enabled = false
 		end)
+		PluginUI.createButton(list, "Save", function()
+			local saver = Manager.saveState()
+			saver.invisible()
+			saver.save()
+			
+			onsaved()
+			widget.Enabled = false
+		end)
 		PluginUI.createButton(list, "Load", function()
 			local loaders = Manager.loadState(SavedState.load(Manager))
 			VersionControl.Versions = loaders.invisible()
+			
+			onload()
 			widget.Enabled = false
 		end)
 	end

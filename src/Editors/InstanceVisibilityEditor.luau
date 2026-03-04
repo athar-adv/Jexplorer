@@ -23,11 +23,14 @@ local InstanceVisibilityEditor = {
 } :: Types.InstanceVisibilityEditor
 
 function InstanceVisibilityEditor.setInvisible(className, invisible)
-	if not init then return end
+	if not init then return false end
 	local item = items[className]
-	assert(item)
-
+	if not item then
+		warn(`class '{className}' has no designated item.`)
+		return false
+	end
 	item.toggle(invisible)
+	return true
 end
 
 function InstanceVisibilityEditor.init(Manager)
@@ -50,20 +53,37 @@ function InstanceVisibilityEditor.init(Manager)
 	local classVisibilityDropdown = PluginUI.createDropDownItemList({Name = "InvisibleClassesDropdown", Visible = true}, "Invisible Classes")
 	classVisibilityDropdown:Parent(list)
 	
+	local instIcon = ClassIcon.getIcon("Instance")
+	assert(instIcon)
+	
 	local jsonBox
 	local thread = task.spawn(function()
 		local i = 1
-		for _, info in ReflectionService:GetClasses() do
+		local classes = ReflectionService:GetClasses({
+			Security = SecurityCapabilities.new(unpack(Enum.SecurityCapability:GetEnumItems()))
+		})
+		
+		local customclasses = {}
+		local function insertclass(f: ReflectedClass)
+			table.insert(customclasses, f)
+		end
+		
+		insertclass({
+			Name = "InstanceFileSyncService",
+			Permits = {},
+			Subclasses = {}
+		})
+		
+		local buttons: {GuiObject} = {}
+		local function onClass(info: ReflectedClass)
 			local className = info.Name
-			local icon = ClassIcon.getIcon(className)
-			if not icon then continue end
-			if i % 2 == 0 then task.wait(0.1) end
+			local icon = ClassIcon.getIcon(className) or instIcon
+			--if i % 2 == 0 then task.wait(0.1) end
 
 			-- Now invisible is the primary state
 			local invisible = InstanceVisibilityEditor.InvisibleClasses[className]
 			if invisible == nil then
 				invisible = false
-				InstanceVisibilityEditor.InvisibleClasses[className] = false
 			end
 
 			local button
@@ -73,24 +93,31 @@ function InstanceVisibilityEditor.init(Manager)
 				if invisible then
 					-- Invisible: dark background
 					button.Instance:RemoveTag("JEXP_Background")
-					button.Instance:AddTag("JEXP_DarkBackground")
+					button.Instance.Label:AddTag("JEXP_SelectedColor")
+					button.Instance.Label:RemoveTag("JEXP_Text")
+					button.Instance:AddTag("JEXP_SelectedColor")
 				else
 					-- Visible: normal background
-					button.Instance:RemoveTag("JEXP_DarkBackground")
+					button.Instance:RemoveTag("JEXP_SelectedColor")
+					button.Instance.Label:RemoveTag("JEXP_SelectedColor")
+					button.Instance.Label:AddTag("JEXP_Text")
 					button.Instance:AddTag("JEXP_Background")
 				end
-				InstanceVisibilityEditor.InvisibleClasses[className] = invisible
+				InstanceVisibilityEditor.InvisibleClasses[className] = (invisible or nil) :: any
 				if _invisible == nil then
 					-- Update JSON box with invisible classes
 					jsonBox:Set(HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses))
-					Manager.VirtualScroller.update(Manager, false)
+					Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
 				end
 			end
 
-			button = PluginUI.createButtonWithIcon(classVisibilityDropdown, className, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, toggle)
+			button = PluginUI.createButtonWithIcon(nil, className, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, toggle)
+			table.insert(buttons, button.Instance)
 			if invisible then
 				button.Instance:RemoveTag("JEXP_Background")
-				button.Instance:AddTag("JEXP_DarkBackground")
+				button.Instance.Label:RemoveTag("JEXP_Text")
+				button.Instance:AddTag("JEXP_SelectedColor")
+				button.Instance.Label:AddTag("JEXP_SelectedColor")
 			end
 
 			items[className] = {
@@ -100,6 +127,14 @@ function InstanceVisibilityEditor.init(Manager)
 			}
 			i += 1
 		end
+		
+		for _, info in customclasses do
+			onClass(info)
+		end
+		for _, info in classes do
+			onClass(info)
+		end
+		classVisibilityDropdown:AddBulkItem(buttons)
 	end)
 	connections:extend(task.cancel, {thread})
 
@@ -120,7 +155,7 @@ function InstanceVisibilityEditor.init(Manager)
 
 			item.toggle(invisible)
 		end
-		Manager.VirtualScroller.update(Manager, false)
+		Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
 	end)
 end
 

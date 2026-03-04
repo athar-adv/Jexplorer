@@ -105,8 +105,6 @@ return {
 		"AlignOrientation",
 		"AlignPosition",
 		"AngularVelocity",
-		"LineForce",
-		"VectorForce",
 		"Attachment",
 		"BallSocketConstraint",
 		"HingeConstraint",
@@ -256,5 +254,16 @@ return {
 		"AtmosphereSensor",
 		"FluidForceSensor",
 		"BuoyancySensor"
+	},
+	
+	Scriptable = {
+		"TeleportOptions",
+		"DataStoreOptions",
+		"DataStoreGetOptions",
+		"DataStoreSetOptions",
+		"DataStoreIncrementOptions",
+		"ExperienceInviteOptions",
+		"GetTextBoundsParams",
+		"AudioSearchParams",
 	}
 } :: {[string]: {string}}

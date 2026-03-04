@@ -9,7 +9,7 @@
 ]]
 
 if not plugin then return end
-local VERSION = "2.1.1"
+local VERSION = "2.2.0"
 
 local global = shared
 local shared = script.Shared

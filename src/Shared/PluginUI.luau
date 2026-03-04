@@ -19,6 +19,7 @@ export type ItemList = {
 	Items: {GuiObject},
 	IsShown: boolean,
 	AddItem: (self: ItemList, item: GuiObject) -> (),
+	AddBulkItem: (self: ItemList, items: {GuiObject}) -> (),
 	RemoveItem: (self: ItemList, item: GuiObject) -> (),
 	Clear: (self: ItemList) -> (),
 	SetAnchor: (self: ItemList, anchorPoint: Vector2, position: UDim2) -> (),
@@ -206,7 +207,9 @@ function PluginUI.createEditorWidget<T>(mainframe: T, name: string, displayName:
 		PluginUI.getId(name, true), guiInfo or DockWidgetPluginGuiInfo.new(
 			Enum.InitialDockState.Float,
 			false,
-			true
+			true,
+			500,
+			300
 		)
 	)
 	widget:AddTag("JEXP_Widget")
@@ -243,6 +246,16 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 		item.Parent = container
 		item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset or 30)
 		table.insert(self.Items, item)
+		updateLayout(scrollingFrame)
+	end
+	
+	function itemList:AddBulkItem(items: {GuiObject})
+		for _, item in items do
+			item.Parent = container
+			table.insert(self.Items, item)
+			item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
+		end
+		
 		updateLayout(scrollingFrame)
 	end
 
@@ -354,6 +367,15 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 	function itemList:AddItem(item: GuiObject)
 		item.Parent = container
 		table.insert(self.Items, item)
+		updateLayout(container)
+	end
+	
+	function itemList:AddBulkItem(items: {GuiObject})
+		for _, item in items do
+			item.Parent = container
+			table.insert(self.Items, item)
+		end
+
 		updateLayout(container)
 	end
 
@@ -520,6 +542,16 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 		table.insert(self.Items, item)
 		updateLayout(container)
 	end
+	
+	function itemList:AddBulkItem(items: {GuiObject})
+		for _, item in items do
+			item.Parent = container
+			table.insert(self.Items, item)
+			item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
+		end
+
+		updateLayout(container)
+	end
 
 	function itemList:RemoveItem(item: GuiObject)
 		for i, existingItem in self.Items do
@@ -599,7 +631,7 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 	return itemList :: any
 end
 
-function PluginUI.createButtonWithIcon(list: ItemList, text: string, icon: string, imageRectOffset: Vector2, imageRectSize: Vector2, callback: (() -> ())?): TriggerUIItem
+function PluginUI.createButtonWithIcon(list: ItemList?, text: string, icon: string, imageRectOffset: Vector2, imageRectSize: Vector2, callback: (() -> ())?): TriggerUIItem
 	local button = Instance.new("Frame")
 	button:AddTag("JEXP_Background")
 	button:AddTag("JEXP_Hover")
@@ -640,7 +672,9 @@ function PluginUI.createButtonWithIcon(list: ItemList, text: string, icon: strin
 	clickButton.Text = ""
 	clickButton.Parent = button
 	
-	list:AddItem(button)
+	if list then
+		list:AddItem(button)
+	end
 	
 	local callbacks: {any} = {callback}
 	local item: TriggerUIItem = {

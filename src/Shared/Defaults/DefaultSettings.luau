@@ -5,7 +5,7 @@ local Style = require(script.Parent.Parent.Style)
 local var = Style.var
 
 return {
-	InternalBehavior = {
+	Internal = {
 		FlushCycleInterval = {
 			Type = "number",
 			Display = "Queue Flush Cycle Interval",
@@ -37,14 +37,14 @@ return {
 			Default = 40,
 		},
 	},
-	ExpandBehavior = {
+	Expand = {
 		AutoExpandOnSelect = {
 			Type = "boolean",
 			Display = "Auto-expand Ancestors on Select Unexpanded Instance",
 			Default = true,
 		},
 	},
-	SelectBehavior = {
+	Selection = {
 		PropertyEditorUpdatedOnSelect = {
 			Type = "boolean",
 			Display = "Property Editor (JProperties) Updated on Selection Changed",
@@ -61,7 +61,7 @@ return {
 			Default = 0.5
 		}
 	},
-	SavingBehavior = {
+	Saving = {
 		AutosaveInstChanged = {
 			Type = "boolean",
 			Display = "Autosave Instance Changes",
@@ -73,7 +73,14 @@ return {
 			Default = false
 		}
 	},
-	ScrollBehavior = {
+	Language = {
+		DocumentationLanguage = {
+			Type = "string",
+			Display = "Documentation Language (Roblox | System | locale-id)",
+			Default = "Roblox"
+		}
+	},
+	Scrolling = {
 		--SmoothScrollEnabled = {
 		--	Type = "boolean",
 		--	Display = "Smooth Scroll Enabled",
@@ -86,7 +93,7 @@ return {
 		ScrollStep = {
 			Type = "number",
 			Display = "Scrolling Step (offsets)",
-			Default = 40,
+			Default = 20,
 		},
 		--ScrollThreshold = {
 		--	Type = "number",
@@ -109,7 +116,7 @@ return {
 		--	Default = 0,
 		--},
 	},
-	FrameBehavior = {
+	ExplorerFrame = {
 		IndentWidth = {
 			Type = "number",
 			Display = "ExplorerFrame Children Indent Width",

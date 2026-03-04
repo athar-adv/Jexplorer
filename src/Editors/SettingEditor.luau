@@ -101,43 +101,14 @@ function SettingEditor.init(Manager)
 	Manager.Style:Link(widget)
 
 	local createSetting = SettingEditor.createSetting
-	local behaviors = {
-		ExpandBehavior = PluginUI.createDropDownItemList({
-			Name = "ExpandBehavior",
+	local behaviors = {}
+	for name in DefaultSettings do
+		behaviors[name] = PluginUI.createDropDownItemList({
+			Name = name,
 			Visible = true,
 			Parent = mainframe.Items.Content
-		}, "Expand Settings"),
-
-		ScrollBehavior = PluginUI.createDropDownItemList({
-			Name = "ScrollBehavior",
-			Visible = true,
-			Parent = mainframe.Items.Content
-		}, "Scrolling Settings"),
-
-		SelectBehavior = PluginUI.createDropDownItemList({
-			Name = "SelectBehavior",
-			Visible = true,
-			Parent = mainframe.Items.Content
-		}, "Select Settings"),
-
-		SavingBehavior = PluginUI.createDropDownItemList({
-			Name = "SavingBehavior",
-			Visible = true,
-			Parent = mainframe.Items.Content
-		}, "Saving Settings"),
-		
-		InternalBehavior = PluginUI.createDropDownItemList({
-			Name = "InternalBehavior",
-			Visible = true,
-			Parent = mainframe.Items.Content
-		}, "Internal Settings"),
-		
-		FrameBehavior = PluginUI.createDropDownItemList({
-			Name = "FrameBehavior",
-			Visible = true,
-			Parent = mainframe.Items.Content
-		}, "ExplorerFrame Settings"),
-	}
+		}, name)
+	end
 	
 	for behaviorName, list in DefaultSettings do
 		local behavior = behaviors[behaviorName]

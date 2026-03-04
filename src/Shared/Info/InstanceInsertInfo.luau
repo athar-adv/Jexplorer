@@ -10,7 +10,7 @@ local INSTANCE_INSERT_INFO: {
 		Props = {
 		}
 	},
-
+	
 	-- BasePart and descendants
 	["BasePart"] = {
 		SideEffect = function(part: BasePart)

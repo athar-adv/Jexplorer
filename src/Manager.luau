@@ -32,6 +32,7 @@ local UITemplates = require("./Shared/UITemplates")
 local ClassIcon = require("./Shared/Small/ClassIcon")
 local RawInst = require("./Shared/Small/RawInst")
 local InstanceRecord = require("./Shared/Small/InstanceRecord")
+local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
 
 local SettingEditor = require("./Editors/SettingEditor")
@@ -1085,123 +1086,150 @@ function Manager.saveState()
 	-- Collect all IDs that will be referenced in the new save
 	local usedIds: {[Types.InstanceId]: true} = {}
 
-	local savedState: SavedState.SavedState = {
-		icon_colors = computedtbl(function(ser)
-			local icons = {}
-			ser[PLACE_ID] = icons
-
-			for entity, inst, color in world:query(components.Instance, components.FrameIconColor):iter() do
-				local id = Manager.getOrCreateInstId(inst)
-				icons[id] = UDF.to(color)
-				usedIds[id] = true
-			end
-		end),
-		repo_proxies = computedtbl(function(ser)
-			for k, v in curr_state.repo_proxies do
-				ser[k] = v
-			end
-			local proxies = state.RepoProxies
-			ser[PLACE_ID] = {}
-			for _, v in proxies do
-				local id = Manager.getOrCreateInstId(v.Root)
-				usedIds[id] = true
-				table.insert(ser[PLACE_ID], {
-					display_name = v.DisplayName,
-					repo_id = v.RepoId,
-					root_inst_id = id,
-				})
-			end
-		end),
-		tabs = computedtbl(function(ser)
-			for k, v in curr_state.tabs do
-				ser[k] = v
-			end
-			local tabs = state.Tabs
-			ser[PLACE_ID] = {}
-			for _, v in tabs do
-				local inst_ids = {}
-				for _, ent in v.Roots do
-					local inst = world:get(ent, ct.Instance)
-					if not inst then continue end
-					local id = Manager.getOrCreateInstId(inst)
-					usedIds[id] = true
-					table.insert(inst_ids, id)
-				end
-				table.insert(ser[PLACE_ID], {
-					display_name = v.Name,
-					icon = v.Icon,
-					icon_color = UDF.to(v.IconColor),
-					inst_ids = inst_ids
-				})
-			end
-		end),
-		versions = computedtbl(function(ser)
-			local inst_vers = {}
-			ser[PLACE_ID] = inst_vers
-			for inst, versions in VersionControl.Versions do
-				local inst_id = Manager.getOrCreateInstId(inst)
-				usedIds[inst_id] = true
-				local ser_versions = {}
-				for i, version in versions do
-					local ser_props = {}
-					for k, v in version.props do
-						ser_props[k] = UDF.to(v)
-					end
-					ser_versions[i] = {
-						timestamp = version.timestamp:ToUniversalTime(),
-						props = ser_props
-					}
-				end
-				inst_vers[inst_id] = ser_versions
-			end
-		end),
-		display_order = computedtbl(function(ser)
-			ser.default_order = OrderEditor.DefaultPriority
-			ser.class_order = OrderEditor.ClassPriorities
-		end),
-		invisible = InstanceVisibilityEditor.InvisibleClasses,
-		settings = computedtbl(function(ser)
-			for k, v in SettingEditor.Configs do
-				ser[k] = UDF.to(v)
-			end
-		end),
-		style = computedtbl(function(ser)
-			local style = Manager.Style
-			local rules: {Types.SerializedStyleRule} = {}
-			local tokens = {}
-			SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
-			for k, v in style.Tokens do
-				tokens[k] = UDF.to(v)
-			end
-			ser.rules = rules
-			ser.tokens = tokens
-		end),
-		data_version = SavedState.data_version
-	}
+	local savedState = table.clone(curr_state)
+	savedState.data_version = SavedState.data_version
 	
-	for id in table.clone(Manager.IdToObjectValue) do
-		if not usedIds[id] then
-			local inst = Manager.IdToInstance[id]
-			Manager.IdToInstance[id] = nil
-			if inst then
-				Manager.InstanceToId[inst] = nil
+	local tbl; tbl = {
+		save = function()
+			for id in table.clone(Manager.IdToObjectValue) do
+				if not usedIds[id] then
+					local inst = Manager.IdToInstance[id]
+					Manager.IdToInstance[id] = nil
+					if inst then
+						Manager.InstanceToId[inst] = nil
+					end
+					local obj = Manager.IdToObjectValue[id]
+					Manager.IdToObjectValue[id] = nil
+					if obj then
+						obj:Destroy()
+					end
+				end
 			end
-			local obj = Manager.IdToObjectValue[id]
-			Manager.IdToObjectValue[id] = nil
-			if obj then
-				obj:Destroy()
+			
+			SavedState.save(savedState)
+		end,
+		all = function()
+			for k, v in tbl do
+				-- forgot to add k == "all" here which caused infinite recursion :sob:
+				if k == "save" or k == "all" then continue end
+				v()
 			end
-		end
-	end
+		end,
+		icon_colors = function()
+			savedState.icon_colors = computedtbl(function(ser)
+				local icons = {}
+				ser[PLACE_ID] = icons
 
-	SavedState.save(savedState)
-	return savedState
+				for entity, inst, color in world:query(components.Instance, components.FrameIconColor):iter() do
+					local id = Manager.getOrCreateInstId(inst)
+					icons[id] = UDF.to(color)
+					usedIds[id] = true
+				end
+			end)
+		end,
+		repo_proxies = function() 
+			savedState.repo_proxies = computedtbl(function(ser)
+				for k, v in curr_state.repo_proxies do
+					ser[k] = v
+				end
+				local proxies = state.RepoProxies
+				ser[PLACE_ID] = {}
+				for _, v in proxies do
+					local id = Manager.getOrCreateInstId(v.Root)
+					usedIds[id] = true
+					table.insert(ser[PLACE_ID], {
+						display_name = v.DisplayName,
+						repo_id = v.RepoId,
+						root_inst_id = id,
+					})
+				end
+			end)
+		end,
+		tabs = function()
+			savedState.tabs = computedtbl(function(ser)
+				for k, v in curr_state.tabs do
+					ser[k] = v
+				end
+				local tabs = state.Tabs
+				ser[PLACE_ID] = {}
+				for _, v in tabs do
+					local inst_ids = {}
+					for _, ent in v.Roots do
+						local inst = world:get(ent, ct.Instance)
+						if not inst then continue end
+						local id = Manager.getOrCreateInstId(inst)
+						usedIds[id] = true
+						table.insert(inst_ids, id)
+					end
+					table.insert(ser[PLACE_ID], {
+						display_name = v.Name,
+						icon = v.Icon,
+						icon_color = UDF.to(v.IconColor),
+						inst_ids = inst_ids
+					})
+				end
+			end)
+		end,
+		versions = function()
+			savedState.versions = computedtbl(function(ser)
+				local inst_vers = {}
+				ser[PLACE_ID] = inst_vers
+				for inst, versions in VersionControl.Versions do
+					local inst_id = Manager.getOrCreateInstId(inst)
+					usedIds[inst_id] = true
+					local ser_versions = {}
+					for i, version in versions do
+						local ser_props = {}
+						for k, v in version.props do
+							ser_props[k] = UDF.to(v)
+						end
+						ser_versions[i] = {
+							timestamp = version.timestamp:ToUniversalTime(),
+							props = ser_props
+						}
+					end
+					inst_vers[inst_id] = ser_versions
+				end
+			end)
+		end,
+		order = function()
+			savedState.display_order = computedtbl(function(ser)
+				ser.default_order = OrderEditor.DefaultPriority
+				ser.class_order = OrderEditor.ClassPriorities
+			end)
+		end,
+		invisible = function()
+			savedState.invisible = InstanceVisibilityEditor.InvisibleClasses
+		end,
+		settings = function()
+			savedState.settings = computedtbl(function(ser)
+				for k, v in SettingEditor.Configs do
+					ser[k] = UDF.to(v)
+				end
+			end)
+		end,
+		style = function()
+			savedState.style = computedtbl(function(ser)
+				local style = Manager.Style
+				local rules: {Types.SerializedStyleRule} = {}
+				local tokens = {}
+				SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
+				for k, v in style.Tokens do
+					tokens[k] = UDF.to(v)
+				end
+				ser.rules = rules
+				ser.tokens = tokens
+			end)
+		end,
+	}
+	return tbl
 end
 
 function Manager.loadState(savedState)
 	local state = Manager.WidgetState
 	local world = state.World
 	local ct = Manager.Components
+	state.SavedState = savedState
 
 	return {
 		icon_colors = function()
@@ -1786,7 +1814,10 @@ local function initRegisterPluginMenusAndActions(
 			if not children then return end
 
 			local id = ChangeHistoryService:TryBeginRecording("Ungroup", "Ungroup")
-
+			
+			for _, child in children do
+				world:add(child, components.AncestryLocked)
+			end
 			for _, child in children do
 				local inst = Manager.instanceOf(child)
 				if not inst then continue end
@@ -1798,9 +1829,13 @@ local function initRegisterPluginMenusAndActions(
 
 			targetInst.Parent = nil
 			Manager.updateParent(target, nil)
-
-			VirtualScroller.update(Manager, false)
+			
+			VirtualScroller.rebuildAndUpdate(Manager, false)
 			Manager.setExplorerEntitiesAsSelection(entities, true)
+			
+			for _, child in children do
+				world:remove(child, components.AncestryLocked)
+			end
 
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
@@ -1946,8 +1981,18 @@ local function initRegisterPluginMenusAndActions(
 
 			local inst = Manager.instanceOf(target)
 			if not inst then return end
-
-			plugin:OpenWikiPage(`en-us/api-reference/class/{inst.ClassName}`)
+			
+			local Localization = game:GetService("LocalizationService")
+			local localeId
+			local lang = Manager.getSetting("DocumentationLanguage")
+			if lang == "Roblox" then
+				localeId = Localization.RobloxLocaleId
+			elseif lang == "System" then
+				localeId = Localization.SystemLocaleId
+			else
+				localeId = lang
+			end
+			plugin:OpenWikiPage(`{localeId}/api-reference/class/{inst.ClassName}`)
 		end)
 	end
 
@@ -2118,6 +2163,18 @@ local function initRegisterPluginMenusAndActions(
 			end)
 		end)
 	end
+	
+	local saveAsObjAction do
+		saveAsObjAction = createPluginAction(
+			getId("SaveAsObj", true),
+			"Export as .obj...",
+			"Prompts to save selection as .obj file."
+		)
+		
+		saveAsObjAction.Triggered:Connect(function()
+			PluginManager:ExportSelection("Object")
+		end)
+	end
 
 	Manager.PluginActions = {
 		OpenVersionHistory = openVersionHistoryAction,
@@ -2145,6 +2202,7 @@ local function initRegisterPluginMenusAndActions(
 
 		SaveToFile = saveToFileAction,
 		SaveToRoblox = saveToRobloxAction,
+		ExportAsObj = saveAsObjAction,
 		
 		RemoveFromTab = removeFromTabAction,
 
@@ -2214,6 +2272,15 @@ local function initRegisterPluginMenusAndActions(
 		"InsertObject",
 		"SaveToFile",
 		"SaveToRoblox",
+		
+		{
+			Id = "Menu.ExportAs",
+			Title = "Export As",
+			{
+				"ExportAsObj"
+			}
+			
+		},
 
 		"---",
 		
@@ -3093,8 +3160,6 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	loaders.order()
 	loaders.invisible()
 	
-	Manager.WidgetState.SavedState = savedState
-
 	Manager.Style = sheet
 	sheet.Sheet.Parent = jexplorerWidget
 

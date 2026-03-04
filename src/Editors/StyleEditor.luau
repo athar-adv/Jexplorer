@@ -302,7 +302,7 @@ function StyleEditor.init(Manager)
 		end)
 	end
 	
-	local function createStyleRuleDropdown(rule: Style.Rule)
+	local function createStyleRuleDropdown(rule: Style.Rule, parentDropdown: PluginUI.ItemList?)
 		if rule:GetName() == nil then
 			rule:SetName("StyleRule")
 		end
@@ -365,11 +365,12 @@ function StyleEditor.init(Manager)
 			local defaultValue = v
 			createStylePropertyBox(dropdown, k, defaultValue, nil, rule)
 		end
+		local dropdowns = {}
 		for _, childRule in rule.ChildRules do
-			local childDropdown = createStyleRuleDropdown(childRule)
-			childDropdown:Parent(dropdown)
+			table.insert(dropdowns, createStyleRuleDropdown(childRule, nil).Backdrop)
 		end
-		rulesDropdown:AddItem(dropdown.Backdrop)
+		
+		dropdown:AddBulkItem(dropdowns)
 		local header = dropdown.Backdrop:FindFirstChild("DropDownHeader")
 		
 		PluginUI.createInsertButton(header, function()
@@ -397,9 +398,13 @@ function StyleEditor.init(Manager)
 			dropdown:Destroy()
 		end)
 		rule.RuleAdded:Connect(function(childRule)
-			local childDropdown = createStyleRuleDropdown(childRule)
-			childDropdown:Parent(dropdown)
+			print(childRule:GetName())
+			createStyleRuleDropdown(childRule, dropdown)
 		end)
+		if parentDropdown then
+			parentDropdown:AddItem(dropdown.Backdrop)
+		end
+		
 		return dropdown
 	end
 	
@@ -446,7 +451,7 @@ function StyleEditor.init(Manager)
 	
 	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string)
 		local box
-		box = PluginUI.createAttributeBox(tokensDropdown, k, defaultStr, function(newValue)
+		box = PluginUI.createAttributeBox(nil, k, defaultStr, function(newValue)
 			if newValue == defaultStr then 
 				sheet:SetToken(k, defaultValue, true)
 				return
@@ -536,6 +541,8 @@ function StyleEditor.init(Manager)
 				chooseColorButton.BackgroundColor3 = resolve(v)
 			end)
 		end
+		
+		return box
 	end
 	
 	local function showCreateTokenMenu()
@@ -557,29 +564,30 @@ function StyleEditor.init(Manager)
 			local defaultValue = UDF.from(defaultStr)
 			sheet:SetToken(name, defaultValue, true)
 
-			createTokenAttribute(name, defaultValue, defaultStr)
+			local box = createTokenAttribute(name, defaultValue, defaultStr)
+			tokensDropdown:AddItem(box.Instance)
 
 			close()
 		end)
 	end
 	
 	task.spawn(function()
-		task.wait(2)
+		local tokens = {}
 		for k, v in sheet.Tokens do
 			local defaultValue = v
 			local defaultStr = UDF.to(v)
 
-			createTokenAttribute(k, defaultValue, defaultStr)
-			task.wait(0.5)
+			table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr).Instance)
 		end
+		tokensDropdown:AddBulkItem(tokens)
 	end)
 	
 	task.spawn(function()
-		task.wait(2)
+		local dropdowns = {}
 		for _, rule in sheet.Rules do
-			createStyleRuleDropdown(rule)
-			task.wait(0.5)
+			table.insert(dropdowns, createStyleRuleDropdown(rule).Backdrop)
 		end
+		rulesDropdown:AddBulkItem(dropdowns)
 	end)
 	
 	local rulesHeader = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
@@ -599,7 +607,7 @@ function StyleEditor.init(Manager)
 	
 	connections:add_many({
 		sheet.RuleAdded:Connect(function(newRule)
-			createStyleRuleDropdown(newRule)
+			createStyleRuleDropdown(newRule, rulesDropdown)
 		end) :: any,
 	})
 	

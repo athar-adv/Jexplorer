@@ -369,13 +369,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		}),
 		rule("SelectedTabStyle", ".JEXP_TabFrame Frame.JEXP_SelectedColor", 10, {
 			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
-				TextColor3 = "rgb(255, 255, 255)",
+				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),
 			rule("InsertButtontyle", "> #Button > #Insert", 10, {
-				TextColor3 = "rgb(255, 255, 255)",
+				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),
 			rule("DeleteButonStyle", "> #Button > #Delete", 10, {
-				TextColor3 = "rgb(255, 255, 255)",
+				TextColor3 = Color3.fromRGB(255, 255, 255),
 			})
 		}),
 		rule("ExplorerFrameStyle", "#InstanceFrame Frame", 0, {

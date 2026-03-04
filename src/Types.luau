@@ -431,8 +431,19 @@ export type Manager = {
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
 	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
-
-	saveState: () -> SavedState,
+	
+	saveState: () -> {
+		save: () -> (),
+		all: () -> (),
+		icon_colors: () -> (),
+		style: () -> (),
+		versions: () -> (),
+		tabs: () -> (),
+		repo_proxies: () -> (),
+		settings: () -> (),
+		order: () -> (),
+		invisible: () -> (),
+	},
 	loadState: (state: SavedState) -> ({
 		icon_colors: () -> (),
 		style: () -> Style.Style,
@@ -520,7 +531,7 @@ export type InstanceVisibilityEditor = Editor & {
 	InvisibleClasses: {[string]: boolean},
 	InvisibleInstances: {[Instance]: boolean},
 
-	setInvisible: (className: string, invisible: boolean) -> (),
+	setInvisible: (className: string, invisible: boolean) -> boolean,
 }
 
 export type PropertyEditor = Editor & {

@@ -50,10 +50,10 @@ migrations = {
 	v15_to_v16 = noop,
 	v16_to_v17 = reset_styles,
 	v17_to_v18 = function(self, state, manager)
-		reset_settings(self, state, manager, "FrameBehavior")
+		reset_settings(self, state, manager, "ExplorerFrame")
 	end,
 	v18_to_v19 = function(self, state, manager)
-		reset_settings(self, state, manager, "InternalBehavior")
+		reset_settings(self, state, manager, "Internal")
 		reset_styles(self, state, manager)
 	end,
 	v19_to_v20 = function(self, state, manager)
@@ -66,7 +66,7 @@ migrations = {
 		state.repo_proxies = {}
 	end,
 	v21_to_v22 = function(self, state, manager)
-		reset_settings(self, state, manager, "ScrollBehavior")
+		reset_settings(self, state, manager, "Scrolling")
 		reset_styles(self, state, manager)
 	end,
 }

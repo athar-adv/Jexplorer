@@ -209,6 +209,7 @@ function InsertMenu.init(Manager)
 			for k, v in require("./Info/InstanceInsertInfo") do
 				if inst:IsA(k) then table.insert(infos, v) end
 			end
+			inst.Name = class
 			for _, info in infos do
 				for k, v in info.Props do
 					pcall(rawnewindex, inst, k, v)

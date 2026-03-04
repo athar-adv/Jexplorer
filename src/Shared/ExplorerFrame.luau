@@ -30,6 +30,9 @@ type ExplorerEntity = Types.ExplorerEntity
 type Manager = Types.Manager
 
 local GLOBAL_FRAME_CACHE_SIZE = 500  -- L2 cache: large, slower (parented to nil)
+local INSTANCE_ICON = ClassIcon.getIcon("Instance")
+assert(INSTANCE_ICON)
+
 local globalFramePool = {}
 
 local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected: boolean)
@@ -614,16 +617,16 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		if className == "Script" or className == "LocalScript" then
 			-- Do nothing, handled in default style
 		else
-			local image = string.match(icon.Image, "[^/]+$")
+			local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
 			local normalIcon = rule(name, slctr, 0, {
 				ImageRectOffset = icon.ImageRectOffset,
 				ImageRectSize = icon.ImageRectSize,
-				Image = var(`'rbxasset://studio_svg_textures/Shared/InsertableObjects/![$Theme]/Standard/{image}'`)
+				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
 			})
 			local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
 				ImageRectOffset = icon.ImageRectOffset,
 				ImageRectSize = icon.ImageRectSize,
-				Image = var(`'rbxasset://studio_svg_textures/Shared/InsertableObjects/![$SelectedTheme]/Standard/{image}'`)
+				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
 			})
 			normalIcon:AddTag("DontSaveRule")
 			lightIcon:AddTag("DontSaveRule")
