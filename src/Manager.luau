@@ -832,6 +832,49 @@ function Manager.getEntityAt(x, y, filteredParent)
 	return newParentFrame, entity
 end
 
+local function getColorBrightness(color)
+	if typeof(color) ~= "Color3" then
+		error("Cannot get brightness of non-Color3 value")
+	end
+	-- Use luminance formula: 0.299*R + 0.587*G + 0.114*B (scaled to 0-1)
+	return (0.299 * color.R + 0.587 * color.G + 0.114 * color.B)
+end
+
+local function convertToContrastCategory(str: string, light: string, dark: string, contrast: string)
+	if str:match(light) then
+		str = str:gsub(light, contrast)
+	end
+	if str:match(dark) then
+		str = str:gsub(dark, contrast)
+	end
+	return str
+end
+
+local function getTabImageIcon(tab: Tab, oldIcon: string)
+	local iconLabel = tab.IconLabel
+	local icon
+	if sharedTabState.currentlyOpenTab == tab then
+		local backgroundColor: Color3 = Manager.Style:GetToken("SelectedColor")
+		if getColorBrightness(backgroundColor) > 0.5 then
+			-- Background is light so icon is dark
+			-- Light mode icon is dark
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Light/")
+		else
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Dark/")
+		end
+	else
+		local backgroundColor: Color3 = Manager.Style:GetToken("LightBackgroundColor")
+		if getColorBrightness(backgroundColor) > 0.5 then
+			-- Background is light so icon is dark
+			-- Light mode icon is dark
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Light/")
+		else
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Dark/")
+		end
+	end
+	return icon
+end
+
 function Manager.registerTab(name, icon, stored, createDeleteButton, createInsertButton, registerIntoTabs)
 	local state = Manager.WidgetState
 	local jexplorerUi = state.JExplorerUI
@@ -901,8 +944,11 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 		local currentlyOpenTab = sharedTabState.currentlyOpenTab
 		if currentlyOpenTab then
 			local background = currentlyOpenTab.TabFrame
+			local iconLabel = currentlyOpenTab.IconLabel
 			background:RemoveTag("JEXP_SelectedColor")
 			background:AddTag("JEXP_LightBackground")
+			iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
+			
 			if currentlyOpenTab.InsertButton then
 				currentlyOpenTab.InsertButton.BackgroundTransparency = 1
 			end
@@ -915,7 +961,9 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 		end
 		tabFrame:RemoveTag("JEXP_LightBackground")
 		tabFrame:AddTag("JEXP_SelectedColor")
+		
 		sharedTabState.currentlyOpenTab = tab
+		iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
 
 		for _, entity in stored do
 			world:remove(entity, components.Invisible)
@@ -1391,13 +1439,23 @@ local function initRegisterPluginMenusAndActions(
 				close()
 			end)
 			confirm:OnTrigger(function()
-				local icon = iconBox:Get()
+				local icon: string = iconBox:Get()
 				local r, g, b = xyz(colorBox:Get())
 				local color = Color3.fromRGB(
 					asnumber(r),
 					asnumber(g),
 					asnumber(b)
 				)
+				local rbxclass = icon:match("@rbxclass%((.-)%)")
+				if rbxclass then
+					local result = ClassIcon.getIcon(rbxclass)
+					if not result then
+						warn(`'@rbxclass({rbxclass})' is not a valid Roblox Class`)
+					else
+						icon = getTabImageIcon(tab, result.Image)
+					end
+				end
+				
 				tab.IconLabel.Image = icon
 				tab.Icon = icon
 				

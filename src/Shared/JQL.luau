@@ -179,6 +179,7 @@ local function parseMatchesMacro(expr)
 
 	local property = parts[1]
 	local pattern = parts[2]
+	print(property, pattern)
 	
 	return {
 		type = "matches",

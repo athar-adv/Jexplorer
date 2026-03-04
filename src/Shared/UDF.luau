@@ -377,6 +377,16 @@ function UDF.from(input: string): any
 			tonumber(values[6])
 		)
 		return Ray.new(origin, direction)
+	elseif datatype == "inst" then
+		local values = string.split(input, "/")
+		local current = game
+		for _, part in values do
+			current = current[part]
+			if not current then
+				error(`Path '{input}' cannot be parsed fully: Instance '{current.Name}' does not have property '{part}'`)
+			end
+		end
+		return current
 	else
 		error(`[{datatype}] is not a valid datatype tag.`)
 	end

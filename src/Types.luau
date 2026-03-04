@@ -156,7 +156,7 @@ export type FrameState = {
 	packageLinkIcon: ImageLabel,
 	isVisible: boolean,
 	instanceName: TextBox,
-	pendingChanges: ImageLabel
+	pendingChanges: ImageLabel,
 }
 
 export type Components = {
