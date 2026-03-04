@@ -16,8 +16,6 @@ type ExplorerEntity = Types.ExplorerEntity
 
 local recentlyReusedEntities = {}
 local reuseDebounceTime = {}
-local isScrolling = false
-local isVirtualScrollerUpdating = false
 local lastScrollTime = 0
 
 local heightCache = {}
@@ -67,7 +65,7 @@ local function calculateDeepHeightOptimized(
 	return totalHeight
 end
 
-local VirtualScroller = {} :: Types.VirtualScroller
+local VirtualScroller = {IsScrolling = false, IsVirtualScrollerUpdating = false} :: Types.VirtualScroller
 
 function VirtualScroller.clearHeightCache()
 	table.clear(heightCache)
@@ -205,6 +203,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
 end
 
+local lastCanvasPos = Vector2.zero
 function VirtualScroller.update(Manager, isScroller)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -215,31 +214,29 @@ function VirtualScroller.update(Manager, isScroller)
 	local ExplorerFrame = Manager.ExplorerFrame
 	local HierarchyState = Manager.HierarchyState
 
-	if isScroller and isVirtualScrollerUpdating then
-		--task.defer(updateVirtualScroller)
+	if isScroller and VirtualScroller.IsVirtualScrollerUpdating then
+		task.defer(VirtualScroller.update, Manager, true)
 		return
 	end
 	profilebegin("Jexplorer::updateVirtualScroller")
 
-	isVirtualScrollerUpdating = true
-	local top = jexplorerUi.InstanceTree.CanvasPosition.Y
+	VirtualScroller.IsVirtualScrollerUpdating = true
+	local scrollStep = Manager.getSetting("ScrollStep")
+	local rawPos = state.TreeScroller.CanvasPosition
+	local top = math.floor(rawPos.Y / scrollStep) * scrollStep
+	
 	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount = filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
 
 	local currentTime = os.clock()
 	local any = false
 	for _, entity in invisible do
 		local frame = world:get(entity, components.Frame)
-		if frame and not isScrolling then
-			local lastReuseTime = reuseDebounceTime[entity] or 0
-
-			if currentTime - lastReuseTime > Manager.getSetting("VirtualReuseCooldown") then
-				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
-				any = true
-				reuseDebounceTime[entity] = currentTime
-			end
+		if frame then
+			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+			any = true
 		end
 	end
-	if any and not isScroller then
+	if any then
 		ExplorerFrame.flushFrameReuseQueue(Manager)
 	end
 
@@ -252,9 +249,13 @@ function VirtualScroller.update(Manager, isScroller)
 	local childrenMap = HierarchyState.ChildrenMap
 	local isEntityInvisible = Manager.isExplorerEntityInvisible
 	local childAmountCache = Manager.ChildAmountCache
-	local instanceTree = jexplorerUi.InstanceTree
 	local stateCache = HierarchyState.StateCache
-
+	local scrollContainer = state.InstanceTree
+	
+	local scrollPos = Vector2.new(rawPos.X, top)
+	local smoothed = lastCanvasPos:Lerp(scrollPos, 0.8)
+	lastCanvasPos = scrollPos
+	
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
@@ -295,7 +296,7 @@ function VirtualScroller.update(Manager, isScroller)
 			frameInst.Main.Arrow.Visible = visible
 		end
 
-		frameInst.Position = UDim2.fromOffset(info.indentoffset, absoluteYOffset)
+		frameInst.Position = UDim2.fromOffset(-smoothed.X + info.indentoffset, -smoothed.Y + absoluteYOffset)
 		local expandedHeight = expandedHeightIndex[entity]
 		if expandedHeight then
 			local ruler = frameInst.Ruler
@@ -305,16 +306,17 @@ function VirtualScroller.update(Manager, isScroller)
 			local ruler = frameInst.Ruler
 			ruler.Visible = false
 		end
-		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = instanceTree})
+		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
 	end
 	
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
 	
-	jexplorerUi.InstanceTree.CanvasSize = UDim2.new(5, 0, 0, flatCount * height)
+	local size = UDim2.new(5, 0, 0, flatCount * height)
+	state.TreeScroller.CanvasSize = size
 
-	isVirtualScrollerUpdating = false
+	VirtualScroller.IsVirtualScrollerUpdating = false
 	profileend()
 end
 
@@ -324,29 +326,30 @@ function VirtualScroller.rebuildAndUpdate(Manager, isScroller)
 end
 
 function VirtualScroller.trackScrolling(Manager)
-	local jexplorerUi = Manager.WidgetState.JExplorerUI
-	local lastPosition = jexplorerUi.InstanceTree.CanvasPosition
-	local lastScrollTime = os.clock()
-	local isScrolling = false
+	local state = Manager.WidgetState
+	local lastScrollTime = -math.huge -- never triggered yet
+	local settleTime = Manager.getSetting("VirtualScrollSettleTime")
 
-	local c = jexplorerUi.InstanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-		local currentPosition = jexplorerUi.InstanceTree.CanvasPosition
-		if (currentPosition - lastPosition).Magnitude > 1 then
-			isScrolling = true
-			lastScrollTime = os.clock()
-			lastPosition = currentPosition
+	local c = state.TreeScroller:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		-- Any signal fire = scrolling. Let the settle timer decide when it stops.
+		lastScrollTime = os.clock()
+
+		if not VirtualScroller.IsScrolling then
+			VirtualScroller.IsScrolling = true
 		end
 	end)
 
-	-- Check if scrolling has stopped
 	local t = task.spawn(function()
 		while true do
 			task.wait(1/30)
-			if isScrolling and os.clock() - lastScrollTime > Manager.getSetting("VirtualScrollSettleTime") then
-				isScrolling = false
+			-- Only flip to false if we were scrolling AND enough time has passed
+			-- without a new scroll event
+			if VirtualScroller.IsScrolling and (os.clock() - lastScrollTime) > settleTime then
+				VirtualScroller.IsScrolling = false
 			end
 		end
 	end)
+
 	return c, t
 end
 

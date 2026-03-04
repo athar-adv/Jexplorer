@@ -129,6 +129,14 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 					Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
 				end
 			)
+			PluginUI.createButton(topbarMenuDropdown, "Reassign ExplorerFrames", function()
+				local world = state.World
+				for entity, frame in world:query(components.Frame):iter() do
+					Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+				end
+				task.wait(1/30)
+				Manager.VirtualScroller.update(Manager, false)
+			end)
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButton(topbarMenuDropdown, "Kill Jexplorer", function()
 				local onClose = state.OnClose

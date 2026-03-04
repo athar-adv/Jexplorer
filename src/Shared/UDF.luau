@@ -327,22 +327,14 @@ function UDF.from(input: string): any
 		assert(value, `'{input}' is not a valid selector macro`)
 		return value
 	elseif datatype == "slctr" then
-		-- Tokenise on whitespace. Each token is either:
-		--   • an @macro(...) token  → expanded via parseSelectorMacro
-		--   • anything else         → kept verbatim (e.g. `.JEXP_Tagged`, `>`, `#Image`)
-		-- Tokens are rejoined with spaces to form the final selector string.
-		local parts = {}
-		for token in input:gmatch("%S+") do
-			if token:sub(1, 1) == "@" then
-				local expanded, kind = Selector.parseSelectorMacro(token)
-				assert(expanded and kind ~= "none", `'{token}' is not a valid selector macro`)
-				table.insert(parts, expanded)
-			else
-				table.insert(parts, token)
-			end
-		end
-		assert(#parts > 0, `[slctr] value '{input}' produced an empty selector`)
-		return table.concat(parts, " ")
+		local processed = input:gsub("(@[^(]+%b())", function(macro)
+			local expanded, kind = Selector.parseSelectorMacro(macro)
+			assert(expanded and kind ~= "none", `'{macro}' is not a valid selector macro`)
+			return expanded
+		end)
+
+		assert(#processed > 0, `[slctr] value '{input}' produced an empty selector`)
+		return processed
 	elseif datatype == "font_asset" then
 		local values = string.split(input, " ")
 		if #values < 3 then

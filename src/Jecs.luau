@@ -3429,7 +3429,7 @@ local function world_new()
 		end
 		return new_component
 	end
-
+	
 	world.entity = world_entity
 	world.query = world_query :: any
 	world.remove = world_remove

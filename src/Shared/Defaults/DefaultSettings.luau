@@ -74,25 +74,25 @@ return {
 		}
 	},
 	ScrollBehavior = {
-		SmoothScrollEnabled = {
-			Type = "boolean",
-			Display = "Smooth Scroll Enabled",
-			Default = false,
-			OnChange = function(Manager, newValue)
-				local jexplorerUi = Manager.WidgetState.JExplorerUI
-				jexplorerUi.InstanceTree.ScrollingEnabled = newValue
-			end
-		},
+		--SmoothScrollEnabled = {
+		--	Type = "boolean",
+		--	Display = "Smooth Scroll Enabled",
+		--	Default = false,
+		--	OnChange = function(Manager, newValue)
+		--		local jexplorerUi = Manager.WidgetState.JExplorerUI
+		--		jexplorerUi.InstanceTree.ScrollingEnabled = newValue
+		--	end
+		--},
 		ScrollStep = {
 			Type = "number",
-			Display = "Non-smooth Scroll Step",
+			Display = "Scrolling Step (offsets)",
 			Default = 40,
 		},
-		ScrollThreshold = {
-			Type = "number",
-			Display = "Non-smooth Scroll Threshold",
-			Default = 1,
-		},
+		--ScrollThreshold = {
+		--	Type = "number",
+		--	Display = "Non-smooth Scroll Threshold",
+		--	Default = 1,
+		--},
 		VirtualScrollFrameBuffer = {
 			Type = "number",
 			Display = "Virtual Scrolling Instance Frame Buffer",
@@ -103,11 +103,11 @@ return {
 			Display = "Virtual Scrolling Scroll Settle Time",
 			Default = var "1/20",
 		},
-		VirtualReuseCooldown = {
-			Type = "number",
-			Display = "Virtual Frame Reuse Cooldown",
-			Default = 0,
-		},
+		--VirtualReuseCooldown = {
+		--	Type = "number",
+		--	Display = "Virtual Frame Reuse Cooldown",
+		--	Default = 0,
+		--},
 	},
 	FrameBehavior = {
 		IndentWidth = {

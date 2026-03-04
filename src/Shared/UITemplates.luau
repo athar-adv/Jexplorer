@@ -8,27 +8,33 @@ return {
 		Name = "JexplorerUi",
 		"JEXP_Background",
 		
-		template "ScrollingFrame" {
+		template "Frame" {
 			Name = "InstanceTree",
-			
 			"JEXP_DarkBackground",
-			"JEXP_ScrollingFrame"
-		},
-		template "Frame" {
-			Name = "ScrollBackgroundHorizontal",
-			ZIndex = 4,
 			
-			"JEXP_DarkBackground",
-			"JEXP_GrayBorder",
-			"JEXP_ScrollBackgroundHorizontal"
-		},
-		template "Frame" {
-			Name = "ScrollBackgroundVertical",
-			ZIndex = 4,
+			template "ScrollingFrame" {
+				Name = "TreeScroller",
+				"JEXP_ScrollingFrame",
+			},
+			template "Frame" {
+				Name = "ScrollContainer"
+			},
+			template "Frame" {
+				Name = "ScrollBackgroundHorizontal",
+				ZIndex = 4,
 
-			"JEXP_DarkBackground",
-			"JEXP_GrayBorder",
-			"JEXP_ScrollBackgroundVertical"
+				"JEXP_DarkBackground",
+				"JEXP_GrayBorder",
+				"JEXP_ScrollBackgroundHorizontal"
+			},
+			template "Frame" {
+				Name = "ScrollBackgroundVertical",
+				ZIndex = 4,
+
+				"JEXP_DarkBackground",
+				"JEXP_GrayBorder",
+				"JEXP_ScrollBackgroundVertical"
+			},
 		},
 		template "Frame" {
 			Name = "Topbar",

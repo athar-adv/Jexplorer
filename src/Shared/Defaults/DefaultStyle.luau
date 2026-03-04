@@ -95,9 +95,23 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		rule("JExplorerUIStyle", "#JexplorerUi", 10, {
 			Size = UDim2.fromScale(1, 1),
 			
-			rule("InstanceTreeStyle", "> #InstanceTree ScrollingFrame", 2, {
-				Size = var "udim2(1, 0, 1, -($TopbarSize.Y.Offset + $PathBarSize.Y.Offset + $TabBarSize.Y.Offset + 10))",
-				AutomaticCanvasSize = Enum.AutomaticSize.None
+			rule("InstanceTreeStyle", "> #InstanceTree Frame", 2, {
+				Size = var "udim2(1, 0, 1, -($TopbarSize.Y.Offset + $PathBarSize.Y.Offset + $TabBarSize.Y.Offset))",
+				AutomaticCanvasSize = Enum.AutomaticSize.None,
+				ClipDescendants = true,
+				AnchorPoint = Vector2.new(0.5, 1),
+				BackgroundTransparency = 1,
+				Position = UDim2.new(0.5, 0, 1, 0),
+				ZIndex = 5,
+				
+				rule("ScrollContainerStyle", "> #ScrollContainer Frame", 2, {
+					Size = UDim2.fromScale(1, 1),
+					BackgroundTransparency = 1,
+				}),
+				rule("TreeScrollerStyle", "> #TreeScroller ScrollingFrame", 3, {
+					Size = UDim2.fromScale(1, 1),
+					BackgroundTransparency = 1,
+				})
 			}),
 			rule("TopbarStyle", "> #Topbar", 0, {
 				ZIndex = 10,

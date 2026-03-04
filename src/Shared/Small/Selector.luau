@@ -30,6 +30,8 @@ end
 local function parseSelectorMacro(selector: string): (string?, string)
 	selector = selector:gsub("%s", "")
 	if selector:sub(1, 1) == "@" then
+		print(selector)
+		
 		local parens = selector:match("%b()")
 		assert(parens, "macro must contain parens")
 		selector = selector:sub(2, #selector - #parens)

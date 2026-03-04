@@ -149,7 +149,11 @@ export type FrameState = {
 	lastPackageIconPos: number,
 	isAssigning: boolean,
 	setIconColor: Color3?,
-	icon: ImageLabel
+	icon: ImageLabel,
+	hasPackageLinkConn: boolean,
+	isVisible: boolean,
+	instanceName: TextBox,
+	pendingChanges: ImageLabel
 }
 
 export type Components = {
@@ -198,6 +202,8 @@ export type WidgetState = {
 	World: World,
 	QueryWorld: World,
 	FrameWorld: World,
+	InstanceTree: GuiObject,
+	TreeScroller: ScrollingFrame,
 
 	Connections: ItemGroup<RBXScriptConnection>,
 	Entities: {ExplorerEntity},
@@ -287,7 +293,7 @@ export type ExplorerFrameLib = {
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
 	
-	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3?) -> ()
+	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3?) -> (),
 }
 
 export type VirtualScroller = {
@@ -297,6 +303,9 @@ export type VirtualScroller = {
 	update: (Manager, isScroller: boolean) -> (),
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
 	trackScrolling: (Manager) -> (RBXScriptConnection, thread),
+	
+	IsScrolling: boolean,
+	IsVirtualScrollerUpdating: boolean
 }
 
 export type InsertMenu = {

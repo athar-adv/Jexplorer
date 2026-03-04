@@ -879,7 +879,7 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 			return
 		end
 
-		jexplorerUi.InstanceTree.CanvasPosition = Vector2.zero
+		state.TreeScroller.CanvasPosition = Vector2.zero
 		
 		local listener = sharedTabState.tabInsertListener
 		if listener then
@@ -2478,7 +2478,6 @@ local pathAncestryChangedConns: {RBXScriptConnection} = {}
 local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, components: typeof(Manager.Components))
 	local world = state.World
 	local jexplorerUi = state.JExplorerUI
-	local instanceTree = jexplorerUi.InstanceTree
 	local jexplorerWidget = state.Widget
 	local topbar = jexplorerUi.Topbar
 	
@@ -2551,7 +2550,6 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	local world = state.World
 	local queryWorld = state.QueryWorld
 	local jexplorerUi = state.JExplorerUI
-	local instanceTree = jexplorerUi.InstanceTree
 	local jexplorerWidget = state.Widget
 	local topbar = jexplorerUi.Topbar
 	local queryInput = topbar.QueryInputFrame.Scroll.QueryInput
@@ -2565,19 +2563,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 			VersionControl.addPendingChange(docScript, "Source", document:GetText())
 		end),
-		instanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		state.TreeScroller:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 			VirtualScroller.update(Manager, true)
-		end),
-		jexplorerUi.InstanceTree.InputChanged:Connect(function(input)
-			if jexplorerUi.InstanceTree.ScrollingEnabled then return end
-			if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
-			local scrollDir = input.Position.Z
-			if math.abs(scrollDir) < Manager.getSetting("ScrollThreshold") then return end
-
-			jexplorerUi.InstanceTree.CanvasPosition += Vector2.new(
-				0,
-				Manager.getSetting("ScrollStep") * -math.sign(scrollDir)
-			)
 		end),
 		studioSettings.ThemeChanged:Connect(function()
 			ClassIcon.CachedIcons = {}
@@ -2758,7 +2745,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			local _, entityIndex = HierarchyState.getFlattenedVisibleEntities(Manager, {}, false)
 			local idx = entityIndex[middle]
 			if idx then
-				local currentViewportTop = instanceTree.CanvasPosition.Y
+				local scroller = state.TreeScroller
+				local currentViewportTop = scroller.CanvasPosition.Y
 				local currentViewportBottom = currentViewportTop + Manager.InstTreeAbsoluteSizeY
 
 				local size: UDim2 = Manager.Style:GetToken("InstanceFrameSize")
@@ -2774,14 +2762,14 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 							targetFrameY - (Manager.InstTreeAbsoluteSizeY - size.Y.Offset) / 2
 						)
 					)
-					instanceTree.CanvasPosition = target
-					if not instanceTree.CanvasPosition:FuzzyEq(target, 0.01) then
-						local lastPosition = instanceTree.CanvasPosition
+					scroller.CanvasPosition = target
+					if not scroller.CanvasPosition:FuzzyEq(target, 0.01) then
+						local lastPosition = scroller.CanvasPosition
 						repeat
 							task.wait()
-							lastPosition = instanceTree.CanvasPosition
-							instanceTree.CanvasPosition = target
-						until instanceTree.CanvasPosition:FuzzyEq(lastPosition, 0.01)
+							lastPosition = scroller.CanvasPosition
+							scroller.CanvasPosition = target
+						until scroller.CanvasPosition:FuzzyEq(lastPosition, 0.01)
 					end
 				end
 			end
@@ -2893,7 +2881,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					HierarchyState.invalidateEntityStateCache(entity)
 					world:remove(entity, components.IsQueried)
 				end
-				jexplorerUi.InstanceTree.CanvasSize = UDim2.fromScale(0, 0)
+				state.InstanceTree.Size = UDim2.fromScale(0, 0)
 				VirtualScroller.update(Manager, false)
 				return
 			end
@@ -3021,8 +3009,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 			Manager.setExplorerEntitiesAsSelection(queried, true)
 		end),
-		instanceTree:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-			Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
+		state.TreeScroller:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			Manager.InstTreeAbsoluteSizeY = state.TreeScroller.AbsoluteSize.Y
 		end)
 	}
 end
@@ -3034,7 +3022,8 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		Parent = jexplorerWidget
 	}
 
-	local instanceTree = jexplorerUi.InstanceTree
+	local instanceTree = jexplorerUi.InstanceTree :: GuiObject
+	local treeScroller = (instanceTree :: any).TreeScroller :: ScrollingFrame
 	
 	local storage = findOrCreateInstance(game:GetService("ServerStorage"), "jexplorer_instance_storage", "Folder")
 	Manager.Storage = {
@@ -3065,14 +3054,17 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		InstanceContextMenus = nil :: any,
 		MiscContextMenus = nil :: any,
 		OnClose = onClose,
-		IsDragging = false
+		IsDragging = false,
+		
+		InstanceTree = (instanceTree :: any).ScrollContainer,
+		TreeScroller = treeScroller
 	}
 	
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local topbar = jexplorerUi.Topbar
 	
-	Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
+	Manager.InstTreeAbsoluteSizeY = treeScroller.AbsoluteSize.Y
 	
 	if getGlobalConfigValue("reset_state") == true then
 		SavedState.save(SavedState.get_default(Manager))
@@ -3155,8 +3147,7 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	Manager.AllTab = Manager.registerTab("All", "rbxassetid://13641691796", entities, false, false, false)
 	-- Wait until robloxs scrollingframe update
 	task.delay(1.5, Manager.AllTab.Toggle)
-
-	loaders.tabs()
+	task.delay(2, loaders.tabs)
 
 	local widgets: {DockWidgetPluginGui} = {
 		jexplorerWidget,
@@ -3209,9 +3200,11 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		local suc1 = HierarchyState.flushOnChildAddedQueue(Manager)
 		local suc2 = HierarchyState.flushOnChildRemovedQueue(Manager)
 		local suc3 = HierarchyState.flushEntityCleanupQueue(Manager)
-		task.defer(task.defer, task.defer, task.defer, function()
+		task.defer(task.defer, function()
 			ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-			ExplorerFrame.flushFrameReuseQueue(Manager)
+			if not VirtualScroller.IsScrolling and not VirtualScroller.IsVirtualScrollerUpdating then
+				ExplorerFrame.flushFrameReuseQueue(Manager)
+			end
 			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		end)
 		
@@ -3268,7 +3261,7 @@ function Manager.init(onClose, connections, jexplorerWidget)
 
 	jexplorerUi.Parent = jexplorerWidget
 	sheet:UpdateTokens()
-	Manager.InstTreeAbsoluteSizeY = instanceTree.AbsoluteSize.Y
+	Manager.InstTreeAbsoluteSizeY = treeScroller.AbsoluteSize.Y
 end
 
 Manager.ChildOf = ChildOf

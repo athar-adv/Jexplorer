@@ -120,7 +120,11 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		isAssigning = false,
 		lastPackageIconPos = 0,
 		packageIconConns = {},
-		icon = iconImage
+		icon = iconImage,
+		hasPackageLinkConn = false,
+		isVisible = true,
+		pendingChanges = main.PendingChanges,
+		instanceName = instanceName
 	}
 
 	local frameEntity = frameWorld:entity()
@@ -577,9 +581,11 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		return
 	end
 	world:set(entity, components.FrameTagAssignTicket, {frame = frame})
-
-	local isSelected = world:has(entity, components.Selected)
-	setFrameSelected(Manager, frame, isSelected)
+	
+	if not frameState.isVisible then
+		frameState.isVisible = true
+		rawnewindex(frameInst, "Visible", true)
+	end
 
 	local sheet = Manager.Style
 	local className = instance.ClassName
@@ -608,7 +614,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		end
 	end
 
-	rawnewindex(main.InstanceName, "Text", instance.Name)
+	rawnewindex(frameState.instanceName, "Text", instance.Name)
 
 	local arrow = main.Arrow
 	if world:has(entity, components.ArrowInvisible) then
@@ -636,37 +642,44 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	frameState.shouldDeselect = false
 
 	local link = instance:FindFirstChildOfClass("PackageLink")
-	
-	for _, v in frameState.packageIconConns do
-		v:Disconnect()
-	end
-	table.clear(frameState.packageIconConns)
-	
 	if link then
-		local function updatePackageIconPosition()
-			local scrollingFrame = state.JExplorerUI.InstanceTree
-			local containerWidth = scrollingFrame.AbsoluteSize.X
-			local canvasPosition = scrollingFrame.CanvasPosition.X
-			
-			local frameCanvasX = frameInst.Position.X.Offset
-			local visibleRightEdge = canvasPosition + containerWidth
-			local distanceToEdge = visibleRightEdge - frameCanvasX
+		if not frameState.hasPackageLinkConn then
+			local function updatePackageIconPosition()
+				local scrollingFrame = state.TreeScroller
+				local containerWidth = scrollingFrame.AbsoluteSize.X
+				local canvasPosition = scrollingFrame.CanvasPosition.X
 
-			local padding = 20
-			main.PackageLinkIcon.Position = UDim2.new(
-				0,
-				distanceToEdge - padding,
-				0.5,
-				0
-			)
+				local frameCanvasX = frameInst.Position.X.Offset
+				local visibleRightEdge = canvasPosition + containerWidth
+				local distanceToEdge = visibleRightEdge - frameCanvasX
+
+				local padding = 20
+				main.PackageLinkIcon.Position = UDim2.new(
+					0,
+					distanceToEdge - padding,
+					0.5,
+					0
+				)
+			end
+			frameState.packageIconConns = {
+				state.TreeScroller:GetPropertyChangedSignal("CanvasPosition"):Connect(updatePackageIconPosition),
+				frameInst:GetPropertyChangedSignal("Position"):Connect(updatePackageIconPosition)
+			}
+			frameState.hasPackageLinkConn = true
+			updatePackageIconPosition()
+			main.PackageLinkIcon.Visible = true
+		--else
+			-- Already has a packagelink connection, just don't do anything
 		end
-		frameState.packageIconConns = {
-			state.JExplorerUI.InstanceTree:GetPropertyChangedSignal("CanvasPosition"):Connect(updatePackageIconPosition),
-			frameInst:GetPropertyChangedSignal("Position"):Connect(updatePackageIconPosition)
-		}
-		updatePackageIconPosition()
-		main.PackageLinkIcon.Visible = true
 	else
+		if frameState.hasPackageLinkConn then
+			for _, v in frameState.packageIconConns do
+				v:Disconnect()
+			end
+			table.clear(frameState.packageIconConns)
+		end
+		
+		frameState.hasPackageLinkConn = false
 		main.PackageLinkIcon.Visible = false
 	end
 	
@@ -690,6 +703,11 @@ function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	
 	profilebegin("ExplorerFrame::Reuse");
 	if currentEntity and not world:has(currentEntity, components.FrameReuseTicket) then
+		frameInst.Visible = false
+		local frameState = frameWorld:get(frame, components.FrameState)
+		if frameState then
+			frameState.isVisible = false
+		end
 		world:set(currentEntity, components.FrameReuseTicket, {frame = frame})
 	end
 
@@ -825,6 +843,9 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local inst = world:get(entity, components.Instance)
 		if not inst then continue end
 		
+		local isSelected = world:has(entity, components.Selected)
+		setFrameSelected(Manager, frame, isSelected)
+		
 		local hasPendingChanges = world:has(entity, components.PendingChanges)
 		local scriptErrors = world:get(entity, components.ScriptErrors)
 		local scriptWarns = world:get(entity, components.ScriptWarns)
@@ -890,14 +911,14 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 				tagsToAdd[addCount] = newTag
 			end
 		end
-		if hasPendingChanges ~= frameInst.Main.PendingChanges.Visible then
+		if hasPendingChanges ~= frameState.pendingChanges.Visible then
 			if hasPendingChanges == true then
 				local bounds: Vector2 = rawindex(frameInst.Main.InstanceName, "TextBounds")
-				local x = frameInst.Main.InstanceName:GetStyled("Position").X.Offset + bounds.X
-				frameInst.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+				local x = frameState.instanceName:GetStyled("Position").X.Offset + bounds.X
+				frameState.pendingChanges.Position = UDim2.new(0, x + 26, 0.5)
 			end
 			
-			frameInst.Main.PendingChanges.Visible = hasPendingChanges
+			frameState.pendingChanges.Visible = hasPendingChanges
 		end
 		if removeCount > 0 or addCount > 0 then
 			for i = 1, removeCount do
@@ -926,4 +947,5 @@ function ExplorerFrame.setExplorerFrameIconColor(Manager, frame, color)
 	frameState.setIconColor = color
 	frameState.icon.ImageColor3 = color or Color3.fromRGB(255, 255, 255)
 end
+
 return ExplorerFrame
