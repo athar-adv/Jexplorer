@@ -70,9 +70,9 @@ function OrderEditor.init(Manager)
 	local buttons = {}
 	local buttonToClass = {}
 	
-	local function createClassPriorityBox(className: string, priority: number)
+	local function createClassPriorityBox(className: string, priority: number, dropdown: PluginUI.ItemList?)
 		local icon = ClassIcon.getIcon(className)
-		if not icon then return end
+		assert(icon)
 		
 		local buttonItem = PluginUI.createButtonWithIcon(
 			dropdown, className, 
@@ -177,6 +177,7 @@ function OrderEditor.init(Manager)
 			
 			button:Destroy()
 		end)
+		return buttonItem
 	end
 	
 	local header = dropdown.Backdrop:WaitForChild("DropDownHeader")
@@ -200,14 +201,16 @@ function OrderEditor.init(Manager)
 					end
 				end
 			end
-			createClassPriorityBox(name, 1)
+			createClassPriorityBox(name, 1, dropdown)
 			close()
 		end)
 	end)
 	
+	local items = {}
 	for i, v in OrderEditor.ClassPriorities do
-		createClassPriorityBox(v, i)
+		table.insert(items, createClassPriorityBox(v, i, dropdown).Instance)
 	end
+	dropdown:AddBulkItem(items)
 end
 
 return OrderEditor
