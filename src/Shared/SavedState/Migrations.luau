@@ -65,6 +65,10 @@ migrations = {
 		state.tabs = {}
 		state.repo_proxies = {}
 	end,
+	v21_to_v22 = function(self, state, manager)
+		reset_settings(self, state, manager, "ScrollBehavior")
+		reset_styles(self, state, manager)
+	end,
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

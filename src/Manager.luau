@@ -1639,6 +1639,18 @@ local function initRegisterPluginMenusAndActions(
 			end
 		end)
 	end
+	
+	local discardAction do
+		discardAction = createPluginAction(
+			getId("Jexplorer_ContextMenu_Discard", true), "Discard Changes", "Discard pending changes made to this Instance."
+		)
+		discardAction.Triggered:Connect(function()
+			for _, entity in state.CurrentSelection do
+				local inst = world:get(entity, components.Instance) :: Instance
+				VersionControl.discardPendingChanges(inst)
+			end
+		end)
+	end
 
 	local removeFromTabAction do
 		removeFromTabAction = createPluginAction(
@@ -2111,6 +2123,7 @@ local function initRegisterPluginMenusAndActions(
 		OpenVersionHistory = openVersionHistoryAction,
 		Append = appendAction,
 		Commit = commitAction,
+		Discard = discardAction,
 
 		Copy = copyAction,
 		PasteInto = pasteIntoAction,
@@ -2149,9 +2162,16 @@ local function initRegisterPluginMenusAndActions(
 	}
 
 	state.DefaultInstanceActionsArray = {
-		"OpenVersionHistory",
-		"Append",
-		"Commit",
+		{
+			Id = "Menu.VersionControl",
+			Title = "Version Control",
+			{
+				"OpenVersionHistory",
+				"Append",
+				"Commit",
+				"Discard"
+			}
+		},
 
 		"---",
 
@@ -2159,10 +2179,6 @@ local function initRegisterPluginMenusAndActions(
 		"PasteInto",
 		"Delete",
 		"Duplicate",
-
-		"---",
-
-		"Escape",
 		"Rename",
 
 		"---",
@@ -2191,15 +2207,11 @@ local function initRegisterPluginMenusAndActions(
 
 		"SelectChildren",
 		"CollapseAll",
-		"Drag",
 
 		"---",
 
 		"InsertFromFile",
 		"InsertObject",
-
-		"---",
-
 		"SaveToFile",
 		"SaveToRoblox",
 
@@ -2881,7 +2893,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					HierarchyState.invalidateEntityStateCache(entity)
 					world:remove(entity, components.IsQueried)
 				end
-				state.InstanceTree.Size = UDim2.fromScale(0, 0)
+				state.TreeScroller.CanvasSize = UDim2.fromScale(0, 0)
 				VirtualScroller.update(Manager, false)
 				return
 			end

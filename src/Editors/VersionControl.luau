@@ -25,6 +25,7 @@ local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
 
 local rawindex = RawInst.rawindex
+local rawnewindex = RawInst.rawnewindex
 
 local Types = require(main.Types)
 
@@ -44,6 +45,8 @@ local NUMBER_COLOR = Color3.fromRGB(255, 211, 78)
 local NIL_COLOR = Color3.fromRGB(255, 192, 34)
 local BOOL_COLOR = Color3.fromRGB(255, 192, 34)
 local CALL_COLOR = Color3.fromRGB(247, 236, 150)
+
+local JUST_DISCARDED = newproxy()
 
 local function str_replace(str: string, slice: string, startIndex: number, endIndex: number)
 	return string.sub(str, 1, startIndex) .. slice .. string.sub(str, endIndex, -1)
@@ -324,14 +327,14 @@ end
 function VersionControl.createInstanceVersion(inst, changedProp, newValue)
 	if not init then return false end
 	local currentTime = os.time()
-	
-	local id = inst -- Manager.getTempId(inst)
+
+	local id = inst
 	local versions = VersionControl.Versions[id]
 	if not versions then
 		versions = {}
 		VersionControl.Versions[id] = versions
 	end
-	
+
 	local props = {}
 	for _, v in ReflectionService:GetPropertiesOfClass(inst.ClassName) do
 		if not v.Permits.Read then continue end
@@ -350,15 +353,31 @@ end
 
 function VersionControl.addPendingChange(inst, changedProp, newValue)
 	if not init then return end
-	local id = inst -- Manager.getTempId(inst)
+	local id = inst
 	local changes = VersionControl.PendingChanges[id]
+	if changes == JUST_DISCARDED then
+		VersionControl.PendingChanges[id] = nil
+		return false
+	end
 	if not changes then
-		changes = {}
+		local originalProps = {}
+		for _, v in ReflectionService:GetPropertiesOfClass(inst.ClassName) do
+			if not v.Permits.Read then continue end
+			if not SecurityCapabilities.fromCurrent():Contains(v.Permits.Read) then continue end
+			originalProps[v.Name] = rawindex(inst, v.Name)
+		end
+		if inst:IsA("LuaSourceContainer") then
+			originalProps.Source = rawindex(inst, "Source")
+		end
+		changes = {
+			changedProps = {},
+			originalProps = originalProps,
+		}
 		VersionControl.PendingChanges[id] = changes
 	end
-	
-	changes[changedProp] = newValue
-	
+
+	changes.changedProps[changedProp] = newValue
+
 	if Manager.getSetting("AutosaveInstChanged") then
 		local currentHour = os.time() // 3600
 		local versions = VersionControl.Versions[id]
@@ -366,9 +385,9 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 			versions = {}
 			VersionControl.Versions[id] = versions
 		end
-		
+
 		local latestVersion = versions[#versions]
-		
+
 		if latestVersion and latestVersion.timestamp.UnixTimestamp // 3600 == currentHour then
 			VersionControl.appendPendingChanges(inst)
 		else
@@ -376,57 +395,104 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 		end
 		return
 	end
-	
+
 	local entity = Manager.InstanceToEntity[inst]
 	if not entity then return end
-	
+
 	local world = Manager.WidgetState.World
 	local components = Manager.Components
-	
+
 	world:add(entity, components.PendingChanges)
-	
+
 	Manager.VirtualScroller.update(Manager, false)
 	Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 end
 
-function VersionControl.appendPendingChanges(inst)
-	if not init then return false end
-	local id = inst -- Manager.getTempId(inst)
-	local changes = VersionControl.PendingChanges[id]
-	
-	if not changes then return false end
-	
-	local versions = VersionControl.Versions[id]
-	if not versions then return false end
-	if #versions == 0 then return false end
-	
-	for k, v in changes do
-		VersionControl.appendInstanceVersion(inst, k, v)
-	end
-	VersionControl.PendingChanges[id] = nil
-	
+local function removePendingChangseState(inst: Instance)
 	local entity = Manager.InstanceToEntity[inst]
 	if entity then
 		local world = Manager.WidgetState.World
 		local components = Manager.Components
 
 		world:remove(entity, components.PendingChanges)
-		
+
 		Manager.VirtualScroller.update(Manager, false)
 		Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	end
+end
+
+function VersionControl.appendPendingChanges(inst)
+	if not init then return false end
+
+	removePendingChangseState(inst)
+	local id = inst
+	local changes = VersionControl.PendingChanges[id]
+
+	if not changes then return false end
+
+	for k, v in changes.changedProps do
+		VersionControl.appendInstanceVersion(inst, k, v)
+	end
+	VersionControl.PendingChanges[id] = nil
+
+	return true
+end
+
+function VersionControl.discardPendingChanges(inst)
+	if not init then return false end
+
+	removePendingChangseState(inst)
+	local id = inst
+	local changes = VersionControl.PendingChanges[id]
+
+	if not changes then return false end
+	VersionControl.PendingChanges[id] = JUST_DISCARDED
 	
+	local isLuaSource = inst:IsA("LuaSourceContainer")
+	for k in changes.changedProps do
+		local v = changes.originalProps[k]
+		if v then
+			if k == "Source" and isLuaSource then
+				local document = ScriptEditorService:FindScriptDocument(inst)
+				if document then
+					task.spawn(function()
+						local line, char, anchorl, anchorc = document:GetSelection()
+						ScriptEditorService:UpdateSourceAsync(inst, function()
+							return v
+						end)
+						local totalLines = document:GetLineCount()
+						local cLine = math.min(line, math.max(1, totalLines - 1))
+						local cAnchorl = math.min(anchorl, math.max(1, totalLines - 1))
+						
+						local charCount = #document:GetLine(cLine)
+						local cChar = math.min(char, math.max(1, charCount - 1))
+						local cAnchorc = math.min(anchorc, math.max(1, charCount - 1))
+						document:ForceSetSelectionAsync(cLine, cChar, cAnchorl, cAnchorc)
+					end)
+				else
+					rawnewindex(inst, k, v)
+				end
+			else
+				rawnewindex(inst, k, v)
+			end
+		else
+			warn(`could not find prop '{k}'`)
+		end
+	end
+
 	return true
 end
 
 function VersionControl.createPendingChanges(inst)
 	if not init then return false end
-	local id = inst -- Manager.getTempId(inst)
+
+	removePendingChangseState(inst)
+	local id = inst
 	local changes = VersionControl.PendingChanges[id]
-	
+
 	if not changes then return false end
 	local first = true
-	for k, v in changes do
+	for k, v in changes.changedProps do
 		if first then
 			first = false
 			VersionControl.createInstanceVersion(inst, k, v)
@@ -434,32 +500,21 @@ function VersionControl.createPendingChanges(inst)
 		end
 		VersionControl.appendInstanceVersion(inst, k, v)
 	end
-	
-	local entity = Manager.InstanceToEntity[inst]
-	if entity then
-		local world = Manager.WidgetState.World
-		local components = Manager.Components
 
-		world:remove(entity, components.PendingChanges)
-		
-		Manager.VirtualScroller.update(Manager, false)
-		Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-	end
-	
 	return true
 end
 
 function VersionControl.appendInstanceVersion(inst, changedProp, newValue)
 	if not init then return false end
 	local currentTime = os.time()
-	
-	local id = inst -- Manager.getTempId(inst)
+
+	local id = inst
 	local versions = VersionControl.Versions[id]
 	if not versions then
 		versions = {}
 		VersionControl.Versions[id] = versions
 	end
-	
+
 	local latestVersion = versions[#versions]
 	if latestVersion then
 		latestVersion.props[changedProp] = newValue

@@ -393,26 +393,6 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 				Size = UDim2.new(0.94, 0, 0, 0)
 			}),
-			--rule("ChildrenStyle", "> #Children Frame", 0, {
-			--	Position = var "udim2(0, $IndentWidth, 0, 20)",
-			--	AutomaticSize = Enum.AutomaticSize.Y,
-			--	BackgroundTransparency = 1,
-			--	Size = UDim2.new(1, 0, 0, 0),
-
-			--	rule("RulerStyle", "> #Ruler Frame", 0, {
-			--		Visible = true, --ssss
-			--		Size = UDim2.new(0, 1, 1, 0),
-			--		BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
-			--		BackgroundTransparency = 0.5,
-			--		AutomaticSize = Enum.AutomaticSize.Y,
-			--		ZIndex = 0
-			--	}),
-			--	rule("ListStyle", "> #List Frame", 0, {
-			--		AutomaticSize = Enum.AutomaticSize.Y,
-			--		BackgroundTransparency = 1,
-			--		Size = UDim2.new(1, 0, 1, 0),
-			--	})
-			--}),
 			rule("RulerStyle", "> #Ruler Frame", 0, {
 				Position = var "udim2(0, 20, 0, 20)",
 				Visible = true,
@@ -493,7 +473,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					})
 				}),
 				rule("PendingChangesIconStyle", "> #PendingChanges ImageLabel", 0, {
-					AnchorPoint = Vector2.new(0, 0.5),
+					AnchorPoint = Vector2.new(1, 0.5),
 					BackgroundTransparency = 1,
 					Position = UDim2.new(0, -4, 0.5, 0),
 					Size = UDim2.new(0, 16, 0, 16),

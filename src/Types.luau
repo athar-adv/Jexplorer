@@ -146,11 +146,14 @@ export type FrameState = {
 	shouldDeselect: boolean,
 	lastClickTime: number,
 	packageIconConns: {RBXScriptConnection},
+	pendingChangeIconConns: {RBXScriptConnection},
 	lastPackageIconPos: number,
 	isAssigning: boolean,
 	setIconColor: Color3?,
 	icon: ImageLabel,
 	hasPackageLinkConn: boolean,
+	hasPendingChangesConn: boolean,
+	packageLinkIcon: ImageLabel,
 	isVisible: boolean,
 	instanceName: TextBox,
 	pendingChanges: ImageLabel
@@ -495,7 +498,8 @@ export type VersionControl = Editor & {
 	},
 	PendingChanges: {
 		[Instance]: {
-			[string]: any
+			changedProps: {[string]: any},
+			originalProps: {[string]: any}
 		}
 	},
 
@@ -507,6 +511,7 @@ export type VersionControl = Editor & {
 	addPendingChange: (inst: Instance, changedProp: string, newValue: any) -> (),
 	appendPendingChanges: (inst: Instance) -> boolean,
 	createPendingChanges: (inst: Instance) -> boolean,
+	discardPendingChanges: (inst: Instance) -> boolean,
 
 	createRepoProxy: (display_name: string, repo_id: string, root: Instance, register_into_proxies_array: boolean) -> RepoProxy
 }
