@@ -9,7 +9,10 @@
 ]]
 
 if not plugin then return end
-local VERSION = "2.2.0"
+
+local CoreGui = game:GetService("CoreGui")
+
+local VERSION = "3.0.0"
 
 local global = shared
 local shared = script.Shared
@@ -23,106 +26,86 @@ local PluginUI = require(shared.PluginUI)
 local ItemGroup = require(shared.Vendor.ItemGroup)
 local SavedState = require(shared.SavedState)
 local Types = require(script.Types)
+local UniPlugin = require(script.UniPlugin)(plugin)
 local cleanup = ItemGroup.cleanup
 
+local running = coroutine.running()
 local connections = ItemGroup.create(cleanup.disconnect)
+local instances = connections:extend(cleanup.destroy)
+connections:extend(cleanup.call, {function()
+	repeat
+		local success = pcall(task.cancel, running)
+		task.wait()
+	until success
+end})
 
 local finished_init = false
-local function onClose()
+UniPlugin:onClose(function()
 	if Manager.Storage then
 		if Manager.Storage.repoRoots then
 			Manager.Storage.repoRoots:ClearAllChildren()
 		end
 	end
-	global.Jexplorer.__close:Fire()
-	
+
 	if finished_init and Manager.getSetting("SaveOnClose") then
 		Manager.saveState()
 	end 
-	plugin:Destroy()
 	connections:free()
-end
-
-connections:add_many({
-	plugin.Unloading:Connect(onClose),
-	plugin.Destroying:Connect(onClose),
-	script.Destroying:Connect(onClose)
-})
-
-local function getevent(name: string): BindableEvent
-	local ev
-	if global.Jexplorer and global.Jexplorer[name] then
-		ev = global.Jexplorer[name]
-	else
-		ev = Instance.new("BindableEvent")
-	end
-	return ev
-end
+end)
 
 -- Public jexplorer plugin api
-local onLoadEvent = getevent("__load")
-local onCloseEvent = getevent("__close")
-local modifyIconEvent = getevent("__modify")
-
-local jexplorerApi: Types.Jexplorer = {
-	Manager = Manager,
+UniPlugin:setApi("manager", Manager)
+UniPlugin:setApi("editors", {
 	StyleEditor = require(editors.StyleEditor),
 	SettingEditor = require(editors.SettingEditor),
 	OrderEditor = require(editors.OrderEditor),
 	VersionControl = require(editors.VersionControl),
 	PropertyEditor = require(editors.PropertyEditor),
-	
-	Dependencies = {
-		Selector = require(shared.Small.Selector),
-		Style = require(shared.Style),
-		PluginUI = require(shared.PluginUI),
-		ClassIcon = require(shared.Small.ClassIcon),
-		UDF = require(shared.UDF),
-		SavedState = SavedState,
-		GitAPI = require(shared.GitAPI)
-	},
-	
-	OnLoad = onLoadEvent.Event,
-	OnClose = onCloseEvent.Event,
-	ModifyIconStep = modifyIconEvent.Event,
-	
-	__load = onLoadEvent,
-	__close = onCloseEvent,
-	__modify = modifyIconEvent
-}
+})
+UniPlugin:setApi("dependencies", {
+	Selector = require(shared.Small.Selector),
+	Style = require(shared.Style),
+	PluginUI = require(shared.PluginUI),
+	ClassIcon = require(shared.Small.ClassIcon),
+	UDF = require(shared.UDF),
+	SavedState = SavedState,
+	GitAPI = require(shared.GitAPI)
+})
+UniPlugin:exportAs("athar-adv/Jexplorer")
+
+local function pluginui<T>(name: string, create: () -> T): T
+	local success
+	local item: any
+	while true do
+		success, item = pcall(create)
+		if success then break end
+		task.wait()
+	end
+	item.Name = "Jexplorer_TOOLBAR"
+	return item
+end
 
 local getId = PluginUI.getId
+local pluginToolbar = pluginui("TOOLBAR", function()
+	return plugin:CreateToolbar("athar_adv's tools")
+end)
 
-global.Jexplorer = jexplorerApi
-local success
-local pluginToolbar
-while true do
-	success, pluginToolbar = pcall(plugin.CreateToolbar, plugin, "athar_adv's tools")
-	if success then break end
-	task.wait()
-end
-local uiToggleButton
-while true do
-	success, uiToggleButton = pcall(pluginToolbar.CreateButton, pluginToolbar,
+local uiToggleButton = pluginui("UITOGGLE", function()
+	return pluginToolbar:CreateButton(
 		getId("ToggleUI"), "Toggle the explorer widget visibility",
 		"rbxassetid://112696382020883", "Jexplorer"
 	)
-	if success then break end
-	task.wait()
-end
+end)
 
-local jexplorerWidget
-while true do
-	success, jexplorerWidget = pcall(plugin.CreateDockWidgetPluginGuiAsync, plugin,
+local jexplorerWidget = pluginui("", function()
+	return plugin:CreateDockWidgetPluginGuiAsync(
 		getId("Jexplorer"), DockWidgetPluginGuiInfo.new(
 			Enum.InitialDockState.Left,
 			false,
 			false
 		)
 	)
-	if success then break end
-	task.wait()
-end
+end)
 
 jexplorerWidget:AddTag("JEXP_Widget")
 jexplorerWidget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -130,15 +113,16 @@ jexplorerWidget.Title = `Jexplorer [{VERSION}]`
 jexplorerWidget.Name = "Jexplorer"
 
 jexplorerWidget:BindToClose(function()
-	uiToggleButton:SetActive(false)
 	jexplorerWidget.Enabled = not jexplorerWidget.Enabled
+end)
+jexplorerWidget:GetPropertyChangedSignal("Enabled"):Connect(function()
+	uiToggleButton:SetActive(jexplorerWidget.Enabled)
 end)
 
 local function init()
 	finished_init = true
 	Manager.Toolbar = pluginToolbar
-	Manager.init(onClose, connections, jexplorerWidget)
-	onLoadEvent:Fire()
+	Manager.init(connections, jexplorerWidget)
 	
 	jexplorerWidget.Enabled = true
 	uiToggleButton:SetActive(true)

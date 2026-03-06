@@ -228,7 +228,6 @@ export type WidgetState = {
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
-	OnClose: (() -> ())?
 }
 
 export type HierarchyState = {
@@ -327,7 +326,8 @@ export type Manager = {
 	Toolbar: PluginToolbar,
 	Storage: {
 		repoRoots: Instance,
-		idObjects: Instance
+		idObjects: Instance,
+		--pluginActions: Instance
 	},
 
 	InstTreeAbsoluteSizeY: number,
@@ -382,6 +382,7 @@ export type Manager = {
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 
 	triggerDuplicateTarget: () -> (),
+	triggerDuplicateTargetWithIncrementName: () -> (),
 	triggerDeleteTarget: () -> (),
 	triggerEscapeTarget: () -> (),
 
@@ -425,7 +426,7 @@ export type Manager = {
 
 	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,
 
-	init: (onClose: () -> (), connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
+	init: (connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
 
 	frameOf: (frame: ExplorerFrame) -> typeof(main.__legacy.UI.InstanceFrame)?,
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,

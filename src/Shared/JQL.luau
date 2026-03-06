@@ -179,12 +179,56 @@ local function parseMatchesMacro(expr)
 
 	local property = parts[1]
 	local pattern = parts[2]
-	print(property, pattern)
-	
+
 	return {
 		type = "matches",
 		property = property,
 		pattern = pattern,
+	}
+end
+
+local function parseIsMacro(expr)
+	local content = expr:match("^@is%((.*)%)$")
+	if not content then
+		error("Invalid @is syntax: " .. expr)
+	end
+
+	local parts = splitArguments(content)
+	if #parts ~= 2 then
+		error("@is requires exactly 2 arguments: property and type: " .. expr)
+	end
+
+	return {
+		type = "is",
+		property = parts[1]:gsub("^%s+", ""):gsub("%s+$", ""),
+		expectedType = parts[2]:gsub("^%s+", ""):gsub("%s+$", "")
+	}
+end
+
+local function parsePatternMacro(expr)
+	local content = expr:match("^@pattern%((.*)%)$")
+	if not content then
+		error("Invalid @pattern syntax: " .. expr)
+	end
+
+	local parts = splitArguments(content)
+	if #parts ~= 2 then
+		error("@pattern requires exactly 2 arguments: property and pattern string: " .. expr)
+	end
+
+	local property = parts[1]:gsub("^%s+", ""):gsub("%s+$", "")
+	local patternStr = parts[2]:gsub("^%s+", ""):gsub("%s+$", "")
+
+	-- Strip required surrounding quotes
+	local stripped = patternStr:match('^"(.*)"$') or patternStr:match("^'(.*)'$")
+	if not stripped then
+		error("@pattern second argument must be a quoted string: " .. expr)
+	end
+
+	return {
+		type = "pattern",
+		property = property,
+		pattern = stripped
 	}
 end
 
@@ -330,7 +374,7 @@ local function parseCondition(condition)
 			local attributeName = condition:sub(2, equalPos - 1):gsub("^%s+", ""):gsub("%s+$", "")
 			local valueStr = condition:sub(equalPos + 1):gsub("^%s+", ""):gsub("%s+$", "")
 			local parsedValue = JDF.from(valueStr)
-			
+
 			return {
 				type = "attribute",
 				attributeName = attributeName,
@@ -356,6 +400,10 @@ local function parseCondition(condition)
 		return parseHasMacro(condition)
 	elseif condition:match("^@matches%(") then
 		return parseMatchesMacro(condition)
+	elseif condition:match("^@is%(") then
+		return parseIsMacro(condition)
+	elseif condition:match("^@pattern%(") then
+		return parsePatternMacro(condition)
 	else
 		error(`invalid condition: '{condition}'`)
 	end
@@ -405,6 +453,10 @@ local function getQueryCacheKey(queryTree)
 		return "has:" .. queryTree.componentName
 	elseif queryTree.type == "matches" then
 		return "matches:" .. queryTree.property .. "~" .. tostring(queryTree.pattern)
+	elseif queryTree.type == "is" then
+		return "is:" .. queryTree.property .. ":" .. queryTree.expectedType
+	elseif queryTree.type == "pattern" then
+		return "pattern:" .. queryTree.property .. "~" .. queryTree.pattern
 	elseif queryTree.type == "attribute" then
 		return "attr:" .. queryTree.attributeName .. "=" .. tostring(queryTree.value)
 	elseif queryTree.type == "and" then
@@ -480,6 +532,10 @@ local function estimateConditionCost(condition, world, componentMap, tagMap, att
 		return math.huge
 	elseif condition.type == "matches" then
 		return 5000
+	elseif condition.type == "is" then
+		return 5000
+	elseif condition.type == "pattern" then
+		return 5000
 	elseif condition.type == "pair" then
 		local component = componentMap[condition.component]
 		if component then
@@ -535,12 +591,11 @@ local function sortConditionsBySelectivity(conditions, world, componentMap, tagM
 		table.insert(conditionsWithCost, {condition = condition, cost = cost, index = i})
 	end
 
-	-- Sort by cost (lower cost = more selective = better)
-	table.sort(conditionsWithCost, function(a, b) 
+	table.sort(conditionsWithCost, function(a, b)
 		if a.cost == b.cost then
-			return a.index < b.index -- Stable sort
+			return a.index < b.index
 		end
-		return a.cost < b.cost 
+		return a.cost < b.cost
 	end)
 
 	local sorted = {}
@@ -557,7 +612,7 @@ local function getDescendantsAtDepthOptimized(world, entity, depth)
 	end
 
 	local descendants = {}
-	local visited = {} -- Prevent cycles
+	local visited = {}
 
 	local function collectAtDepth(currentEntity, currentDepth)
 		if visited[currentEntity] or currentDepth > depth then
@@ -597,7 +652,7 @@ local function getAncestorsAtDepthOptimized(world, entity, depth)
 	for i = 1, depth do
 		current = world:parent(current)
 		if not current then
-			return {} -- No ancestor at this depth
+			return {}
 		end
 	end
 
@@ -632,14 +687,34 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 		if not value then return false end
 
 		return fuzzyMatch(value, condition.pattern)
+	elseif condition.type == "is" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+
+		local value = instance[condition.property]
+		if value == nil then return false end
+
+		local enumType = condition.expectedType:match("^Enum%.(.+)$")
+		if enumType then
+			return typeof(value) == "EnumItem" and tostring(value.EnumType) == enumType
+		end
+
+		return typeof(value) == condition.expectedType
+	elseif condition.type == "pattern" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+
+		local value = instance[condition.property]
+		if value == nil then return false end
+
+		return tostring(value):match(condition.pattern) ~= nil
 	elseif condition.type == "attribute" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-		
+
 		local value = instance:GetAttribute(condition.attributeName)
 		return condition.value == value
 	else
-		-- For complex conditions, evaluate them recursively
 		local result = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 		for _, resultEntity in result do
 			if resultEntity == entity then
@@ -699,9 +774,7 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 	if condition.type == "component" then
 		return true -- Already filtered by the query
 	elseif condition.type == "has" then
-		local component = componentMap[condition.componentName]
-		if not component then return false end
-		return world:has(entity, component)
+		return true -- Already filtered by the query
 	elseif condition.type == "matches" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
@@ -710,6 +783,27 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 		if not value then return false end
 
 		return fuzzyMatch(value, condition.pattern)
+	elseif condition.type == "is" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+
+		local value = instance[condition.property]
+		if value == nil then return false end
+
+		local enumType = condition.expectedType:match("^Enum%.(.+)$")
+		if enumType then
+			return typeof(value) == "EnumItem" and tostring(value.EnumType) == enumType
+		end
+
+		return typeof(value) == condition.expectedType
+	elseif condition.type == "pattern" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+
+		local value = instance[condition.property]
+		if value == nil then return false end
+
+		return tostring(value):match(condition.pattern) ~= nil
 	elseif condition.type == "pair" then
 		local component = componentMap[condition.component]
 		if not component then
@@ -735,7 +829,8 @@ end
 local function evaluateLeafCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 	local validEntities = {}
 
-	if condition.type == "matches" then
+	-- Full instance scan for conditions that can't be indexed
+	if condition.type == "matches" or condition.type == "is" or condition.type == "pattern" then
 		local instanceComponent = components.Instance
 		if not instanceComponent then
 			return validEntities
@@ -801,7 +896,6 @@ end
 
 function evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 	if condition.type == "and" then
-		-- Sort conditions by estimated selectivity (most selective first)
 		local sortedConditions = sortConditionsBySelectivity(condition.conditions, world, componentMap, tagMap, attributeMap)
 
 		local result = nil
@@ -814,12 +908,12 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 				result = intersectEntitySetsOptimized(result, subResult)
 			end
 
-			-- Early termination if result becomes empty
 			if #result == 0 then
 				return {}
 			end
 		end
 		return result or {}
+
 	elseif condition.type == "or" then
 		local resultSet = {}
 		local seen = {}
@@ -839,7 +933,6 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		local validEntities = {}
 
 		if condition.wildcard then
-			-- Wildcard parent search: find any parent that matches the condition
 			local leafEntities = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap,
 				{type = "component", name = condition.condition.name or condition.condition.component or "Instance"})
 
@@ -847,11 +940,10 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 				local parentMatches = getAllWildcardParents(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
 				for _, parentEntity in parentMatches do
 					table.insert(validEntities, entity)
-					break -- Only need one match per entity
+					break
 				end
 			end
 		else
-			-- Regular parent search: exact depth
 			local parentMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
 			for _, parentEntity in parentMatches do
 				local descendants = getDescendantsAtDepthOptimized(world, parentEntity, condition.depth)
@@ -867,7 +959,6 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		local validEntities = {}
 
 		if condition.wildcard then
-			-- Wildcard child search: find any child that matches the condition
 			local leafEntities = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap,
 				{type = "component", name = condition.condition.name or condition.condition.component or "Instance"})
 
@@ -875,11 +966,10 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 				local childMatches = getAllWildcardChildren(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
 				for _, childEntity in childMatches do
 					table.insert(validEntities, entity)
-					break -- Only need one match per entity
+					break
 				end
 			end
 		else
-			-- Regular child search: exact depth
 			local childMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
 			for _, childEntity in childMatches do
 				local ancestors = getAncestorsAtDepthOptimized(world, childEntity, condition.depth)
@@ -892,12 +982,10 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		return validEntities
 
 	elseif condition.type == "descendant" then
-		-- *< operator: find all entities that are descendants of entities matching the condition
 		local validEntities = {}
 		local ancestorMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
 
 		for _, ancestorEntity in ancestorMatches do
-			-- Get all descendants of this ancestor
 			local descendants = JQL.getAllChildren(world, ancestorEntity)
 			for _, descendant in descendants do
 				table.insert(validEntities, descendant)
@@ -907,13 +995,11 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		return validEntities
 
 	elseif condition.type == "ancestor" then
-		-- *> operator: find all entities that have descendants matching the condition
 		local validEntities = {}
 		local descendantMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
 		local addedEntities = {}
 
 		for _, descendantEntity in descendantMatches do
-			-- Walk up the parent tree and add all ancestors
 			local current = world:parent(descendantEntity)
 			local visited = {}
 
@@ -943,14 +1029,14 @@ end
 function JQL.parseQuery(queryText)
 	return parseExpression(queryText)
 end
+
 -- Cache for parent trees to avoid recomputation
 local parentTreeCache = {}
 local cacheSize = 0
 local MAX_CACHE_SIZE = 1000
 
--- Optimized parent tree collection with caching and cycle detection
 function JQL.collectParentTree(world, entity, visited, useCache)
-	useCache = useCache ~= false -- Default to true
+	useCache = useCache ~= false
 
 	if useCache and parentTreeCache[entity] then
 		return parentTreeCache[entity]
@@ -960,7 +1046,7 @@ function JQL.collectParentTree(world, entity, visited, useCache)
 	local tree = {}
 
 	if visited[entity] then
-		return tree -- Cycle detected, return empty tree
+		return tree
 	end
 	visited[entity] = true
 
@@ -974,7 +1060,6 @@ function JQL.collectParentTree(world, entity, visited, useCache)
 		end
 	end
 
-	-- Cache the result if using cache and not at max capacity
 	if useCache and cacheSize < MAX_CACHE_SIZE then
 		parentTreeCache[entity] = tree
 		cacheSize = cacheSize + 1
@@ -983,18 +1068,15 @@ function JQL.collectParentTree(world, entity, visited, useCache)
 	return tree
 end
 
--- Clear cache when needed (call this periodically or when memory is low)
 function JQL.clearParentTreeCache()
 	parentTreeCache = {}
 	cacheSize = 0
 end
 
--- MUCH more efficient getAllChildren - stops early when possible
 function JQL.getAllChildren(world, entity, maxDepth)
 	local children = {}
 	local visited = {}
-	local currentDepth = 0
-	maxDepth = maxDepth or 100 -- Default depth limit to prevent infinite loops
+	maxDepth = maxDepth or 100
 
 	local function collectChildren(currentEntity, depth)
 		if visited[currentEntity] or depth > maxDepth then
@@ -1012,7 +1094,6 @@ function JQL.getAllChildren(world, entity, maxDepth)
 	return children
 end
 
--- NEW: Fast ancestor chain check - much more efficient than getAllChildren
 function JQL.isAncestorOf(world, potentialAncestor, entity, maxDepth)
 	maxDepth = maxDepth or 1000
 	local current = entity
@@ -1030,17 +1111,14 @@ function JQL.isAncestorOf(world, potentialAncestor, entity, maxDepth)
 	return false
 end
 
--- NEW: Check if entity is on path to any valid entity (much more efficient)
 function JQL.isOnPathToValidEntity(world, entity, validEntitySet)
-	-- Check if entity itself is valid
 	if validEntitySet[entity] then
 		return true
 	end
 
-	-- Check if any ancestor is valid (entity is descendant of valid entity)
 	local current = world:parent(entity)
 	local depth = 0
-	local maxDepth = 50 -- Reasonable limit for UI hierarchies
+	local maxDepth = 50
 
 	while current and depth < maxDepth do
 		if validEntitySet[current] then

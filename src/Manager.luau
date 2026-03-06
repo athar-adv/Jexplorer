@@ -34,6 +34,9 @@ local RawInst = require("./Shared/Small/RawInst")
 local InstanceRecord = require("./Shared/Small/InstanceRecord")
 local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
+local getClampedXY = require("./Shared/Small/GetClampedXY")
+
+local UniPlugin = require("./UniPlugin")(plugin)
 
 local SettingEditor = require("./Editors/SettingEditor")
 local StyleEditor = require("./Editors/StyleEditor")
@@ -328,10 +331,19 @@ local function getPropertyCt(world: World, propName: string)
 end
 
 local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?)
-	local action = plugin:CreatePluginAction(
-		actionId, text, "[Jexplorer] "..statusTip, iconId, true
-	)
+	local success
+	local action: PluginAction
+	
+	while true do
+		success, action = pcall(function()
+			return plugin:CreatePluginAction(getId(actionId), text, "[Jexplorer] "..statusTip, iconId, true)
+		end)
+		if success then break end
+		warn(`Failed to create PluginAction '{actionId}' with error '{action}', retrying...`)
+		task.wait(0.5)
+	end
 	action.Name = actionId
+	--action.Parent = Manager.Storage.pluginActions
 	return action
 end
 
@@ -431,6 +443,83 @@ function Manager.triggerDuplicateTarget()
 		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 	end
 
+	profileend()
+end
+
+function Manager.triggerDuplicateTargetWithIncrementName()
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+	local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
+	profilebegin("Jexplorer::D (duplicate with increment name)")
+
+	-- Pre-scan: find the highest existing number for each base name per parent
+	-- so all clones get consistent incremented names even in a batch
+	local nameCounters: {[Instance]: {[string]: number}} = {} -- [parent][baseName] = nextNumber
+
+	local function getBaseName(name)
+		return name:match("^(.*%D)(%d+)$") or name, nil
+	end
+
+	local function initCounterForParent(parentInstance, baseName)
+		if not nameCounters[parentInstance] then
+			nameCounters[parentInstance] = {}
+		end
+		if nameCounters[parentInstance][baseName] then
+			return
+		end
+
+		local maxNum = 0
+		for _, sibling in parentInstance:GetChildren() do
+			local sibBase, sibNum = sibling.Name:match("^(.*%D)(%d+)$")
+			if sibBase == baseName and sibNum then
+				local n = tonumber(sibNum)
+				if n and n > maxNum then
+					maxNum = n
+				end
+			end
+		end
+		nameCounters[parentInstance][baseName] = maxNum + 1
+	end
+
+	for _, entity in state.CurrentSelection do
+		local parent = Manager.parentOf(entity)
+		if parent == nil then continue end
+		local instance = world:get(entity, components.Instance)
+		if not instance then continue end
+		
+		local baseName
+		local _baseName, numPart = instance.Name:match("^(.*%D)(%d+)$")
+		if not _baseName then
+			-- Name has no trailing number (e.g. "Part"), treat whole name as base
+			baseName = instance.Name
+		else
+			baseName = _baseName
+		end
+
+		world:add(parent, components.AncestryLocked)
+		local clone = instance:Clone()
+		clone.Parent = instance.Parent
+		
+		local incrementNameIfNoNumPart = Manager.getSetting("IncrementNamesWithNoNumberSuffix")
+		
+		if clone.Parent and (numPart ~= nil or (numPart == nil and incrementNameIfNoNumPart)) then
+			initCounterForParent(clone.Parent, baseName)
+			local nextNum = nameCounters[clone.Parent][baseName]
+
+			clone.Name = baseName .. nextNum
+			nameCounters[clone.Parent][baseName] = nextNum + 1
+		end
+
+		local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
+		VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
+		world:remove(parent, components.AncestryLocked)
+	end
+
+	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	if id then
+		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+	end
 	profileend()
 end
 
@@ -1407,7 +1496,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local tabEditName do
 		tabEditName = createPluginAction(
-			getId("EditName", true), "Edit Name", "Edits the name of a tab."
+			"EditName", "Edit Name", "Edits the name of a tab."
 		)
 
 		tabEditName.Triggered:Connect(function()
@@ -1420,7 +1509,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local tabEditIcon do
 		tabEditIcon = createPluginAction(
-			getId("EditIcon", true), "Edit Icon", "Edits the icon of a tab."
+			"EditIcon", "Edit Icon", "Edits the icon of a tab."
 		)
 
 		tabEditIcon.Triggered:Connect(function()
@@ -1479,7 +1568,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local renameAction do
 		renameAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Rename", true), "Rename", "Rename selected instance."
+			"Jexplorer_ContextMenu_Rename", "Rename", "Rename selected instance."
 		) :: PluginAction
 		renameAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -1500,7 +1589,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local insertFromFileAction do
 		insertFromFileAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_InsertFromFile", true), "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
+			"Jexplorer_ContextMenu_InsertFromFile", "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
 		)
 		insertFromFileAction.Triggered:Connect(function()
 			local entity = state.ContextTarget
@@ -1549,7 +1638,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local insertObjectAction do
 		insertObjectAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_InsertObject", true), "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
+			"Jexplorer_ContextMenu_InsertObject", "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
 		)
 		insertObjectAction.Triggered:Connect(function()
 			local mousePos = state.Widget:GetRelativeMousePosition()
@@ -1559,7 +1648,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local selectChildrenAction do
 		selectChildrenAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_SelectChildren", true), "Select Children", "Selects all children of an Instance."
+			"Jexplorer_ContextMenu_SelectChildren", "Select Children", "Selects all children of an Instance."
 		)
 		selectChildrenAction.Triggered:Connect(function()
 			for _, target in state.CurrentSelection do
@@ -1583,7 +1672,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local saveToFileAction do
 		saveToFileAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_SaveToFile", true), "Save to File...", "Saves an Instance as a local file."
+			"Jexplorer_ContextMenu_SaveToFile", "Save to File...", "Saves an Instance as a local file."
 		)
 		saveToFileAction.Triggered:Connect(function()
 			local target = state.ContextTarget
@@ -1597,7 +1686,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local saveToRobloxAction do
 		saveToRobloxAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_SaveToRoblox", true), "Save to Roblox...", "Saves an Instance to Roblox."
+			"Jexplorer_ContextMenu_SaveToRoblox", "Save to Roblox...", "Saves an Instance to Roblox."
 		)
 		saveToRobloxAction.Triggered:Connect(function()
 			Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
@@ -1607,7 +1696,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local copyAction do
 		copyAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Copy", true), "Copy", "Copies all Instances to your clipboard."
+			"Jexplorer_ContextMenu_Copy", "Copy", "Copies all Instances to your clipboard."
 		)
 		copyAction.Triggered:Connect(function()
 			copySelection(world)
@@ -1616,7 +1705,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local pasteIntoAction do
 		pasteIntoAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_PasteInto", true), "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
+			"Jexplorer_ContextMenu_PasteInto", "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
 		)
 		pasteIntoAction.Triggered:Connect(function()
 			pasteCopiedInstances(world)
@@ -1625,7 +1714,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local collapseAllAction do
 		collapseAllAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_CollapseAll", true), "Collapse All", "Collapses all expanded descendants."
+			"Jexplorer_ContextMenu_CollapseAll", "Collapse All", "Collapses all expanded descendants."
 		)
 		collapseAllAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -1654,7 +1743,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local hideClassAction do
 		hideClassAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_HideClass", true), "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
+			"Jexplorer_ContextMenu_HideClass", "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
 		)
 		hideClassAction.Triggered:Connect(function()
 			for _, v in state.CurrentSelection do
@@ -1669,27 +1758,27 @@ local function initRegisterPluginMenusAndActions(
 
 	local deleteAction do
 		deleteAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Delete", true), "Delete", "Deletes this Instance."
+			"Jexplorer_ContextMenu_Delete", "Delete", "Deletes this Instance."
 		)
 		deleteAction.Triggered:Connect(Manager.triggerDeleteTarget)
 	end
 
 	local escapeAction do
 		escapeAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Escape", true), "Escape", "Escapes this Instance."
+			"Jexplorer_ContextMenu_Escape", "Escape", "Escapes this Instance."
 		)
 		escapeAction.Triggered:Connect(Manager.triggerEscapeTarget)
 	end
 
 	local duplicateAction do
 		duplicateAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Duplicate", true), "Duplicate", "Duplicates this Instance."
+			"Jexplorer_ContextMenu_Duplicate", "Duplicate", "Duplicates this Instance."
 		)
 		duplicateAction.Triggered:Connect(Manager.triggerDuplicateTarget)
 	end
 	local openVersionHistoryAction do
 		openVersionHistoryAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_OpenVersionHistory", true), "Open Version History", "Opens the version history viewer."
+			"Jexplorer_ContextMenu_OpenVersionHistory", "Open Version History", "Opens the version history viewer."
 		)
 		openVersionHistoryAction.Triggered:Connect(function()
 			local target = state.ContextTarget
@@ -1704,7 +1793,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local appendAction do
 		appendAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Append", true), "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
+			"Jexplorer_ContextMenu_Append", "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
 		)
 		appendAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -1716,7 +1805,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local commitAction do
 		commitAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Commit", true), "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
+			"Jexplorer_ContextMenu_Commit", "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
 		)
 		commitAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -1728,7 +1817,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local discardAction do
 		discardAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Discard", true), "Discard Changes", "Discard pending changes made to this Instance."
+			"Jexplorer_ContextMenu_Discard", "Discard Changes", "Discard pending changes made to this Instance."
 		)
 		discardAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -1740,7 +1829,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local removeFromTabAction do
 		removeFromTabAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_RemoveFromTab", true), "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
+			"Jexplorer_ContextMenu_RemoveFromTab", "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
 		)
 		removeFromTabAction.Triggered:Connect(function()
 			local currentlyOpenTab = sharedTabState.currentlyOpenTab
@@ -1838,11 +1927,11 @@ local function initRegisterPluginMenusAndActions(
 			end)
 		end
 		groupAsFolderAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_GroupAsFolder", true), "Group as Folder", "Groups the selected Instances inside 1 Folder.",
+			"Jexplorer_ContextMenu_GroupAsFolder", "Group as Folder", "Groups the selected Instances inside 1 Folder.",
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Folder.png"
 		)
 		groupAsModelAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_GroupAsModel", true), "Group as Model", "Groups the selected Instances inside 1 Model.",
+			"Jexplorer_ContextMenu_GroupAsModel", "Group as Model", "Groups the selected Instances inside 1 Model.",
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Model.png"
 		)
 		groupAsFolderAction.Triggered:Connect(function()
@@ -1855,7 +1944,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local ungroupAction do
 		ungroupAction = createPluginAction(
-			getId("Jexplorer_ContextMenu_Ungroup", true), "Ungroup", "Ungroups the selected Instances."
+			"Jexplorer_ContextMenu_Ungroup", "Ungroup", "Ungroups the selected Instances."
 		)
 		ungroupAction.Triggered:Connect(function()
 			local target = state.ContextTarget
@@ -2014,14 +2103,14 @@ local function initRegisterPluginMenusAndActions(
 		end
 
 		toFolderAction = createPluginAction(
-			getId("IntoFolder", true), "Into Folder", "Turns selected instances into Folders.", 
+			"IntoFolder", "Into Folder", "Turns selected instances into Folders.", 
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Folder.png"
 		)
 		toFolderAction.Triggered:Connect(function()
 			convertInstTo("Folder")
 		end)
 		toModelAction = createPluginAction(
-			getId("IntoModel", true), "Into Model", "Turns selected instances into Models.", 
+			"IntoModel", "Into Model", "Turns selected instances into Models.", 
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Model.png"
 		)
 		toModelAction.Triggered:Connect(function()
@@ -2031,7 +2120,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local helpAction do
 		helpAction = createPluginAction(
-			getId("Help", true), "Open Documentation", "Opens the API wiki page for this Instance."
+			"Help", "Open Documentation", "Opens the API wiki page for this Instance."
 		)
 		helpAction.Triggered:Connect(function()
 			local target = state.ContextTarget
@@ -2056,14 +2145,14 @@ local function initRegisterPluginMenusAndActions(
 
 	local dragAction do
 		dragAction = createPluginAction(
-			getId("Drag", true), "Start Dragging", "Starts dragging selected Instances."
+			"Drag", "Start Dragging", "Starts dragging selected Instances."
 		)
 		dragAction.Triggered:Connect(Manager.startDraggingSelected)
 	end
 	
 	local changeIconColorAction do
 		changeIconColorAction = createPluginAction(
-			getId("ChangeIconColor", true),
+			"ChangeIconColor",
 			"Change Icon Color",
 			"Prompts to change the icon color of selected Instances."
 		)
@@ -2224,7 +2313,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local saveAsObjAction do
 		saveAsObjAction = createPluginAction(
-			getId("SaveAsObj", true),
+			"SaveAsObj",
 			"Export as .obj...",
 			"Prompts to save selection as .obj file."
 		)
@@ -2683,17 +2772,216 @@ local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, c
 	end
 end
 
+local function checkCombo(str: string): boolean
+	str = str:gsub("%s+", "")
+
+	local function parseExpr(s, i): (any, number)
+		-- Forward declaration for mutual recursion
+		local function parseAtom(i: number): (any, number)
+			if s:sub(i, i) == "(" then
+				local val, ni = parseExpr(s, i + 1)
+				if s:sub(ni, ni) ~= ")" then
+					error("Expected ')' at position " .. ni)
+				end
+				return val, ni + 1
+			end
+
+			-- Read key name (letters, digits, underscores)
+			local key = s:match("^([%w_]+)", i)
+			if not key then
+				error("Expected key name at position " .. i)
+			end
+
+			local enumVal = Enum.KeyCode[key]
+			local result = enumVal ~= nil and Manager.isKeyDown(enumVal)
+			return result, i + #key
+		end
+
+		local function parseAnd(i): (any, number)
+			local left, ni = parseAtom(i)
+			while s:sub(ni, ni) == "&" do
+				local right, nni = parseAtom(ni + 1)
+				left = left and right
+				ni = nni
+			end
+			return left, ni
+		end
+
+		local left, ni = parseAnd(i)
+		while s:sub(ni, ni) == "|" do
+			local right, nni = parseAnd(ni + 1)
+			left = left or right
+			ni = nni
+		end
+		return left, ni
+	end
+
+	local ok, result = pcall(function()
+		local val, _ = parseExpr(str, 1)
+		return val
+	end)
+
+	return ok and result or false
+end
+
+local pendingKeybind: thread? = nil
+local pendingCombo: string? = nil
+local pendingCount: number = -1
+local pendingAction: (() -> ())? = nil
+
+local function checkKeybinds(keybinds: {[string]: () -> ()}, input: InputObject)
+	local function countKeys(str: string): number
+		local count = 0
+		for _ in str:gmatch("[%w_]+") do
+			count += 1
+		end
+		return count
+	end
+
+	local triggerKey = input.KeyCode.Name
+
+	local bestCombo: string? = nil
+	local bestCount = -1
+	local bestAction: (() -> ())? = nil
+
+	for combo, action in keybinds do
+		local containsTrigger = false
+		for token in combo:gmatch("[%w_]+") do
+			if token == triggerKey then
+				containsTrigger = true
+				break
+			end
+		end
+		if not containsTrigger then continue end
+
+		if checkCombo(combo) then
+			local count = countKeys(combo)
+			if count > bestCount then
+				bestCount = count
+				bestCombo = combo
+				bestAction = action
+			end
+		end
+	end
+
+	if not bestCombo then return end
+
+	-- Check if any combo in the table is a strict superset of the matched one
+	-- (i.e. contains all the same key tokens plus more)
+	local function getTokenSet(str: string): {[string]: boolean}
+		local set = {}
+		for token in str:gmatch("[%w_]+") do
+			set[token] = true
+		end
+		return set
+	end
+
+	local matchedTokens = getTokenSet(bestCombo)
+	local hasCompetitor = false
+
+	for combo, _ in keybinds do
+		if combo == bestCombo then continue end
+		local tokens = getTokenSet(combo)
+		local tokenCount = countKeys(combo)
+		if tokenCount <= bestCount then continue end
+
+		-- Check if matched combo's tokens are all present in this longer combo
+		local isSuperset = true
+		for token in pairs(matchedTokens) do
+			if not tokens[token] then
+				isSuperset = false
+				break
+			end
+		end
+
+		if isSuperset then
+			hasCompetitor = true
+			break
+		end
+	end
+
+	if hasCompetitor then
+		-- A longer combo exists that could still be triggered, wait and see
+		if pendingCombo and bestCount > pendingCount then
+			if pendingKeybind then
+				task.cancel(pendingKeybind)
+				pendingKeybind = nil
+			end
+		elseif pendingCombo and bestCount <= pendingCount then
+			return
+		end
+
+		pendingCombo = bestCombo
+		pendingCount = bestCount
+		pendingAction = bestAction
+
+		pendingKeybind = task.delay(0.1, function()
+			pendingKeybind = nil
+			pendingCombo = nil
+			pendingCount = -1
+			pendingAction = nil
+			if bestAction then
+				bestAction()
+			end
+		end)
+	else
+		-- No competitor, fire immediately and cancel any pending lesser combo
+		if pendingKeybind then
+			task.cancel(pendingKeybind)
+			pendingKeybind = nil
+			pendingCombo = nil
+			pendingCount = -1
+			pendingAction = nil
+		end
+		if bestAction then
+			bestAction()
+		end
+	end
+end
+
 local function initConnections(state: Types.WidgetState, components: typeof(Manager.Components), topbarMenuDropdown: PluginUI.ItemList): {RBXScriptConnection}
 	local world = state.World
 	local queryWorld = state.QueryWorld
 	local jexplorerUi = state.JExplorerUI
 	local jexplorerWidget = state.Widget
 	local topbar = jexplorerUi.Topbar
-	local queryInput = topbar.QueryInputFrame.Scroll.QueryInput
+	local queryInput: TextBox = topbar.QueryInputFrame.Scroll.QueryInput
 	local selectQueried = topbar.QueryInputFrame.SelectQueried
+
+	local autocompleteGroup: ItemGroup.ItemGroup?
+	local suppressAutocomplete = false
 	
 	-->> Initialize connections
 	return {
+		Manager.connectInputBegan(function(input)
+			if input.UserInputState ~= Enum.UserInputState.Begin then return end
+			downKeys[input.KeyCode] = true
+			activeInputs[input.UserInputType] = true
+
+			state.IsDragging = false
+			if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+				Manager.ItemLists.InsertInstance:Hide()
+			end
+			if autocompleteGroup and input.UserInputType == Enum.UserInputType.MouseButton1 then
+				autocompleteGroup:free()
+			end
+			local v = Manager.getSetting
+			checkKeybinds({
+				[v "KeybindEscapeTarget"] = Manager.triggerEscapeTarget,
+				[v "KeybindDeleteTarget"] = Manager.triggerDeleteTarget,
+				[v "KeybindDuplicateTarget"] = v "NormalDuplicateIncrementsName" and Manager.triggerDuplicateTargetWithIncrementName or Manager.triggerDuplicateTarget,
+				[v "KeybindDuplicateTargetWithIncrementName"] = Manager.triggerDuplicateTargetWithIncrementName,
+				[v "KeybindCopy"] = function() copySelection(world) end,
+				[v "KeybindPaste"] = function() pasteCopiedInstances(world) end,
+				[v "KeybindUndo"] = function() ChangeHistoryService:Undo() end,
+				[v "KeybindRedo"] = function() ChangeHistoryService:Redo() end,
+			}, input)
+		end),
+		Manager.connectInputEnded(function(input)
+			if input.UserInputState ~= Enum.UserInputState.End then return end
+			downKeys[input.KeyCode] = nil
+			activeInputs[input.UserInputType] = nil
+		end),
 		ScriptEditorService.TextDocumentDidChange:Connect(function(document, changes)
 			local docScript = document:GetScript()
 			if not docScript then return end
@@ -2915,46 +3203,339 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			ExplorerFrame.updateSelectionVisuals(Manager, false)
 			profileend()
 		end),
-		Manager.connectInputBegan(function(input)
-			if input.UserInputState ~= Enum.UserInputState.Begin then return end
-			downKeys[input.KeyCode] = true
-			activeInputs[input.UserInputType] = true
-
-			state.IsDragging = false
-			if input.UserInputType ~= Enum.UserInputType.MouseMovement then
-				Manager.ItemLists.InsertInstance:Hide()
-			end
-
-			if input.KeyCode == Enum.KeyCode.Escape or (Manager.isKeyDown(Enum.KeyCode.Backspace) and Manager.isKeyDown(Enum.KeyCode.LeftShift)) then
-				Manager.triggerEscapeTarget()
-			elseif input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
-				Manager.triggerDeleteTarget()
-			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.D) then
-				Manager.triggerDuplicateTarget()
-			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.C) then
-				copySelection(world)
-			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.V) then
-				pasteCopiedInstances(world)
-			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.Z) then
-				ChangeHistoryService:Undo()
-			elseif Manager.isKeyDown(Enum.KeyCode.LeftControl) and Manager.isKeyDown(Enum.KeyCode.Y) then
-				ChangeHistoryService:Redo()
-			end
-		end),
-		Manager.connectInputEnded(function(input)
-			if input.UserInputState ~= Enum.UserInputState.End then return end
-			downKeys[input.KeyCode] = nil
-			activeInputs[input.UserInputType] = nil
-		end),
 
 		topbar.Options.Activated:Connect(function()
 			topbarMenuDropdown:SetAnchor(Vector2.zero, topbar.Options.Position)
 			topbarMenuDropdown:Show()
 		end),
 		
+		queryInput:GetPropertyChangedSignal("Text"):Connect(function()
+			if not Manager.getSetting("QueryAutocompleteEnabled") then return end
+			if suppressAutocomplete then return end
+			if autocompleteGroup then
+				autocompleteGroup:free()
+			end
+
+			local autocompleteResults: {{
+				label: string,
+				priority: number,
+				insert: () -> ()
+			}} = {}
+
+			local queryText = queryInput.Text
+			local tokenStart = 1
+			for i = #queryText, 1, -1 do
+				local c = queryText:sub(i, i)
+				if c == " " or c == "&" or c == "|" or c == "<" or c == ">" or c == "*" then
+					tokenStart = i + 1
+					break
+				end
+			end
+			local currentToken = queryText:sub(tokenStart)
+			local prefix = queryText:sub(1, tokenStart - 1)
+			-- Get the last logical segment (after the last | or & combinator)
+			local lastSegment = prefix:match("[^|&<>*]*$") or prefix
+			local inValueContext = lastSegment:match("[%w_]+%s*=") ~= nil
+
+			local UDF_READ_TAGS = {
+				"%",
+				"#",
+				"?",
+				"[str] ",
+				"[num] ",
+				"[bool] ",
+				"[rgb] ",
+				"[hex] ",
+				"[vec2] ",
+				"[vec3] ",
+				"[udim] ",
+				"[udim2] ",
+				"[json] ",
+				"[region3] ",
+				"[ray] ",
+				"[enum.Material] ",
+				"[enum.NormalId] ",
+				"[enum.PartType] ",
+				"[enum.SurfaceType] ",
+				"[enum.BrickColor] ",
+				"[enum.Font] ",
+				"[enum.KeyCode] ",
+			}
+
+			local function addResult(label: string, insertText: string, priority: number?)
+				table.insert(autocompleteResults, {
+					label = label,
+					priority = priority or 0,
+					insert = function()
+						suppressAutocomplete = true
+						queryInput.Text = prefix .. insertText
+						queryInput:CaptureFocus()
+						task.defer(function()
+							queryInput.CursorPosition = #queryInput.Text + 1
+							suppressAutocomplete = false
+						end)
+					end
+				})
+			end
+
+			local function matchesPartial(name: string, partial: string): boolean
+				return name:sub(1, #partial):lower() == partial:lower()
+			end
+			
+			local function suggestUDFTags(valuePartial: string, pairPrefix: string)
+				for _, tag in UDF_READ_TAGS do
+					if matchesPartial(tag, valuePartial) then
+						addResult(tag, tag, 8)
+					end
+				end
+			end
+			
+			local function detectContext(): boolean
+				do
+					local propAndEq, valuePartial = queryText:match("([%w_]+%s*=%s*)([^%s&|]*)$")
+					if propAndEq and valuePartial ~= nil and (valuePartial:sub(1,1) == "[" or #valuePartial == 0) then
+						local pairStart = #queryText - #propAndEq - #valuePartial + 1
+						local pairPrefix = queryText:sub(1, pairStart - 1) .. propAndEq
+						suggestUDFTags(valuePartial, pairPrefix)
+						return true
+					end
+				end
+
+				-- @has(partial
+				do
+					local partial = currentToken:match("^@has%((.*)$")
+					if partial then
+						for name, _ in Manager.QueryCtMap do
+							if type(name) == "string" and matchesPartial(name, partial) then
+								addResult(name, "@has(" .. name .. ")", 9)
+							end
+						end
+						return true
+					end
+				end
+
+				-- @is(prop, typePartial
+				do
+					local prop, partial = currentToken:match("^@is%(([^,]+),(.*)$")
+					if prop and partial then
+						partial = partial:gsub("^%s+", "")
+						local types = {
+							"string", "number", "boolean", "Vector2", "Vector3",
+							"UDim", "UDim2", "Color3", "CFrame", "Rect",
+							"EnumItem", "Enum.Material", "Enum.NormalId",
+							"Enum.PartType", "Enum.SurfaceType", "Enum.BrickColor"
+						}
+						for _, t in types do
+							if matchesPartial(t, partial) then
+								addResult(t, "@is(" .. prop .. ", " .. t .. ")", 8)
+							end
+						end
+						return true
+					end
+				end
+
+				-- @is(partial  (first arg, property name)
+				do
+					local partial = currentToken:match("^@is%((.*)$")
+					if partial then
+						for name, _ in Manager.QueryCtMap do
+							if type(name) == "string" and matchesPartial(name, partial) then
+								addResult(name, "@is(" .. name .. ", ", 9)
+							end
+						end
+						return true
+					end
+				end
+
+				-- @matches(prop, patternPartial  OR  @pattern(prop, patternPartial
+				do
+					local macro, prop, partial = currentToken:match("^(@matches%()([^,]+),(.*)$")
+					if not macro then
+						macro, prop, partial = currentToken:match("^(@pattern%()([^,]+),(.*)$")
+					end
+					if macro and prop and partial then
+						-- Second arg is a free-form string/pattern, nothing to suggest
+						return true
+					end
+				end
+
+				-- @matches(partial  OR  @pattern(partial  (first arg, property name)
+				do
+					local macro, partial = currentToken:match("^(@matches%()(.*)$")
+					if not macro then
+						macro, partial = currentToken:match("^(@pattern%()(.*)$")
+					end
+					if macro and partial then
+						for name, _ in Manager.QueryCtMap do
+							if type(name) == "string" and matchesPartial(name, partial) then
+								addResult(name, macro .. name .. ", ", 9)
+							end
+						end
+						return true
+					end
+				end
+
+				-- @ prefix: suggest macro names
+				do
+					local partial = currentToken:match("^@(.*)$")
+					if partial then
+						local macros = {"has(", "matches(", "is(", "pattern("}
+						for _, macro in macros do
+							if matchesPartial(macro, partial) then
+								addResult("@" .. macro, "@" .. macro, 10)
+							end
+						end
+						return true
+					end
+				end
+
+				-- . prefix: suggest tag names
+				do
+					local partial = currentToken:match("^%.(.*)$")
+					if partial and not inValueContext then
+						for name, _ in Manager.QueryTagMap do
+							if type(name) == "string" and matchesPartial(name, partial) then
+								addResult("." .. name, "." .. name, 7)
+							end
+						end
+						return true
+					end
+				end
+
+				-- # prefix: suggest instance names
+				do
+					local partial = currentToken:match("#([^?].*)$")
+					if partial and not inValueContext then
+						local seen: {[string]: boolean} = {}
+						for entity in world:query(components.Instance):iter() do
+							local inst = world:get(entity, components.Instance)
+							if inst and not seen[inst.Name] then
+								if matchesPartial(inst.Name, partial) then
+									seen[inst.Name] = true
+									addResult("#" .. inst.Name, "#" .. inst.Name, 7)
+								end
+							end
+						end
+						return true
+					end
+				end
+
+				-- $ prefix: suggest attribute names
+				do
+					local partial = currentToken:match("^%$(.*)$")
+					if partial and not inValueContext then
+						for name, _ in Manager.QueryAttrMap do
+							if type(name) == "string" and matchesPartial(name, partial) then
+								addResult("$" .. name, "$" .. name .. " = ", 7)
+							end
+						end
+						return true
+					end
+				end
+				
+				if not inValueContext and currentToken:match("^[%a_][%w_]*$") then
+					local partial = currentToken
+					for name, _ in Manager.QueryCtMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult(name .. " = ", name .. " = ", 5)
+						end
+					end
+				end
+
+				return false
+			end
+
+			detectContext()
+			
+			table.sort(autocompleteResults, function(a, b)
+				if a.priority ~= b.priority then
+					return a.priority > b.priority
+				end
+				return a.label < b.label
+			end)
+
+			-- Cap results
+			while #autocompleteResults > 12 do
+				table.remove(autocompleteResults)
+			end
+
+			if #autocompleteResults > 0 then
+				local list = PluginUI.createItemList({Visible = true})
+				local group = ItemGroup.create(function(v) v:Destroy() end, {list})
+
+				local buttons = {}
+				for _, result in autocompleteResults do
+					local button = PluginUI.createButton(nil, result.label, function()
+						result.insert()
+						if autocompleteGroup then
+							autocompleteGroup:free()
+						end
+						task.defer(function()
+							list:Destroy()
+						end)
+					end)
+					table.insert(buttons, button.Instance)
+				end
+				list:AddBulkItem(buttons)
+
+				local frameSize = list.Backdrop.AbsoluteSize
+				list:SetAnchor(
+					Vector2.new(0, 0),
+					UDim2.fromOffset(
+						getClampedXY(
+							frameSize,
+							queryInput.AbsolutePosition + Vector2.new(0, queryInput.AbsoluteSize.Y),
+							Vector2.zero,
+							jexplorerUi.AbsolutePosition,
+							jexplorerUi.AbsoluteSize
+						)
+					)
+				)
+
+				local currentSelection = 1
+
+				group:extend(cleanup.disconnect, {
+					Manager.connectInputBegan(function(input)
+						if input.KeyCode == Enum.KeyCode.Up then
+							local lastButton = buttons[currentSelection]
+							currentSelection = math.clamp(currentSelection - 1, 1, #autocompleteResults)
+							local button = buttons[currentSelection]
+
+							lastButton:RemoveTag("JEXP_SelectedColor");
+							(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
+							button:AddTag("JEXP_SelectedColor");
+							(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+						elseif input.KeyCode == Enum.KeyCode.Down then
+							local lastButton = buttons[currentSelection]
+							currentSelection = math.clamp(currentSelection + 1, 1, #autocompleteResults)
+							local button = buttons[currentSelection]
+
+							lastButton:RemoveTag("JEXP_SelectedColor");
+							(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
+							button:AddTag("JEXP_SelectedColor");
+							(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+						elseif input.KeyCode == Enum.KeyCode.Return then
+							autocompleteResults[currentSelection].insert()
+						elseif input.KeyCode == Enum.KeyCode.Escape and autocompleteGroup then
+							autocompleteGroup:free()
+						end
+					end)
+				})
+				local button = buttons[currentSelection]
+				button:AddTag("JEXP_SelectedColor");
+				(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+
+				autocompleteGroup = group
+
+				list.Backdrop.Parent = jexplorerUi
+			end
+		end),
 		-- Search bar functionality
 		queryInput.FocusLost:Connect(function(enterPressed)
 			if not enterPressed then return end
+			if autocompleteGroup then
+				autocompleteGroup:free()
+			end
 			
 			local queryText = queryInput.Text
 			
@@ -3152,7 +3733,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	}
 end
 
-function Manager.init(onClose, connections, jexplorerWidget)
+function Manager.init(connections, jexplorerWidget)
 	local instances = connections:extend(cleanup.destroy)
 
 	local jexplorerUi = UITemplates.JexplorerUi {
@@ -3165,7 +3746,8 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	local storage = findOrCreateInstance(game:GetService("ServerStorage"), "jexplorer_instance_storage", "Folder")
 	Manager.Storage = {
 		repoRoots = findOrCreateInstance(storage, "repo_roots", "Folder"),
-		idObjects = findOrCreateInstance(storage, "jexplorer_ids", "Folder")
+		idObjects = findOrCreateInstance(storage, "jexplorer_ids", "Folder"),
+		--pluginActions = findOrCreateInstance(storage, "plugin_actions", "Folder")
 	}
 	
 	local world = Jecs.world()
@@ -3190,7 +3772,6 @@ function Manager.init(onClose, connections, jexplorerWidget)
 		DefaultInstanceActionsArray = nil :: any,
 		InstanceContextMenus = nil :: any,
 		MiscContextMenus = nil :: any,
-		OnClose = onClose,
 		IsDragging = false,
 		
 		InstanceTree = (instanceTree :: any).ScrollContainer,
@@ -3235,8 +3816,7 @@ function Manager.init(onClose, connections, jexplorerWidget)
 	--ContextMenuEditor.init(Manager)
 
 	loaders.settings()
-	shared.Jexplorer.__modify:Fire()
-
+	
 	local settings = getGlobalConfigValue("settings")
 	if settings then
 		for k, v in settings do
@@ -3328,6 +3908,11 @@ function Manager.init(onClose, connections, jexplorerWidget)
 				v:Disconnect()
 			end
 			--ScriptEditorService:DeregisterScriptAnalysisCallback("JEXP_diagnostics_listener")
+		end,
+		function()
+			for _, v in Manager.PluginActions do
+				v:Destroy()
+			end
 		end,
 	})
 	

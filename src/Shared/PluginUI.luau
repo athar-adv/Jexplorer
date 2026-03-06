@@ -864,7 +864,7 @@ function PluginUI.createCheckBox(list: ItemList?, text: string?, checked: boolea
 	return item
 end
 
-function PluginUI.createButton(list: ItemList, text: string?, callback: (() -> ())?, isimage: boolean?): TriggerUIItem
+function PluginUI.createButton(list: ItemList?, text: string?, callback: (() -> ())?, isimage: boolean?): TriggerUIItem
 	local isimage = if isimage == nil then false else isimage
 	local button = Instance.new("Frame")
 	button:AddTag("JEXP_Background")

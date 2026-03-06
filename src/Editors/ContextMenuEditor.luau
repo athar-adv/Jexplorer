@@ -32,6 +32,7 @@ type ContextMenuConfigs = {
 	},
 	Actions: {
 		[string]: {
+			Id: string?,
 			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -> (),
 			Text: string,
 			Tooltip: string,
@@ -160,7 +161,7 @@ function ContextMenuEditor.init(Manager)
 		
 		for name, info in configs.Actions do
 			local action = plugin:CreatePluginAction(
-				tostring(os.clock()), info.Text, info.Tooltip, info.Icon
+				info.Id or `JexplorerCustomAction({tostring(os.clock())})`, info.Text, info.Tooltip, info.Icon
 			)
 			table.insert(stored, action)
 			action.Triggered:Connect(function()

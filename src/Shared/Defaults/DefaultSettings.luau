@@ -5,6 +5,67 @@ local Style = require(script.Parent.Parent.Style)
 local var = Style.var
 
 return {
+	Query = {
+		QueryAutocompleteEnabled = {
+			Type = "boolean",
+			Display = "Query Autocomplete Enabled",
+			Default = true
+		}
+	},
+	Duplicate = {
+		IncrementNamesWithNoNumberSuffix = {
+			Type = "boolean",
+			Display = "Increment Names With No Number Suffix",
+			Default = false,
+		}
+	},
+	Keybinds = {
+		NormalDuplicateIncrementsName = {
+			Type = "boolean",
+			Display = "Normal Duplicate Increments Name",
+			Default = true
+		},
+		KeybindEscapeTarget = {
+			Type = "string",
+			Display = "Escape Target",
+			Default = "Escape | (LeftShift & Backspace)"
+		},
+		KeybindDeleteTarget = {
+			Type = "string",
+			Display = "Delete Target",
+			Default = "Delete | Backspace"
+		},
+		KeybindDuplicateTarget = {
+			Type = "string",
+			Display = "Duplicate Target",
+			Default = "LeftControl & D"
+		},
+		KeybindDuplicateTargetWithIncrementName = {
+			Type = "string",
+			Display = "Duplicate Target With Increment Name",
+			Default = "LeftControl & D & E"
+		},
+		KeybindCopy = {
+			Type = "string",
+			Display = "Copy",
+			Default = "LeftControl & C"
+		},
+		KeybindPaste = {
+			Type = "string",
+			Display = "Paste",
+			Default = "LeftControl & V"
+		},
+		KeybindUndo = {
+			Type = "string",
+			Display = "Undo",
+			Default = "LeftControl & Z"
+		},
+		KeybindRedo = {
+			Type = "string",
+			Display = "Redo",
+			Default = "LeftControl & Y"
+		},
+	},
 	Internal = {
 		FlushCycleInterval = {
 			Type = "number",

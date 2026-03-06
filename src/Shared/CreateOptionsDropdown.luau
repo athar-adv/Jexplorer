@@ -11,6 +11,8 @@ local ContextMenuEditor = require("../Editors/ContextMenuEditor")
 local JextensionEditor = require("../Editors/JextensionEditor")
 local StateEditor = require("../Editors/StateEditor")
 
+local UniPlugin = require("../UniPlugin")(plugin)
+
 local Types = require("../Types")
 
 local PluginUI = require("./PluginUI")
@@ -139,10 +141,8 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 			end)
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButton(topbarMenuDropdown, "Kill Jexplorer", function()
-				local onClose = state.OnClose
-				if onClose then
-					onClose()
-				end
+				UniPlugin:close()
+				plugin:Destroy()
 			end)
 			PluginUI.createButton(topbarMenuDropdown, "Insert Plugin Src", function()
 				plugin.Parent = workspace

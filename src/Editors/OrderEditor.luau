@@ -71,8 +71,7 @@ function OrderEditor.init(Manager)
 	local buttonToClass = {}
 	
 	local function createClassPriorityBox(className: string, priority: number, dropdown: PluginUI.ItemList?)
-		local icon = ClassIcon.getIcon(className)
-		assert(icon)
+		local icon = ClassIcon.getIcon(className) or assert(ClassIcon.getIcon("Instance"))
 		
 		local buttonItem = PluginUI.createButtonWithIcon(
 			dropdown, className, 
