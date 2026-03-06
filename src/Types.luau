@@ -228,6 +228,7 @@ export type WidgetState = {
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
+	OverridePathBarText: string?
 }
 
 export type HierarchyState = {
@@ -377,7 +378,7 @@ export type Manager = {
 	isKeyDown: (key: Enum.KeyCode) -> (boolean),
 	isInputActive: (input: Enum.UserInputType) -> (boolean),
 
-	registerTab: (name: string, icon: string, roots: {ExplorerEntity}, createDeleteButton: boolean, createInsertButton: boolean, registerIntoTabsArray: boolean) -> Tab,
+	registerTab: (name: string, icon: string, roots: {ExplorerEntity}, registerIntoTabsArray: boolean) -> Tab,
 
 	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
 

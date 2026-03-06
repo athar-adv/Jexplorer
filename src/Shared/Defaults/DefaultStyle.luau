@@ -50,7 +50,8 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["LegacyDownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/ArrowDown.png'",
 		["FadedColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)",
 		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
-		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)"
+		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
+		["CornerRadius"] = UDim.new(0, 6)
 	}
 	
 	--local rule = function(...)
@@ -123,6 +124,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					Position = var "udim2(0, $IconSizeOffset.X.Offset + 5, 0.5, 0)",
 					Size = UDim2.fromScale(0.9, 0.8),
 					
+					rule("RoundedCorner", "::UICorner", 0, {
+						CornerRadius = "$CornerRadius"
+					}),
+					rule("BorderStyle", "::UIStroke", 10, {
+						Thickness = 0.5,
+						LineJoinMode = Enum.LineJoinMode.Round
+					}),
 					rule("ScrollerStyle", "> #Scroll", 0, {
 						AutomaticCanvasSize = Enum.AutomaticSize.X,
 						BackgroundTransparency = 1,
@@ -197,12 +205,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						ScrollBarThickness = 2,
 						TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						MidImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
+						ScrollBarImageColor3 = "$ScrollbarColor",
 						
 						rule("ListLayout", "::UIListLayout", 0, {
 							FillDirection = Enum.FillDirection.Horizontal,
 							SortOrder = Enum.SortOrder.LayoutOrder,
 							VerticalAlignment = Enum.VerticalAlignment.Center,
-							Padding = UDim.new(0, 1)
+							Padding = UDim.new(0, 4)
 						})
 					})
 				}),
@@ -221,6 +230,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						ScrollBarThickness = 2,
 						TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						MidImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
+						ScrollBarImageColor3 = "$ScrollbarColor",
 						
 						rule("ListLayout", "::UIListLayout", 0, {
 							FillDirection = Enum.FillDirection.Horizontal,
@@ -341,16 +351,26 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			CornerRadius = UDim.new(1, 0)
 		}),
 		rule("TabFrameStyle", ".JEXP_TabFrame Frame", 0, {
+			BackgroundColor3 = var "brightness($BackgroundColor) > 0.5 ? $DarkBackgroundColor : $LightBackgroundColor",
+			AnchorPoint = Vector2.new(0, 0.5),
+			rule("RoundedCorner", "::UICorner", 0, {
+				CornerRadius = "$CornerRadius"
+			}),
+			rule("BorderStyle", "::UIStroke", 10, {
+				Thickness = 0.5,
+				LineJoinMode = Enum.LineJoinMode.Round
+			}),
 			rule("NameBoxStyle", "> #NameBox TextBox", 0, {
-				Position = UDim2.new(0, 22, 0.5, 0),  -- shifted right to make room for icon
+				Position = UDim2.new(0, 24, 0.5, 0),  -- shifted right to make room for icon
 				AnchorPoint = Vector2.new(0, 0.5),
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextYAlignment = Enum.TextYAlignment.Center,
 				ClearTextOnFocus = false,
 				Interactable = true,
-				TextSize = 6,
+				TextSize = 14,
 				Active = false,
 				BackgroundTransparency = 1,
+				FontFace = Font.fromName("SourceSans", Enum.FontWeight.Heavy)
 			}),
 			rule("IconStyle", "> #Icon ImageLabel", 0, {
 				Size = UDim2.new(0, 16, 0, 16),
@@ -359,7 +379,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				BackgroundTransparency = 1,
 				
 				rule("RoundCorner", "::UICorner", 0, {
-					CornerRadius = UDim.new(0, 5)
+					CornerRadius = "$CornerRadius"
 				})
 			}),
 			rule("ButtonStyle", "> #Button TextButton", 0, {
@@ -371,12 +391,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
 				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),
-			rule("InsertButtontyle", "> #Button > #Insert", 10, {
+		}),
+		rule("SelectingTabStyle", ".JEXP_TabFrame Frame.JEXP_SelectingRoots", 10, {
+			BackgroundColor3 = Color3.fromRGB(34, 112, 29),
+			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
 				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),
-			rule("DeleteButonStyle", "> #Button > #Delete", 10, {
-				TextColor3 = Color3.fromRGB(255, 255, 255),
-			})
 		}),
 		rule("ExplorerFrameStyle", "#InstanceFrame Frame", 0, {
 			Size = UDim2.new(1, 0, 0, 0),

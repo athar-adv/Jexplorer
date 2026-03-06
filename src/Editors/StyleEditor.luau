@@ -217,6 +217,7 @@ function StyleEditor.init(Manager)
 				end
 				box:Destroy()
 			end)
+			button.ZIndex = 10
 			button.AnchorPoint = Vector2.new(1, 0)
 			button.Position = UDim2.fromScale(1, 0)
 		end
@@ -398,7 +399,6 @@ function StyleEditor.init(Manager)
 			dropdown:Destroy()
 		end)
 		rule.RuleAdded:Connect(function(childRule)
-			print(childRule:GetName())
 			createStyleRuleDropdown(childRule, dropdown)
 		end)
 		if parentDropdown then

@@ -341,6 +341,12 @@ function UDF.from(input: string): any
 			return Font.fromEnum(Enum.Font.SourceSans)
 		end
 		return Font.new(values[3], Enum.FontWeight:FromName(values[1]), Enum.FontStyle:FromName(values[2]))
+	elseif datatype == "font" then
+		local values = string.split(input, " ")
+		if #values < 3 then
+			return Font.fromEnum(Enum.Font.SourceSans)
+		end
+		return Font.fromName(values[3], Enum.FontWeight:FromName(values[1]), Enum.FontStyle:FromName(values[2]))
 	elseif datatype == "font_enum" then
 		return Font.fromEnum(
 			assert(Enum.Font:FromName(input))

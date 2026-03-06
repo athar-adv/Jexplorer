@@ -71,11 +71,16 @@ local classComponentCache: {[string]: {Jecs.Id}} = {}
 local studioSettings = settings().Studio
 local pluginMouse = plugin:GetMouse()
 
-local sharedTabState = {
-	isCurrentlyPickingTabRoots = false,
-	tabInsertListener = nil :: RBXScriptConnection?,
-	currentlyOpenTab = nil :: Tab?,
-	contextTargetTab = nil :: Tab?
+local sharedTabState: {
+	currentlyPickingTabRoots: Tab?,
+	tabInsertListener: RBXScriptConnection?,
+	currentlyOpenTab: Tab?,
+	contextTargetTab: Tab?
+} = {
+	currentlyPickingTabRoots = nil,
+	tabInsertListener = nil,
+	currentlyOpenTab = nil,
+	contextTargetTab = nil
 }
 
 local PLACE_ID = tostring(game.PlaceId)
@@ -175,6 +180,209 @@ local function copySelection(world: World)
 	)
 end
 
+local function pasteCopiedInstances(world: World)
+	local state = Manager.WidgetState
+	local components = Manager.Components
+	local targetEntity = state.ContextTarget
+	if not targetEntity then return end
+	local targetInstance = world:get(targetEntity, components.Instance)
+	assert(targetInstance, "target instance not found")
+
+	local success, instances = pcall(
+		SerializationService.DeserializeInstancesAsync, SerializationService, 
+		HttpService:JSONDecode(
+			plugin:GetSetting("CopiedInstances")
+		)
+	)
+
+	if not success then return end
+	local id = ChangeHistoryService:TryBeginRecording("Paste", "Paste")
+
+	for _, v in instances do
+		local success = pcall(function()
+			v.Parent = targetInstance
+		end)
+		if not success then
+			if id then
+				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
+			end
+			return
+		end
+	end
+
+	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	if id then
+		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+	end
+end
+
+local function checkCombo(str: string): boolean
+	str = str:gsub("%s+", "")
+
+	local function parseExpr(s, i): (any, number)
+		-- Forward declaration for mutual recursion
+		local function parseAtom(i: number): (any, number)
+			if s:sub(i, i) == "(" then
+				local val, ni = parseExpr(s, i + 1)
+				if s:sub(ni, ni) ~= ")" then
+					error("Expected ')' at position " .. ni)
+				end
+				return val, ni + 1
+			end
+
+			-- Read key name (letters, digits, underscores)
+			local key = s:match("^([%w_]+)", i)
+			if not key then
+				error("Expected key name at position " .. i)
+			end
+
+			local enumVal = Enum.KeyCode[key]
+			local result = enumVal ~= nil and Manager.isKeyDown(enumVal)
+			return result, i + #key
+		end
+
+		local function parseAnd(i): (any, number)
+			local left, ni = parseAtom(i)
+			while s:sub(ni, ni) == "&" do
+				local right, nni = parseAtom(ni + 1)
+				left = left and right
+				ni = nni
+			end
+			return left, ni
+		end
+
+		local left, ni = parseAnd(i)
+		while s:sub(ni, ni) == "|" do
+			local right, nni = parseAnd(ni + 1)
+			left = left or right
+			ni = nni
+		end
+		return left, ni
+	end
+
+	local ok, result = pcall(function()
+		local val, _ = parseExpr(str, 1)
+		return val
+	end)
+
+	return ok and result or false
+end
+
+local pendingKeybind: thread? = nil
+local pendingCombo: string? = nil
+local pendingCount: number = -1
+local pendingAction: (() -> ())? = nil
+
+local function checkKeybinds(keybinds: {[string]: () -> ()}, input: InputObject)
+	local function countKeys(str: string): number
+		local count = 0
+		for _ in str:gmatch("[%w_]+") do
+			count += 1
+		end
+		return count
+	end
+
+	local triggerKey = input.KeyCode.Name
+
+	local bestCombo: string? = nil
+	local bestCount = -1
+	local bestAction: (() -> ())? = nil
+
+	for combo, action in keybinds do
+		local containsTrigger = false
+		for token in combo:gmatch("[%w_]+") do
+			if token == triggerKey then
+				containsTrigger = true
+				break
+			end
+		end
+		if not containsTrigger then continue end
+
+		if checkCombo(combo) then
+			local count = countKeys(combo)
+			if count > bestCount then
+				bestCount = count
+				bestCombo = combo
+				bestAction = action
+			end
+		end
+	end
+
+	if not bestCombo then return end
+
+	-- Check if any combo in the table is a strict superset of the matched one
+	-- (i.e. contains all the same key tokens plus more)
+	local function getTokenSet(str: string): {[string]: boolean}
+		local set = {}
+		for token in str:gmatch("[%w_]+") do
+			set[token] = true
+		end
+		return set
+	end
+
+	local matchedTokens = getTokenSet(bestCombo)
+	local hasCompetitor = false
+
+	for combo, _ in keybinds do
+		if combo == bestCombo then continue end
+		local tokens = getTokenSet(combo)
+		local tokenCount = countKeys(combo)
+		if tokenCount <= bestCount then continue end
+
+		-- Check if matched combo's tokens are all present in this longer combo
+		local isSuperset = true
+		for token in pairs(matchedTokens) do
+			if not tokens[token] then
+				isSuperset = false
+				break
+			end
+		end
+
+		if isSuperset then
+			hasCompetitor = true
+			break
+		end
+	end
+
+	if hasCompetitor then
+		-- A longer combo exists that could still be triggered, wait and see
+		if pendingCombo and bestCount > pendingCount then
+			if pendingKeybind then
+				task.cancel(pendingKeybind)
+				pendingKeybind = nil
+			end
+		elseif pendingCombo and bestCount <= pendingCount then
+			return
+		end
+
+		pendingCombo = bestCombo
+		pendingCount = bestCount
+		pendingAction = bestAction
+
+		pendingKeybind = task.delay(0.1, function()
+			pendingKeybind = nil
+			pendingCombo = nil
+			pendingCount = -1
+			pendingAction = nil
+			if bestAction then
+				bestAction()
+			end
+		end)
+	else
+		-- No competitor, fire immediately and cancel any pending lesser combo
+		if pendingKeybind then
+			task.cancel(pendingKeybind)
+			pendingKeybind = nil
+			pendingCombo = nil
+			pendingCount = -1
+			pendingAction = nil
+		end
+		if bestAction then
+			bestAction()
+		end
+	end
+end
+
 local function truncate(num: number)
 	return string.format("%.2f", num)
 end
@@ -267,39 +475,82 @@ local function getCommonAncestor(instances: {Instance}): Instance?
 	return lca
 end
 
-local function pasteCopiedInstances(world: World)
-	local state = Manager.WidgetState
-	local components = Manager.Components
-	local targetEntity = state.ContextTarget
-	if not targetEntity then return end
-	local targetInstance = world:get(targetEntity, components.Instance)
-	assert(targetInstance, "target instance not found")
+local pathClickConnection: RBXScriptConnection?
+local pathAncestryChangedConns: {RBXScriptConnection} = {}
+local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, components: typeof(Manager.Components))
+	local world = state.World
+	local jexplorerUi = state.JExplorerUI
+	local jexplorerWidget = state.Widget
+	local topbar = jexplorerUi.Topbar
+	local pathSegments = topbar.PathBar.Segments
 
-	local success, instances = pcall(
-		SerializationService.DeserializeInstancesAsync, SerializationService, 
-		HttpService:JSONDecode(
-			plugin:GetSetting("CopiedInstances")
-		)
-	)
-
-	if not success then return end
-	local id = ChangeHistoryService:TryBeginRecording("Paste", "Paste")
-
-	for _, v in instances do
-		local success = pcall(function()
-			v.Parent = targetInstance
-		end)
-		if not success then
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
-			end
-			return
-		end
+	if state.OverridePathBarText then
+		local pathButton = pathSegments.PathSegment
+		pathButton.Text = state.OverridePathBarText
+		return
 	end
 
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+	if pathClickConnection then
+		pathClickConnection:Disconnect()
+	end
+	for _, v in pathAncestryChangedConns do
+		v:Disconnect()
+	end
+	if #instances == 0 then
+		local pathButton = pathSegments.PathSegment
+		pathButton.Text = ""
+		Manager.setExplorerEntitiesAsSelection({}, false)
+		return
+	end
+
+	-- Update path bar
+	local commonAncestor = getCommonAncestor(instances)
+	if commonAncestor then
+		local pathButton = pathSegments.PathSegment
+		local current: Instance? = commonAncestor
+		local segmentBounds = {}
+
+		local pathParts = {}
+		local size = pathButton.TextSize
+		local font = pathButton.Font
+		local entities = {}
+		while current and current ~= game do
+			--local entity = instanceToEntity[current]
+			table.insert(pathParts, 1, current.Name)
+			table.insert(entities, 1, current)
+			current = current.Parent
+		end
+
+		local cumulativeText = ""
+		local absSize = Vector2.new(math.huge, pathButton.AbsoluteSize.Y)
+		for i, part in pathParts do
+			if i > 1 then
+				cumulativeText = cumulativeText .. " / "
+			end
+			cumulativeText = cumulativeText .. part
+
+			local textSize = game:GetService("TextService"):GetTextSize(cumulativeText, size, font, absSize)
+			table.insert(segmentBounds, {bound = textSize.X, entity = entities[i]})
+		end
+
+		pathClickConnection = pathButton.Activated:Connect(function(input: InputObject)
+			local relativeX = input.Position.X - pathButton.AbsolutePosition.X
+			for _, item in segmentBounds do
+				if relativeX <= item.bound then
+					game.Selection:Set {item.entity}
+					break
+				end
+			end
+		end)
+		for _, inst in instances do
+			local conn = inst.AncestryChanged:Once(function()
+				refreshPathBar(instances, state, components)
+			end)
+			table.insert(pathAncestryChangedConns, conn)
+		end
+
+		pathButton.Text = table.concat(pathParts, " / ")
+		pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
 	end
 end
 
@@ -952,7 +1203,7 @@ local function getTabImageIcon(tab: Tab, oldIcon: string)
 			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Dark/")
 		end
 	else
-		local backgroundColor: Color3 = Manager.Style:GetToken("LightBackgroundColor")
+		local backgroundColor: Color3 = tab.TabFrame:GetStyled("BackgroundColor3")
 		if getColorBrightness(backgroundColor) > 0.5 then
 			-- Background is light so icon is dark
 			-- Light mode icon is dark
@@ -964,7 +1215,7 @@ local function getTabImageIcon(tab: Tab, oldIcon: string)
 	return icon
 end
 
-function Manager.registerTab(name, icon, stored, createDeleteButton, createInsertButton, registerIntoTabs)
+function Manager.registerTab(name, icon, stored, registerIntoTabs)
 	local state = Manager.WidgetState
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
@@ -1017,8 +1268,14 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 		local listener = sharedTabState.tabInsertListener
 		if listener then
 			listener:Disconnect()
-			listener = nil
-			sharedTabState.isCurrentlyPickingTabRoots = false
+			sharedTabState.tabInsertListener = nil
+			local pickingTab = sharedTabState.currentlyPickingTabRoots
+			if pickingTab then
+				tabFrame:RemoveTag("JEXP_SelectingRoots")
+			end
+			state.OverridePathBarText = nil
+			refreshPathBar(game.Selection:Get(), state, components)
+			sharedTabState.currentlyPickingTabRoots = nil
 		end
 
 		for entity in world:query(components.Instance):without(ChildOf(Jecs.Wildcard)):iter() do
@@ -1035,12 +1292,8 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 			local background = currentlyOpenTab.TabFrame
 			local iconLabel = currentlyOpenTab.IconLabel
 			background:RemoveTag("JEXP_SelectedColor")
-			background:AddTag("JEXP_LightBackground")
 			iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
 			
-			if currentlyOpenTab.InsertButton then
-				currentlyOpenTab.InsertButton.BackgroundTransparency = 1
-			end
 			for _,v in currentlyOpenTab.Roots do
 				local frame = world:get(v, components.Frame)
 				if not frame then continue end
@@ -1048,7 +1301,6 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 			end
 		end
-		tabFrame:RemoveTag("JEXP_LightBackground")
 		tabFrame:AddTag("JEXP_SelectedColor")
 		
 		sharedTabState.currentlyOpenTab = tab
@@ -1085,8 +1337,14 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 			local listener = sharedTabState.tabInsertListener
 			if listener then
 				listener:Disconnect()
-				listener = nil
-				sharedTabState.isCurrentlyPickingTabRoots = false
+				sharedTabState.tabInsertListener = nil
+				local pickingTab = sharedTabState.currentlyPickingTabRoots
+				if pickingTab then
+					tabFrame:RemoveTag("JEXP_SelectingRoots")
+				end
+				state.OverridePathBarText = nil
+				refreshPathBar(game.Selection:Get(), state, components)
+				sharedTabState.currentlyPickingTabRoots = nil
 			end
 			for entity in world:query(components.Instance):without(ChildOf(Jecs.Wildcard)):iter() do
 				world:add(entity, components.Invisible)
@@ -1102,69 +1360,11 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 			Manager.AllTab.Toggle()
 		end
 	end
-
-	if createInsertButton then
-		local insertButton
-		insertButton = PluginUI.createInsertButton(button, function()
-			if sharedTabState.isCurrentlyPickingTabRoots then return end
-			if sharedTabState.currentlyOpenTab ~= Manager.AllTab then
-				Manager.AllTab.Toggle()
-			end
-			insertButton.BackgroundTransparency = 0
-
-			sharedTabState.isCurrentlyPickingTabRoots = true
-			sharedTabState.tabInsertListener = Manager.connectInputBegan(function(input)
-				if input.UserInputState ~= Enum.UserInputState.Begin then return end
-
-				local sink = false
-				if input.KeyCode == Enum.KeyCode.Escape then
-					-- Do nothing, let toggle back to this tab
-					sink = true
-				elseif input.KeyCode == Enum.KeyCode.Return then
-					for _, v in state.CurrentSelection do
-						local parentTabs = world:get(v, components.ParentTabs)
-						assert(parentTabs)
-						if parentTabs[tab] then continue end
-
-						table.insert(stored, v)
-						parentTabs[tab] = true
-					end
-					sink = true
-				end
-				if sink then
-					Manager.setExplorerEntitiesAsSelection({}, true)
-					tab.Toggle()
-
-					insertButton.BackgroundTransparency = 1
-				end
-			end) 
-		end)
-		tab.InsertButton = insertButton
-
-		if createDeleteButton then
-			insertButton.Position = UDim2.new(1, -18, 0.5, 0)
-		else
-			insertButton.Position = UDim2.new(1, -2, 0.5, 0)
-		end
-		insertButton.Name = "Insert"
-		insertButton.Size = UDim2.fromOffset(16, 16)
-		insertButton.AnchorPoint = Vector2.new(1, 0.5)
-	end
-
-	if createDeleteButton then
-		local deleteButton = PluginUI.createDeleteButton(button, tab.Remove)
-		tab.RemoveButton = deleteButton
-
-		deleteButton.Name = "Delete"
-		deleteButton.Position = UDim2.new(1, -2, 0.5, 0)
-		deleteButton.Size = UDim2.fromOffset(16, 16)
-		deleteButton.AnchorPoint = Vector2.new(1, 0.5)
-	end
 	
 	local function updateSize()
 		local text = nameBox.Text
 		if text == "" then
-			tabFrame.Size = UDim2.new(0, 70, 1, 0)
+			tabFrame.Size = UDim2.new(0, 70, 1, -2)
 			nameBox.Size = UDim2.new(0, 0, 1, 0)
 			return
 		end
@@ -1174,20 +1374,13 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 
 		nameBox.Size = UDim2.fromOffset(textWidth, nameBox.AbsoluteSize.Y)
 		local tabWidth = textWidth + 30
-		if createInsertButton then
-			tabWidth += 10
-		end
-		if createDeleteButton then
-			tabWidth += 10
-		end
-		if createInsertButton or createDeleteButton then
-			tabWidth += 4 -- padding
-		end
-		tabFrame.Size = UDim2.fromOffset(tabWidth, tabFrame.AbsoluteSize.Y)
+		
+		tabFrame.Size = UDim2.fromOffset(tabWidth, tabBar.AbsoluteSize.Y - 1)
 	end
 	tabConnections:add_many({
 		nameBox:GetPropertyChangedSignal("Text"):Connect(updateSize),
 		nameBox:GetPropertyChangedSignal("TextBounds"):Connect(updateSize),
+		jexplorerUi:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSize),
 		nameBox:GetPropertyChangedSignal("Text"):Connect(function()
 			tab.Name = nameBox.Text
 		end),
@@ -1197,7 +1390,11 @@ function Manager.registerTab(name, icon, stored, createDeleteButton, createInser
 			if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
 
 			sharedTabState.contextTargetTab = tab
-			state.MiscContextMenus.Tab.Menu:ShowAsync()
+			if tab == Manager.AllTab then
+				state.MiscContextMenus.AllTab.Menu:ShowAsync()
+			else
+				state.MiscContextMenus.Tab.Menu:ShowAsync()
+			end
 		end),
 		button.MouseEnter:Connect(function()
 			if not state.IsDragging then return end
@@ -1397,7 +1594,7 @@ function Manager.loadState(savedState)
 
 					table.insert(roots, ent)
 				end
-				local tab = Manager.registerTab(t.display_name, t.icon, roots, true, true, true)
+				local tab = Manager.registerTab(t.display_name, t.icon, roots, true)
 				tab.IconLabel.ImageColor3 = UDF.from(t.icon_color)
 			end
 		end,
@@ -1506,6 +1703,76 @@ local function initRegisterPluginMenusAndActions(
 			box:CaptureFocus()
 		end)
 	end
+
+	local tabDelete do
+		tabDelete = createPluginAction(
+			"TabDelete", "Delete Tab", "Deletes this tab."
+		)
+		
+		tabDelete.Triggered:Connect(function()
+			local tab = sharedTabState.contextTargetTab
+			if not tab then return end
+			
+			tab.Remove()
+		end)
+	end
+	
+	local tabInsert do
+		tabInsert = createPluginAction(
+			"InsertTabRoots", "Insert Roots", "Prompts user to insert tab roots."
+		)
+		
+		tabInsert.Triggered:Connect(function()
+			local tab = sharedTabState.contextTargetTab
+			if not tab then return end
+			if sharedTabState.currentlyPickingTabRoots then return end
+			if sharedTabState.currentlyOpenTab ~= Manager.AllTab then
+				Manager.AllTab.Toggle()
+			end
+			
+			local tabFrame = tab.TabFrame
+			tabFrame:AddTag("JEXP_SelectingRoots")
+			local iconLabel = tab.IconLabel
+			task.defer(function()
+				iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
+			end)
+			
+			state.OverridePathBarText = "Press [Enter] to confirm selection, [Escape] to cancel."
+			refreshPathBar({}, state, components)
+			
+			sharedTabState.currentlyPickingTabRoots = tab
+			sharedTabState.tabInsertListener = Manager.connectInputBegan(function(input)
+				if input.UserInputState ~= Enum.UserInputState.Begin then return end
+
+				local sink = false
+				if input.KeyCode == Enum.KeyCode.Escape then
+					-- Do nothing, let toggle back to this tab
+					sink = true
+				elseif input.KeyCode == Enum.KeyCode.Return then
+					for _, v in state.CurrentSelection do
+						local parentTabs = world:get(v, components.ParentTabs)
+						assert(parentTabs)
+						if parentTabs[tab] then continue end
+
+						table.insert(tab.Roots, v)
+						parentTabs[tab] = true
+					end
+					sink = true
+				end
+				if sink then
+					tabFrame:RemoveTag("JEXP_SelectingRoots")
+					task.defer(function()
+						iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
+					end)
+					
+					state.OverridePathBarText = nil
+					refreshPathBar(game.Selection:Get(), state, components)
+					Manager.setExplorerEntitiesAsSelection({}, true)
+					tab.Toggle()
+				end
+			end) 
+		end)
+	end
 	
 	local tabEditIcon do
 		tabEditIcon = createPluginAction(
@@ -1560,7 +1827,7 @@ local function initRegisterPluginMenusAndActions(
 
 	do
 		local insertButton = PluginUI.createInsertButton(tabBar.Tabs, function()
-			Manager.registerTab("Tab", "", {}, true, true, true)
+			Manager.registerTab("Tab", "", {}, true)
 		end)
 
 		insertButton.LayoutOrder = math.huge
@@ -1844,6 +2111,10 @@ local function initRegisterPluginMenusAndActions(
 
 				parentTabs[currentlyOpenTab] = nil
 				world:remove(ent, components.DisplayTopLevel)
+				if not world:has(ent, ChildOf(Jecs.Wildcard)) then
+					world:add(ent, components.Invisible)
+					HierarchyState.invalidateEntityStateCache(ent)
+				end
 
 				local frame = world:get(ent, components.Frame)
 				if frame then ExplorerFrame.queueForExplorerFrameReuse(Manager, frame) end
@@ -2363,7 +2634,9 @@ local function initRegisterPluginMenusAndActions(
 		ChangeIconColor = changeIconColorAction,
 
 		Tab_EditName = tabEditName,
-		Tab_EditIcon = tabEditIcon
+		Tab_EditIcon = tabEditIcon,
+		Tab_Delete = tabDelete,
+		Tab_InsertRoots = tabInsert,
 	}
 
 	state.DefaultInstanceActionsArray = {
@@ -2476,8 +2749,18 @@ local function initRegisterPluginMenusAndActions(
 	local tabMenu = Manager.createContextMenu(
 		getId("Jexplorer_TabContextMenu", true),
 		{
+			"Tab_InsertRoots",
 			"Tab_EditName",
-			"Tab_EditIcon"
+			"Tab_EditIcon",
+			"Tab_Delete"
+		}
+	)
+
+	local allTabMenu = Manager.createContextMenu(
+		getId("Jexplorer_AllTabContextMenu", true),
+		{
+			"Tab_EditName",
+			"Tab_EditIcon",
 		}
 	)
 
@@ -2502,7 +2785,8 @@ local function initRegisterPluginMenusAndActions(
 		},
 	}
 	state.MiscContextMenus = {
-		Tab = tabMenu
+		Tab = tabMenu,
+		AllTab = allTabMenu
 	}
 end
 
@@ -2699,246 +2983,6 @@ local function initCreateEntities(state: Types.WidgetState, components: typeof(M
 	profileend()
 end
 
-local pathClickConnection: RBXScriptConnection?
-local pathAncestryChangedConns: {RBXScriptConnection} = {}
-local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, components: typeof(Manager.Components))
-	local world = state.World
-	local jexplorerUi = state.JExplorerUI
-	local jexplorerWidget = state.Widget
-	local topbar = jexplorerUi.Topbar
-	
-	local pathSegments = topbar.PathBar.Segments
-	if pathClickConnection then
-		pathClickConnection:Disconnect()
-	end
-	for _, v in pathAncestryChangedConns do
-		v:Disconnect()
-	end
-	if #instances == 0 then
-		local pathButton = pathSegments.PathSegment
-		pathButton.Text = ""
-		Manager.setExplorerEntitiesAsSelection({}, false)
-		return
-	end
-	
-	-- Update path bar
-	local commonAncestor = getCommonAncestor(instances)
-	if commonAncestor then
-		local pathButton = pathSegments.PathSegment
-		local current: Instance? = commonAncestor
-		local segmentBounds = {}
-
-		local pathParts = {}
-		local size = pathButton.TextSize
-		local font = pathButton.Font
-		local entities = {}
-		while current and current ~= game do
-			--local entity = instanceToEntity[current]
-			table.insert(pathParts, 1, current.Name)
-			table.insert(entities, 1, current)
-			current = current.Parent
-		end
-
-		local cumulativeText = ""
-		local absSize = Vector2.new(math.huge, pathButton.AbsoluteSize.Y)
-		for i, part in pathParts do
-			if i > 1 then
-				cumulativeText = cumulativeText .. " / "
-			end
-			cumulativeText = cumulativeText .. part
-
-			local textSize = game:GetService("TextService"):GetTextSize(cumulativeText, size, font, absSize)
-			table.insert(segmentBounds, {bound = textSize.X, entity = entities[i]})
-		end
-
-		pathClickConnection = pathButton.Activated:Connect(function(input: InputObject)
-			local relativeX = input.Position.X - pathButton.AbsolutePosition.X
-			for _, item in segmentBounds do
-				if relativeX <= item.bound then
-					game.Selection:Set {item.entity}
-					break
-				end
-			end
-		end)
-		for _, inst in instances do
-			local conn = inst.AncestryChanged:Once(function()
-				refreshPathBar(instances, state, components)
-			end)
-			table.insert(pathAncestryChangedConns, conn)
-		end
-
-		pathButton.Text = table.concat(pathParts, " / ")
-		pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
-	end
-end
-
-local function checkCombo(str: string): boolean
-	str = str:gsub("%s+", "")
-
-	local function parseExpr(s, i): (any, number)
-		-- Forward declaration for mutual recursion
-		local function parseAtom(i: number): (any, number)
-			if s:sub(i, i) == "(" then
-				local val, ni = parseExpr(s, i + 1)
-				if s:sub(ni, ni) ~= ")" then
-					error("Expected ')' at position " .. ni)
-				end
-				return val, ni + 1
-			end
-
-			-- Read key name (letters, digits, underscores)
-			local key = s:match("^([%w_]+)", i)
-			if not key then
-				error("Expected key name at position " .. i)
-			end
-
-			local enumVal = Enum.KeyCode[key]
-			local result = enumVal ~= nil and Manager.isKeyDown(enumVal)
-			return result, i + #key
-		end
-
-		local function parseAnd(i): (any, number)
-			local left, ni = parseAtom(i)
-			while s:sub(ni, ni) == "&" do
-				local right, nni = parseAtom(ni + 1)
-				left = left and right
-				ni = nni
-			end
-			return left, ni
-		end
-
-		local left, ni = parseAnd(i)
-		while s:sub(ni, ni) == "|" do
-			local right, nni = parseAnd(ni + 1)
-			left = left or right
-			ni = nni
-		end
-		return left, ni
-	end
-
-	local ok, result = pcall(function()
-		local val, _ = parseExpr(str, 1)
-		return val
-	end)
-
-	return ok and result or false
-end
-
-local pendingKeybind: thread? = nil
-local pendingCombo: string? = nil
-local pendingCount: number = -1
-local pendingAction: (() -> ())? = nil
-
-local function checkKeybinds(keybinds: {[string]: () -> ()}, input: InputObject)
-	local function countKeys(str: string): number
-		local count = 0
-		for _ in str:gmatch("[%w_]+") do
-			count += 1
-		end
-		return count
-	end
-
-	local triggerKey = input.KeyCode.Name
-
-	local bestCombo: string? = nil
-	local bestCount = -1
-	local bestAction: (() -> ())? = nil
-
-	for combo, action in keybinds do
-		local containsTrigger = false
-		for token in combo:gmatch("[%w_]+") do
-			if token == triggerKey then
-				containsTrigger = true
-				break
-			end
-		end
-		if not containsTrigger then continue end
-
-		if checkCombo(combo) then
-			local count = countKeys(combo)
-			if count > bestCount then
-				bestCount = count
-				bestCombo = combo
-				bestAction = action
-			end
-		end
-	end
-
-	if not bestCombo then return end
-
-	-- Check if any combo in the table is a strict superset of the matched one
-	-- (i.e. contains all the same key tokens plus more)
-	local function getTokenSet(str: string): {[string]: boolean}
-		local set = {}
-		for token in str:gmatch("[%w_]+") do
-			set[token] = true
-		end
-		return set
-	end
-
-	local matchedTokens = getTokenSet(bestCombo)
-	local hasCompetitor = false
-
-	for combo, _ in keybinds do
-		if combo == bestCombo then continue end
-		local tokens = getTokenSet(combo)
-		local tokenCount = countKeys(combo)
-		if tokenCount <= bestCount then continue end
-
-		-- Check if matched combo's tokens are all present in this longer combo
-		local isSuperset = true
-		for token in pairs(matchedTokens) do
-			if not tokens[token] then
-				isSuperset = false
-				break
-			end
-		end
-
-		if isSuperset then
-			hasCompetitor = true
-			break
-		end
-	end
-
-	if hasCompetitor then
-		-- A longer combo exists that could still be triggered, wait and see
-		if pendingCombo and bestCount > pendingCount then
-			if pendingKeybind then
-				task.cancel(pendingKeybind)
-				pendingKeybind = nil
-			end
-		elseif pendingCombo and bestCount <= pendingCount then
-			return
-		end
-
-		pendingCombo = bestCombo
-		pendingCount = bestCount
-		pendingAction = bestAction
-
-		pendingKeybind = task.delay(0.1, function()
-			pendingKeybind = nil
-			pendingCombo = nil
-			pendingCount = -1
-			pendingAction = nil
-			if bestAction then
-				bestAction()
-			end
-		end)
-	else
-		-- No competitor, fire immediately and cancel any pending lesser combo
-		if pendingKeybind then
-			task.cancel(pendingKeybind)
-			pendingKeybind = nil
-			pendingCombo = nil
-			pendingCount = -1
-			pendingAction = nil
-		end
-		if bestAction then
-			bestAction()
-		end
-	end
-end
-
 local function initConnections(state: Types.WidgetState, components: typeof(Manager.Components), topbarMenuDropdown: PluginUI.ItemList): {RBXScriptConnection}
 	local world = state.World
 	local queryWorld = state.QueryWorld
@@ -3002,6 +3046,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			topbarMenuDropdown:Destroy()
 			topbarMenuDropdown = CreateOptionsDropdown(Manager, components, topbar)
 			sheet:UpdateTokens()
+			
+			for _, v in state.Tabs do
+				local iconLabel = v.IconLabel
+				iconLabel.Image = getTabImageIcon(v, iconLabel.Image)
+			end
 		end),
 		jexplorerWidget.PluginDragDropped:Connect(function(dragData)
 			local info = Manager.unpackDragInfo(dragData)
@@ -3859,7 +3908,7 @@ function Manager.init(connections, jexplorerWidget)
 	JextensionEditor.init(Manager)
 	StateEditor.init(Manager)
 
-	Manager.AllTab = Manager.registerTab("All", "rbxassetid://13641691796", entities, false, false, false)
+	Manager.AllTab = Manager.registerTab("All", "rbxassetid://13641691796", entities, false)
 	-- Wait until robloxs scrollingframe update
 	task.delay(1.5, Manager.AllTab.Toggle)
 	task.delay(2, loaders.tabs)

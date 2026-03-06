@@ -22,7 +22,7 @@ return {
 			template "Frame" {
 				Name = "ScrollBackgroundHorizontal",
 				ZIndex = 4,
-
+				
 				"JEXP_DarkBackground",
 				"JEXP_GrayBorder",
 				"JEXP_ScrollBackgroundHorizontal"
@@ -208,8 +208,6 @@ return {
 		Name = "InstanceTab",
 		Size = UDim2.new(0, 70, 1, 0),
 		
-		"JEXP_LightBackground",
-		"JEXP_Border",
 		"JEXP_TabFrame",
 		
 		template "TextBox" {
