@@ -12,6 +12,7 @@ local RawInst = require(shared.Small.RawInst)
 local UITemplates = require(shared.UITemplates)
 local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
+local Constants = require(main.Constants)
 
 local Types = require(main.Types)
 

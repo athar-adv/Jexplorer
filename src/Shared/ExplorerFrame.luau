@@ -29,7 +29,7 @@ type ExplorerFrame = Types.ExplorerFrame
 type ExplorerEntity = Types.ExplorerEntity
 type Manager = Types.Manager
 
-local GLOBAL_FRAME_CACHE_SIZE = 500  -- L2 cache: large, slower (parented to nil)
+local GLOBAL_FRAME_CACHE_SIZE = 50  -- L2 cache: large, slower (parented to nil)
 local INSTANCE_ICON = ClassIcon.getIcon("Instance")
 assert(INSTANCE_ICON)
 
@@ -91,6 +91,251 @@ local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlH
 	profileend()
 end
 
+local function onSelectExplorerFrame(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, state: Types.WidgetState, components: Types.Components, frameState: Types.FrameState, input: InputObject)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	local instance = world:get(entity, components.Instance)
+	if not instance then return end
+
+	if input.UserInputState ~= Enum.UserInputState.Begin then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+		Manager.ItemLists.InsertInstance:Hide()
+	end
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		state.ContextTarget = entity
+		-- If this entity is already selected don't set selection so any other selected instances dont get deselected
+		if not world:has(entity, components.Selected) then
+			Manager.setExplorerEntitiesAsSelection({entity}, true)
+		end
+
+		local chosenMenus = {}
+		for _, info in state.InstanceContextMenus do
+			local pass = info.Condition(Manager, entity, instance)
+			if pass then table.insert(chosenMenus, info) end
+		end
+		if #chosenMenus > 0 then
+			table.sort(chosenMenus, function(a, b)
+				return a.Priority > b.Priority
+			end)
+			chosenMenus[1].Menu.Menu:ShowAsync()
+		end
+	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+		profilebegin("InstanceFrame::onInput::LMB (click)")
+
+		task.defer(function()
+			frameState.isLMBActive = true
+		end)
+		frameState.hasBeenSelected = world:has(entity, components.Selected)
+		frameState.shouldDeselect = false
+
+		local currentTime = os.clock()
+		local timeSinceLastClick = currentTime - frameState.lastClickTime
+		frameState.lastClickTime = currentTime
+
+		-- Check for double-click
+		if timeSinceLastClick <= Manager.getSetting("DoubleClickToOpenScriptTime") and instance:IsA("LuaSourceContainer") then
+			--plugin:OpenScript(instance)
+			local success, err = ScriptEditorService:OpenScriptDocumentAsync(instance)
+			if not success then warn(`Couldn't open LuaSourceContainer '{instance.Name}': '{err}'`) end
+			return
+		elseif timeSinceLastClick <= Manager.getSetting("DoubleClickToRenameTime") then
+			local instanceName = frameState.instanceName
+			instanceName.TextEditable = true
+			instanceName.Interactable = true
+			instanceName:CaptureFocus()
+			return
+		end
+
+		local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
+		local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
+
+		-- Handle selection logic immediately (don't wait for drag)
+		if not frameState.hasBeenSelected then
+			-- First click on unselected item - select it
+			switchSelection(Manager, entity, isCtrlHeld, isShiftHeld)
+			return -- Don't proceed to drag logic
+		elseif isCtrlHeld then
+			-- Ctrl+click on selected item - mark for deselection on mouse up
+			frameState.shouldDeselect = true
+			return -- Don't start drag
+		elseif isShiftHeld then
+			-- Shift+click on selected item - handle shift selection
+			switchSelection(Manager, entity, isCtrlHeld, isShiftHeld)
+			return -- Don't start drag
+		elseif #state.CurrentSelection > 1 then
+			-- Multiple items selected, clicking on one should deselect others
+			-- But we need to wait to see if this is a drag or just a click
+			-- Don't call toggleSelection here - handle it in InputEnded
+		else
+			-- Single item selected, clicking on it again - could be drag or deselect
+			-- Wait to see if it's a drag
+		end
+
+		-- Wait to distinguish between click and drag
+		task.wait(0.1)
+
+		if not frameState.isLMBActive then return end -- User released mouse quickly
+		Manager.startDraggingSelected()
+	end
+end
+
+local EXPLORER_FRAME_PREFAB: {Jecs.Id}
+local bulkinsert = Jecs.bulk_insert
+
+local function onCleanupFrameState(frameState: Types.FrameState, currentTypingConn: RBXScriptConnection?)
+	for _, v in frameState.packageIconConns do
+		v:Disconnect()
+	end
+	table.clear(frameState.packageIconConns)
+	if currentTypingConn then
+		currentTypingConn:Disconnect()
+	end
+end
+
+local function onInstanceNameFocused(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, instanceName: TextBox)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	state.CurrentlyRenaming = entity
+	instanceName.BackgroundTransparency = 0
+end
+
+local function onInstanceNameFocusLost(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, world: Types.World, instanceName: TextBox)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	local instance = world:get(entity, components.Instance)
+	if not instance then return end
+
+	state.CurrentlyRenaming = nil
+	instanceName.BackgroundTransparency = 1
+	instance.Name = instanceName.Text
+end
+
+local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, frameState: Types.FrameState, input: InputObject)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	local instance = world:get(entity, components.Instance)
+	if not instance then return end
+
+	if input.UserInputState ~= Enum.UserInputState.End then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+	local ExplorerFrame = Manager.ExplorerFrame
+	local VirtualScroller = Manager.VirtualScroller
+
+	task.defer(function()
+		frameState.isLMBActive = false
+	end)
+
+	-- Handle deselection for ctrl+click
+	if frameState.shouldDeselect then
+		world:remove(entity, components.Selected)
+		ExplorerFrame.updateSelectionVisuals(Manager, true)
+		frameState.shouldDeselect = false
+		return
+	end
+	-- If we have multiple selections and this was just a click (not drag),
+	-- then deselect others and select only this one
+	if not state.IsDragging and frameState.hasBeenSelected and #state.CurrentSelection > 1 then
+		local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
+		local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
+
+		if not isCtrlHeld and not isShiftHeld then
+			-- Normal click on multi-selection - select only this one
+			for entityId in world:query(components.Instance, components.Selected):iter() do
+				world:remove(entityId, components.Selected)
+			end
+			world:add(entity, components.Selected)
+			state.LastSelectedEntity = entity
+
+			ExplorerFrame.updateSelectionVisuals(Manager, true)
+			VirtualScroller.update(Manager, false)
+		end
+	end
+end
+
+local function onMouseEnter(Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, frame: Instance & any, instanceName: TextBox, insertInstanceButton: GuiButton)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+	local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+	insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+
+	insertInstanceButton.Visible = true
+	if state.IsDragging then
+		frame:AddTag("JEXP_DropTarget")
+	end
+end
+
+local function onMouseLeave(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, frame: Instance & any, insertInstanceButton: GuiButton)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	insertInstanceButton.Visible = false
+	if frame:HasTag("JEXP_DropTarget") then
+		frame:RemoveTag("JEXP_DropTarget")
+	end
+end
+
+local function onInsertActivated(Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, insertInstanceButton: GuiButton)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	state.ContextTarget = entity
+	Manager.InsertMenu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize)
+end
+
+local function onInstanceNameFocusedTyping(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, instanceName: TextBox, insertInstanceButton: GuiButton, frame: Instance & any, currentTypingConnRef: {conn: RBXScriptConnection?})
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	currentTypingConnRef.conn = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function()
+		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+		frame.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+	end)
+end
+
+local function onInstanceNameFocusLostTyping(currentTypingConnRef: {conn: RBXScriptConnection?}, instanceName: TextBox)
+	if currentTypingConnRef.conn then
+		currentTypingConnRef.conn:Disconnect()
+		currentTypingConnRef.conn = nil
+	end
+	instanceName.TextEditable = false
+	instanceName.Interactable = false
+end
+
+local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	local HierarchyState = Manager.HierarchyState
+	local ExplorerFrame = Manager.ExplorerFrame
+	local VirtualScroller = Manager.VirtualScroller
+
+	local expanded = Manager.isExplorerEntityExpanded(entity)
+	if expanded then
+		world:remove(entity, components.QueryExpanded)
+		world:remove(entity, components.Expanded)
+
+		HierarchyState.invalidateEntityStateCache(entity)
+		ExplorerFrame.updateCollapsedVisuals(Manager)
+	else
+		world:add(entity, components.Expanded)
+
+		HierarchyState.invalidateEntityStateCache(entity)
+		ExplorerFrame.updateExpandedVisuals(Manager)
+	end
+
+	VirtualScroller.update(Manager, false)
+end
+
 local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
@@ -98,7 +343,7 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
-	
+
 	local cleanup = Manager.CleanupFns
 	local frameWorld = state.FrameWorld
 	local jexplorerUi = state.JExplorerUI
@@ -133,14 +378,18 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		instanceName = instanceName
 	}
 
+	if not EXPLORER_FRAME_PREFAB then
+		EXPLORER_FRAME_PREFAB = {
+			components.Instance,
+			components.Connections,
+			components.Entity,
+			components.FrameState,
+			components.FRAMEWORLD_Main
+		}
+	end
+
 	local frameEntity = frameWorld:entity()
-	Jecs.bulk_insert(frameWorld, frameEntity, {
-		components.Instance,
-		components.Connections,
-		components.Entity,
-		components.FrameState,
-		components.FRAMEWORLD_Main
-	}, {
+	bulkinsert(frameWorld, frameEntity, EXPLORER_FRAME_PREFAB, {
 		frame,
 		connections,
 		nil,
@@ -150,241 +399,52 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 
 	Manager.FrameToInstanceFrame[frame] = frameEntity
 	overlayFrame:AddTag("JEXP_Hover")
-	
-	local currentTypingConn: RBXScriptConnection?
+
+	-- Use a ref table so the typing conn can be mutated from static functions
+	local currentTypingConnRef: {conn: RBXScriptConnection?} = { conn = nil }
 
 	connections:extend(cleanup.call, {
 		function()
-			for _, v in frameState.packageIconConns do
-				v:Disconnect()
-			end
-			table.clear(frameState.packageIconConns)
-			if currentTypingConn then
-				currentTypingConn:Disconnect()
-			end
+			onCleanupFrameState(frameState, currentTypingConnRef.conn)
 		end
 	})
-	
-	connections:add_many({
-		instanceName.Focused:Connect(function()
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
 
-			state.CurrentlyRenaming = entity
-			instanceName.BackgroundTransparency = 0
-		end),
-		instanceName.FocusLost:Connect(function(enterPressed)
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
+	local items = connections.items
+	local n = #items
 
-			local instance = world:get(entity, components.Instance)
-			if not instance then return end
-
-			state.CurrentlyRenaming = nil
-			instanceName.BackgroundTransparency = 1
-			--if not enterPressed then return end
-			instance.Name = instanceName.Text
-		end),
-
-		selectInstanceButton.InputBegan:Connect(function(input)
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-
-			local instance = world:get(entity, components.Instance)
-			if not instance then return end
-
-			if input.UserInputState ~= Enum.UserInputState.Begin then return end
-			if input.UserInputType ~= Enum.UserInputType.MouseMovement then
-				Manager.ItemLists.InsertInstance:Hide()
-			end
-			if input.UserInputType == Enum.UserInputType.MouseMovement then
-			elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-				state.ContextTarget = entity
-				-- If this entity is already selected don't set selection so any other selected instances dont get deselected
-				if not world:has(entity, components.Selected) then
-					Manager.setExplorerEntitiesAsSelection({entity}, true)
-				end
-
-				local chosenMenus = {}
-				for _, info in state.InstanceContextMenus do
-					local pass = info.Condition(Manager, entity, instance)
-					if pass then table.insert(chosenMenus, info) end
-				end
-				if #chosenMenus > 0 then
-					table.sort(chosenMenus, function(a, b)
-						return a.Priority > b.Priority
-					end)
-					chosenMenus[1].Menu.Menu:ShowAsync()
-				end
-			elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-				profilebegin("InstanceFrame::onInput::LMB (click)")
-				
-				task.defer(function()
-					frameState.isLMBActive = true
-				end)
-				frameState.hasBeenSelected = world:has(entity, components.Selected)
-				frameState.shouldDeselect = false
-
-				local currentTime = os.clock()
-				local timeSinceLastClick = currentTime - frameState.lastClickTime
-				frameState.lastClickTime = currentTime
-
-				-- Check for double-click
-				if timeSinceLastClick <= Manager.getSetting("DoubleClickToOpenScriptTime") and instance:IsA("LuaSourceContainer") then
-					--plugin:OpenScript(instance)
-					local success, err = ScriptEditorService:OpenScriptDocumentAsync(instance)
-					if not success then warn(`Couldn't open LuaSourceContainer '{instance.Name}': '{err}'`) end
-					return
-				elseif timeSinceLastClick <= Manager.getSetting("DoubleClickToRenameTime") then
-					instanceName.TextEditable = true
-					instanceName.Interactable = true
-					instanceName:CaptureFocus()
-					return
-				end
-
-				local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
-				local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
-				
-				-- Handle selection logic immediately (don't wait for drag)
-				if not frameState.hasBeenSelected then
-					-- First click on unselected item - select it
-					switchSelection(Manager, entity, isCtrlHeld, isShiftHeld)
-					return -- Don't proceed to drag logic
-				elseif isCtrlHeld then
-					-- Ctrl+click on selected item - mark for deselection on mouse up
-					frameState.shouldDeselect = true
-					return -- Don't start drag
-				elseif isShiftHeld then
-					-- Shift+click on selected item - handle shift selection
-					switchSelection(Manager, entity, isCtrlHeld, isShiftHeld)
-					return -- Don't start drag
-				elseif #state.CurrentSelection > 1 then
-					-- Multiple items selected, clicking on one should deselect others
-					-- But we need to wait to see if this is a drag or just a click
-					-- Don't call toggleSelection here - handle it in InputEnded
-				else
-					-- Single item selected, clicking on it again - could be drag or deselect
-					-- Wait to see if it's a drag
-				end
-
-				-- Wait to distinguish between click and drag
-				task.wait(0.1)
-				
-				if not frameState.isLMBActive then return end -- User released mouse quickly
-				Manager.startDraggingSelected()
-			end
-		end),
-
-		selectInstanceButton.InputEnded:Connect(function(input)
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-
-			local instance = world:get(entity, components.Instance)
-			if not instance then return end
-
-			if input.UserInputState ~= Enum.UserInputState.End then return end
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-			
-			task.defer(function()
-				frameState.isLMBActive = false
-			end)
-
-			-- Handle deselection for ctrl+click
-			if frameState.shouldDeselect then
-				world:remove(entity, components.Selected)
-				ExplorerFrame.updateSelectionVisuals(Manager, true)
-				frameState.shouldDeselect = false
-				return
-			end
-			-- If we have multiple selections and this was just a click (not drag), 
-			-- then deselect others and select only this one
-			if not state.IsDragging and frameState.hasBeenSelected and #state.CurrentSelection > 1 then
-				local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
-				local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
-
-				if not isCtrlHeld and not isShiftHeld then
-					-- Normal click on multi-selection - select only this one
-					for entityId in world:query(components.Instance, components.Selected):iter() do
-						world:remove(entityId, components.Selected)
-					end
-					world:add(entity, components.Selected)
-					state.LastSelectedEntity = entity
-					
-					ExplorerFrame.updateSelectionVisuals(Manager, true)
-					VirtualScroller.update(Manager, false)
-				end
-			end
-		end),
-		selectInstanceButton.MouseEnter:Connect(function()
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-			
-			local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-			local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-			insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-			
-			insertInstanceButton.Visible = true
-			if state.IsDragging then
-				--frame.SelectionTargetOutline.Enabled = true
-				frame:AddTag("JEXP_DropTarget")
-			end
-		end),
-		selectInstanceButton.MouseLeave:Connect(function()
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-
-			insertInstanceButton.Visible = false
-			--frame.SelectionTargetOutline.Enabled = false
-			if frame:HasTag("JEXP_DropTarget") then
-				frame:RemoveTag("JEXP_DropTarget")
-			end
-		end),
-		insertInstanceButton.Activated:Connect(function()
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-
-			state.ContextTarget = entity
-
-			Manager.InsertMenu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize)
-		end),
-		instanceName.Focused:Connect(function()
-			currentTypingConn = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function()
-				local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-				local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-				insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-				frame.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
-			end)
-		end),
-		instanceName.FocusLost:Connect(function()
-			if currentTypingConn then
-				currentTypingConn:Disconnect()
-			end
-			instanceName.TextEditable = false
-			instanceName.Interactable = false
-		end),
-		arrow.Activated:Connect(function()
-			local entity = frameWorld:get(frameEntity, components.Entity)
-			if not entity then return end
-
-			--toggleExpand(world, entity, not isEntityExpanded(world, entity), true)
-			local expanded = Manager.isExplorerEntityExpanded(entity)
-			if expanded then
-				world:remove(entity, components.QueryExpanded)
-				world:remove(entity, components.Expanded)
-				
-				HierarchyState.invalidateEntityStateCache(entity)
-				ExplorerFrame.updateCollapsedVisuals(Manager)
-			else
-				world:add(entity, components.Expanded)
-				
-				HierarchyState.invalidateEntityStateCache(entity)
-				ExplorerFrame.updateExpandedVisuals(Manager)
-			end
-			
-			VirtualScroller.update(Manager, false)
-		end)
-	})
-
+	items[n+1] = instanceName.Focused:Connect(function()
+		onInstanceNameFocused(frameWorld, frameEntity, components, state, instanceName)
+	end)
+	items[n+2] = instanceName.FocusLost:Connect(function(enterPressed)
+		onInstanceNameFocusLost(frameWorld, frameEntity, components, state, world, instanceName)
+	end)
+	items[n+3] = selectInstanceButton.InputBegan:Connect(function(input)
+		onSelectExplorerFrame(
+			Manager, world, frameWorld, frameEntity,
+			state, components, frameState, input
+		)
+	end)
+	items[n+4] = selectInstanceButton.InputEnded:Connect(function(input)
+		onInputEnded(Manager, world, frameWorld, frameEntity, components, state, frameState, input)
+	end)
+	items[n+5] = selectInstanceButton.MouseEnter:Connect(function()
+		onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton)
+	end)
+	items[n+6] = selectInstanceButton.MouseLeave:Connect(function()
+		onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton)
+	end)
+	items[n+7] = insertInstanceButton.Activated:Connect(function()
+		onInsertActivated(Manager, frameWorld, frameEntity, components, state, insertInstanceButton)
+	end)
+	items[n+8] = instanceName.Focused:Connect(function()
+		onInstanceNameFocusedTyping(frameWorld, frameEntity, components, instanceName, insertInstanceButton, frame, currentTypingConnRef)
+	end)
+	items[n+9] = instanceName.FocusLost:Connect(function()
+		onInstanceNameFocusLostTyping(currentTypingConnRef, instanceName)
+	end)
+	items[n+10] = arrow.Activated:Connect(function()
+		onArrowActivated(Manager, world, frameWorld, frameEntity, components)
+	end)
 	return frameEntity
 end
 
@@ -607,33 +667,6 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		rawnewindex(frameInst, "Visible", true)
 	end
 
-	local sheet = Manager.Style
-	local className = instance.ClassName
-	local slctr = Selector.getIconSelector(nil, className)
-	local icon = ClassIcon.getIcon(className)
-	
-	if icon and not sheet:FindRule(slctr) and not Manager.isExplorerEntityInvisible(entity) then
-		local name = `ClassIcon_{className}`
-		if className == "Script" or className == "LocalScript" then
-			-- Do nothing, handled in default style
-		else
-			local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
-			local normalIcon = rule(name, slctr, 0, {
-				ImageRectOffset = icon.ImageRectOffset,
-				ImageRectSize = icon.ImageRectSize,
-				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
-			})
-			local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
-				ImageRectOffset = icon.ImageRectOffset,
-				ImageRectSize = icon.ImageRectSize,
-				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
-			})
-			normalIcon:AddTag("DontSaveRule")
-			lightIcon:AddTag("DontSaveRule")
-			sheet:AddRules({normalIcon, lightIcon})
-		end
-	end
-
 	rawnewindex(frameState.instanceName, "Text", instance.Name)
 
 	local arrow = main.Arrow
@@ -809,6 +842,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	local any = false
 	profilebegin("Jexplorer::flushTagAssignQueue")
 	
+	local entitiesToAddIcons = {}
 	for entity, ticketData in query:iter() do
 		world:remove(entity, components.FrameTagAssignTicket)
 		any = true
@@ -827,6 +861,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local hasPendingChanges = world:has(entity, components.PendingChanges)
 		local scriptErrors = world:get(entity, components.ScriptErrors)
 		local scriptWarns = world:get(entity, components.ScriptWarns)
+		table.insert(entitiesToAddIcons, entity)
 		
 		local frameIconColor = world:get(entity, components.FrameIconColor)
 		local iconLabel = frameState.icon
@@ -963,6 +998,46 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			end
 		end
 		frameState.tagsToRemove = newTags
+	end
+	
+	if #entitiesToAddIcons > 0 then
+		task.defer(function()
+			local sheet = Manager.Style
+			local rules = {}
+			local any = false
+			for _, entity in entitiesToAddIcons do
+				local className = Manager.ClassNameCache[entity]
+				local slctr = Selector.getIconSelector(nil, className)
+				local icon = ClassIcon.getIcon(className)
+
+				if icon and not sheet:FindRule(slctr) and not Manager.isExplorerEntityInvisible(entity) then
+					local name = `ClassIcon_{className}`
+					if className == "Script" or className == "LocalScript" then
+						-- Do nothing, handled in default style
+					else
+						local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
+						local normalIcon = rule(name, slctr, 0, {
+							ImageRectOffset = icon.ImageRectOffset,
+							ImageRectSize = icon.ImageRectSize,
+							Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
+						})
+						local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
+							ImageRectOffset = icon.ImageRectOffset,
+							ImageRectSize = icon.ImageRectSize,
+							Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
+						})
+						normalIcon:AddTag("DontSaveRule")
+						lightIcon:AddTag("DontSaveRule")
+						table.insert(rules, normalIcon)
+						table.insert(rules, lightIcon)
+						any = true
+					end
+				end
+			end
+			if any then
+				sheet:AddRules(rules)
+			end
+		end)
 	end
 
 	profileend()

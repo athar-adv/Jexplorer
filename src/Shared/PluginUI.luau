@@ -56,15 +56,30 @@ local function remove(t: any, key: any)
 	return v
 end
 
+local updateLayoutQueue = {}
+local layoutQueueDirty = false
+local queueProcessing = false
 local function updateLayout(container: any)
-	-- Update canvas size based on content
-	local totalHeight = 0
-	for _, child in container:GetChildren() do
-		if child:IsA("GuiObject") and child.Visible then
-			totalHeight += child.AbsoluteSize.Y
+	table.insert(updateLayoutQueue, container)
+	layoutQueueDirty = true
+	task.defer(function()
+		if queueProcessing then return end
+		if not layoutQueueDirty then return end
+		queueProcessing = true
+		layoutQueueDirty = false
+		-- Update canvas size based on content
+		for _, container in updateLayoutQueue do
+			local totalHeight = 0
+			for _, child in container:GetChildren() do
+				if child:IsA("GuiObject") and child.Visible then
+					totalHeight += child.AbsoluteSize.Y
+				end
+			end
+			container.CanvasSize = UDim2.new(0, 0, 0, totalHeight + 2)
 		end
-	end
-	container.CanvasSize = UDim2.new(0, 0, 0, totalHeight + 2)
+		table.clear(updateLayoutQueue)
+		queueProcessing = false
+	end)
 end
 
 local function isNotTransparent(gui: GuiObject)

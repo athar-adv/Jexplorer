@@ -34,6 +34,7 @@ local RawInst = require("./Shared/Small/RawInst")
 local InstanceRecord = require("./Shared/Small/InstanceRecord")
 local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
+local getClassPropMap = require("./Shared/Small/GetClassPropMap")
 local getClampedXY = require("./Shared/Small/GetClampedXY")
 
 local UniPlugin = require("./UniPlugin")(plugin)
@@ -569,7 +570,7 @@ local function computedtbl(fn: (ser: {[any]: any}) -> ())
 end
 
 local function ChildOf(c: ExplorerEntity)
-	return Jecs.pair(Jecs.ChildOf, c)
+	return Jecs.pair(Jecs.ChildOf, c) :: Jecs.Pair<any, any>
 end
 
 local function getPropertyCt(world: World, propName: string)
@@ -1115,14 +1116,13 @@ function Manager.getPropertyComponentsForClass(world, className)
 	if cached then return cached end
 
 	local components = {}
-	local props = ReflectionService:GetPropertiesOfClass(className)
+	local props = getClassPropMap(className)
 	if not props then
 		classComponentCache[className] = components
 		return components
 	end
 
-	for _, info in props do
-		local k = info.Name
+	for k, info in props do
 		--TODO: Move assignment of componentMap ids outside of this getter
 		local component = Manager.QueryCtMap[k]
 		if not component then
@@ -1829,8 +1829,7 @@ local function initRegisterPluginMenusAndActions(
 		local insertButton = PluginUI.createInsertButton(tabBar.Tabs, function()
 			Manager.registerTab("Tab", "", {}, true)
 		end)
-
-		insertButton.LayoutOrder = math.huge
+		insertButton.Name = "InsertTabButton"
 	end
 
 	local renameAction do

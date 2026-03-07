@@ -20,6 +20,7 @@ local RawInst = require(shared.Small.RawInst)
 local ItemGroup = require(shared.Vendor.ItemGroup)
 local xyz = require(shared.Small.xyz)
 local cleanup = ItemGroup.cleanup
+local Constants = require(main.Constants)
 
 local getId = PluginUI.getId
 local rule = Style.rule
@@ -48,6 +49,7 @@ function StyleEditor.init(Manager)
 	StyleEditor.Widget = widget
 	sheet:Link(widget)
 	
+	if not Constants.EditorsEnabled then return end
 	local function resolve(v: any): Color3
 		if typeof(v) == "Color3" then
 			return v
@@ -313,7 +315,7 @@ function StyleEditor.init(Manager)
 			if not enterPressed then return end
 			rule:SetName(dropdown.Backdrop.DropDownHeader.HeaderLabel.Text)
 		end)
-
+		local boxes = {}
 		local defaultSelector = rule.Rule.Selector
 		local defaultPriority = rule.Rule.Priority
 		local box
@@ -326,6 +328,7 @@ function StyleEditor.init(Manager)
 				rule.Rule.Selector = UDF.from(newValue)
 			end
 		end)
+		table.insert(boxes, box.Instance)
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
 			if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
@@ -349,6 +352,7 @@ function StyleEditor.init(Manager)
 			assert(type(newValue) == "number", "number expected for stylerule.priority")
 			rule.Rule.Priority = newValue
 		end)
+		table.insert(boxes, box.Instance)
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
 			if input.UserInputType ~= Enum.UserInputType.MouseButton2 then return end
@@ -364,7 +368,8 @@ function StyleEditor.init(Manager)
 		
 		for k, v in rule.RawProperties do
 			local defaultValue = v
-			createStylePropertyBox(dropdown, k, defaultValue, nil, rule)
+			local box = createStylePropertyBox(nil, k, defaultValue, nil, rule)
+			table.insert(boxes, box.Instance)
 		end
 		local dropdowns = {}
 		for _, childRule in rule.ChildRules do
@@ -401,6 +406,8 @@ function StyleEditor.init(Manager)
 		rule.RuleAdded:Connect(function(childRule)
 			createStyleRuleDropdown(childRule, dropdown)
 		end)
+		
+		dropdown:AddBulkItem(boxes)
 		if parentDropdown then
 			parentDropdown:AddItem(dropdown.Backdrop)
 		end
@@ -571,24 +578,28 @@ function StyleEditor.init(Manager)
 		end)
 	end
 	
-	task.spawn(function()
-		local tokens = {}
-		for k, v in sheet.Tokens do
-			local defaultValue = v
-			local defaultStr = UDF.to(v)
+	connections:extend(task.cancel, {
+		task.spawn(function()
+			local tokens = {}
+			for k, v in sheet.Tokens do
+				local defaultValue = v
+				local defaultStr = UDF.to(v)
 
-			table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr).Instance)
-		end
-		tokensDropdown:AddBulkItem(tokens)
-	end)
-	
-	task.spawn(function()
-		local dropdowns = {}
-		for _, rule in sheet.Rules do
-			table.insert(dropdowns, createStyleRuleDropdown(rule).Backdrop)
-		end
-		rulesDropdown:AddBulkItem(dropdowns)
-	end)
+				table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr).Instance)
+				task.wait()
+			end
+			tokensDropdown:AddBulkItem(tokens)
+		end),
+
+		task.spawn(function()
+			local dropdowns = {}
+			for _, rule in sheet.Rules do
+				table.insert(dropdowns, createStyleRuleDropdown(rule).Backdrop)
+				task.wait(0.1)
+			end
+			rulesDropdown:AddBulkItem(dropdowns)
+		end)
+	})
 	
 	local rulesHeader = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
 

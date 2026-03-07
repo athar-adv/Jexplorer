@@ -15,8 +15,11 @@ local Types = require(main.Types)
 local JDF = require(shared.UDF)
 local PluginUI = require(shared.PluginUI)
 local ClassIcon = require(shared.Small.ClassIcon)
+local Constants = require(main.Constants)
 local ItemGroup = require(shared.Vendor.ItemGroup)
 local cleanup = ItemGroup.cleanup
+
+local INSTANCE_ICON = assert(ClassIcon.getIcon("Instance"))
 
 local getId = PluginUI.getId
 
@@ -71,7 +74,15 @@ function OrderEditor.init(Manager)
 	local buttonToClass = {}
 	
 	local function createClassPriorityBox(className: string, priority: number, dropdown: PluginUI.ItemList?)
-		local icon = ClassIcon.getIcon(className) or assert(ClassIcon.getIcon("Instance"))
+		local icon
+		local success, _icon = pcall(ClassIcon.getIcon, className)
+		if success and _icon then
+			icon = _icon
+		elseif not success then
+			icon = INSTANCE_ICON
+		elseif not icon then
+			icon = INSTANCE_ICON
+		end
 		
 		local buttonItem = PluginUI.createButtonWithIcon(
 			dropdown, className, 
@@ -205,11 +216,16 @@ function OrderEditor.init(Manager)
 		end)
 	end)
 	
-	local items = {}
-	for i, v in OrderEditor.ClassPriorities do
-		table.insert(items, createClassPriorityBox(v, i, dropdown).Instance)
-	end
-	dropdown:AddBulkItem(items)
+	connections:extend(task.cancel, {
+		task.spawn(function()
+			local items = {}
+			for i, v in OrderEditor.ClassPriorities do
+				table.insert(items, createClassPriorityBox(v, i, nil).Instance)
+				task.wait()
+			end
+			dropdown:AddBulkItem(items)
+		end)
+	})
 end
 
 return OrderEditor

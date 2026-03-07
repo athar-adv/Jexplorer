@@ -207,6 +207,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						MidImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						ScrollBarImageColor3 = "$ScrollbarColor",
 						
+						rule("InsertTabButtonStyle", "> #InsertTabButton TextButton", 10, {
+							LayoutOrder = 9999999
+						}),
 						rule("ListLayout", "::UIListLayout", 0, {
 							FillDirection = Enum.FillDirection.Horizontal,
 							SortOrder = Enum.SortOrder.LayoutOrder,

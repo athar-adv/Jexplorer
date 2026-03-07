@@ -18,30 +18,41 @@ export type Archetype = {
 	type: string,
 	entities: { Entity },
 	columns: { Column },
-	columns_map: { [Id]: Column }
+	columns_map: { [Component]: Column }
 }
 
 export type QueryInner = {
 	compatible_archetypes: { Archetype },
-	ids: { Id },
-	filter_with: { Id },
-	filter_without: { Id },
+	archetypes_map: { [number]: number },
+	ids: { Component },
+	filter_with: { Component },
+	filter_without: { Component },
 	next: () -> (Entity, ...any),
-	world: World,
+	-- world: World,
 }
 
 export type Entity<T = any> ={ __T: T }
+export type Component<T = any> ={ __T: T }
 export type Id<T = any> = { __T: T }
 export type Pair<P, O> = Id<P>
-type ecs_id_t<T = unknown> = Id<T> | Pair<T, "Tag"> | Pair<"Tag", T>
+type ecs_id_t<T = unknown> = Id<T> | Entity<T> | Pair<T, "Tag"> | Pair<"Tag", T>
+type ecs_entity_t<T = unknown> = Id<T> | Entity<T> | Pair<T, "Tag"> | Pair<"Tag", T>
 export type Item<T...> = (self: Query<T...>) -> (Entity, T...)
 export type Iter<T...> = (query: Query<T...>) -> () -> (Entity, T...)
 
-export type CachedQuery<T...> = typeof(setmetatable(
+export type Item<T...> = (self: Query<T...>) -> (Entity, T...)
+export type Iter<T...> = (query: Query<T...>) -> () -> (Entity, T...)
+export type Cached_Query_Iter<T...> = (query: Cached_Query<T...>) -> () -> (Entity, T...)
+
+type TypePack<T...> = (T...) -> never
+
+export type Cached_Query<T...> = typeof(setmetatable(
 	{} :: {
-		iter: CachedIter<T...>,
-		archetypes: (CachedQuery<T...>) -> { Archetype },
-		has: (CachedQuery<T...>, Entity) -> boolean,
+		iter: Cached_Query_Iter<T...>,
+		archetypes: (Cached_Query<T...>, override: boolean?) -> { Archetype },
+		has: (Cached_Query<T...>, Entity) -> boolean,
+		fini: (Cached_Query<T...>) -> (),
+
 		ids: { Id<any> },
 		filter_with: { Id<any> }?,
 		filter_without: { Id<any> }?,
@@ -49,7 +60,7 @@ export type CachedQuery<T...> = typeof(setmetatable(
 		-- world: World
 	},
 	{} :: {
-		__iter: CachedIter<T...>,
+		__iter: Cached_Query_Iter<T...>,
 	})
 )
 
@@ -59,7 +70,7 @@ export type Query<T...> = typeof(setmetatable(
 		with: ((Query<T...>, ...Component) -> Query<T...>),
 		without: ((Query<T...>, ...Component) -> Query<T...>),
 		archetypes: (Query<T...>) -> { Archetype },
-		cached: (Query<T...>) -> CachedQuery<T...>,
+		cached: (Query<T...>) -> Cached_Query<T...>,
 		has: (Query<T...>, Entity) -> boolean,
 		ids: { Id<any> },
 		filter_with: { Id<any> }?,
@@ -69,7 +80,7 @@ export type Query<T...> = typeof(setmetatable(
 	{} :: {
 		__iter: Iter<T...>,
 	}
-	))
+))
 
 type QueryArm<T...> = () -> ()
 
@@ -110,7 +121,7 @@ type componentrecord = {
 
 	on_add: ((entity: i53, id: i53, value: any, oldarchetype: archetype) -> ())?,
 	on_change: ((entity: i53, id: i53, value: any, oldarchetype: archetype) -> ())?,
-	on_remove: ((entity: i53, id: i53) -> ())?,
+	on_remove: ((entity: i53, id: i53, delete: boolean?) -> ())?,
 
 	wildcard_pairs: { [number]: componentrecord },
 }
@@ -127,11 +138,6 @@ type entityindex = {
 	range_begin: number?,
 	range_end: number?,
 }
-type entitypatcher = {
-	set: (i53, any) -> entitypatcher,
-	add: (i53, any) -> entitypatcher,
-	apply: (i53) -> entitypatcher
-}
 type world = {
 	archetype_edges: Map<i53, Map<i53, archetype>>,
 	archetype_index: { [string]: archetype },
@@ -143,11 +149,11 @@ type world = {
 	max_component_id: number,
 	max_archetype_id: number,
 
-	observable: Map<i53, Map<i53, { observer }>>,
+	observable: Map<i53, Map<i53, { Observer }>>,
 
 	range: (self: world, range_begin: number, range_end: number?) -> (),
-	entity: (self: world, name: string?) -> i53,
-	component: (self: world, name: string?) -> i53,
+	entity: (self: world, id: i53?) -> i53,
+	component: (self: world) -> i53,
 	target: (self: world, id: i53, relation: i53, index: number?) -> i53?,
 	delete: (self: world, id: i53) -> (),
 	add: (self: world, id: i53, component: i53) -> (),
@@ -155,8 +161,7 @@ type world = {
 	cleanup: (self: world) -> (),
 	clear: (self: world, entity: i53) -> (),
 	remove: (self: world, id: i53, component: i53) -> (),
-	get: (world, ...i53) -> ...any,
-	expect: (world, ...i53) -> ...any,
+	get: (world, ...i53) -> (),
 	has: (world, ...i53) -> boolean,
 	parent: (self: world, entity: i53) -> i53?,
 	contains: (self: world, entity: i53) -> boolean,
@@ -164,20 +169,12 @@ type world = {
 	each: (self: world, id: i53) -> () -> i53,
 	children: (self: world, id: i53) -> () -> i53,
 	query: (world, ...i53) -> Query<...any>,
-	targets: (world, i53, i53) -> () -> i53?,
-	patch: (world) -> entitypatcher,
-	clone: (world, i53) -> i53,
 
 	added: (world, i53, (e: i53, id: i53, value: any?) -> ()) -> () -> (),
 	changed: (world, i53, (e: i53, id: i53, value: any?) -> ()) -> () -> (),
-	removed: (world, i53, (e: i53, id: i53) -> ()) -> () -> (),
+	removed: (world, i53, (e: i53, id: i53, delete: boolean?) -> ()) -> () -> (),
 }
 
-type EntityPatcher = {
-	set: <a>(Id<a>, a) -> EntityPatcher,
-	add: <a>(Id<a>) -> EntityPatcher,
-	apply: <T>(Entity<T>) -> EntityPatcher
-}
 export type World = {
 	archetype_edges: Map<number, Map<Entity, Archetype>>,
 	archetype_index: { [string]: Archetype },
@@ -189,97 +186,107 @@ export type World = {
 	max_component_id: number,
 	max_archetype_id: number,
 
-	observable: Map<Id, Map<Id, { Observer }>>,
+	observable: Map<Component, Map<Component, { Observer }>>,
 
-	added: <T>(World, Entity<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
-	removed: <T>(World, Entity<T>, (e: Entity, id: Id<T>) -> ()) -> () -> (),
-	changed:  <T>(World, Entity<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+	added: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+	removed: <T>(World, Component<T>, (e: Entity, id: Id<T>, delete: boolean?) -> ()) -> () -> (),
+	changed: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
 
 	--- Enforce a check on entities to be created within desired range
 	range: (self: World, range_begin: number, range_end: number?) -> (),
 
 	--- Creates a new entity
-	entity: <T>(self: World, name: string?) -> Entity<T>,
-	clone: <T>(self: World, id: number | Entity<T>) -> Entity<T>,
+	entity:
+			& ((self: World) -> Entity<nil>)
+			& ((self: World, id: Entity) -> Entity)
+			& ((self: World, id: number) -> Entity)
+			& (<T>(self: World, id: Component<T>) -> Component<T>),
 	--- Creates a new entity located in the first 256 ids.
 	--- These should be used for static components for fast access.
-	component: <T>(self: World, name: string?) -> Entity<T>,
+	component: <T>(self: World) -> Entity<T>,
+
 	--- Gets the target of an relationship. For example, when a user calls
 	--- `world:target(id, ChildOf(parent), 0)`, you will obtain the parent entity.
-	target: <T, a>(self: World, id: Entity<T>, relation: Id<a>, index: number?) -> Entity?,
+	target: <T, a>(
+		self: World,
+		id: Entity<T> | number,
+		relation: Component,
+		index: number?
+	) -> Entity<unknown>?,
+
 	--- Deletes an entity and all it's related components and relationships.
 	delete: <T>(self: World, id: Entity<T>) -> (),
 
 	--- Adds a component to the entity with no value
-	add: <T, a>(self: World, id: Entity<T>, component: Id<a>) -> (),
+	add: <a>(
+		self: World,
+		id: Entity<any>,
+		component: Component<a>
+	) -> (),
+
 	--- Assigns a value to a component on the given entity
-	set: <T, a>(self: World, id: Entity<T>, component: Id<a>, data: a) -> (),
-	patch: <T>(self: World) -> EntityPatcher,
+	set: <T, a>(self: World, id: Entity<T>, component: Component<a>, data: a) -> (),
 
 	cleanup: (self: World) -> (),
 
 	-- Removes all components from the entity
 	clear: (self: World, entity: Entity) -> (),
 	--- Removes a component from the given entity
-	remove: <T, a>(self: World, id: Entity<T>, component: Id<a>) -> (),
+	remove: <T, a>(self: World, id: Entity<T>, component: Component<a>) -> (),
 	--- Retrieves the value of up to 4 components. These values may be nil.
-	get: & (<T, a>(World, Entity<T>, Id<a>) -> a?)
-	& (<T, a, b>(World, Entity<T>, Id<a>, Id<b>) -> (a?, b?))
-	& (<T, a, b, c>(World, Entity<T>, Id<a>, Id<b>, Id<c>) -> (a?, b?, c?))
-	& (<T, a, b, c, d>(World, Entity<T>, Id<a>, Id<b>, Id<c>, Id<d>) -> (a?, b?, c?, d?)),
-	-- Similar to get but if one of the components do not have a value it will error so the values are gauranteed
-	expect: & (<T, a>(World, Entity<T>, Id<a>) -> a)
-	& (<T, a, b>(World, Entity<T>, Id<a>, Id<b>) -> (a, b))
-	& (<T, a, b, c>(World, Entity<T>, Id<a>, Id<b>, Id<c>) -> (a, b, c))
-	& (<T, a, b, c, d>(World, Entity<T>, Id<a>, Id<b>, Id<c>, Id<d>) -> (a, b, c, d)),
+	get: & (<T, a>(World, Entity<T> | number, Component<a>) -> a?)
+		& (<T, a, b>(World, Entity<T> | number, Component<a>, Component<b>) -> (a?, b?))
+		& (<T, a, b, c>(World, Entity<T> | number, Component<a>, Component<b>, Component<c>) -> (a?, b?, c?))
+		& (<T, a, b, c, d>(World, Entity<T> | number, Component<a>, Component<b>, Component<c>, Component<d>) -> (a?, b?, c?, d?)),
 
 	--- Returns whether the entity has the ID.
-	has: (<T, a>(World, Entity<T>, Id<a>) -> boolean)
-	& (<T, a, b>(World, Entity<T>, Id<a>, Id<a>) -> boolean)
-	& (<T, a, b, c>(World, Entity<T>, Id<a>, Id<b>, Id<c>) -> boolean)
-	& <T, a, b, c, d>(World, Entity<T>, Id<a>, Id<b>, Id<c>, Id<d>) -> boolean,
+	has: (<T, a>(World, Entity<T>, Component<a>) -> boolean)
+		& (<T, a, b>(World, Entity<T>, Component<a>, Component<a>) -> boolean)
+		& (<T, a, b, c>(World, Entity<T>, Component<a>, Component<b>, Component<c>) -> boolean)
+		& <T, a, b, c, d>(World, Entity<T>, Component<a>, Component<b>, Component<c>, Component<d>) -> boolean,
 
 	--- Get parent (target of ChildOf relationship) for entity. If there is no ChildOf relationship pair, it will return nil.
 	parent: <T>(self: World, entity: Entity<T>) -> Entity?,
 
 	--- Checks if the world contains the given entity
 	contains: <T>(self: World, entity: Entity<T>) -> boolean,
+
 	--- Checks if the entity exists
 	exists: <T>(self: World, entity: Entity<T>) -> boolean,
 
 	each: <T>(self: World, id: Id<T>) -> () -> Entity,
-	targets: <T, a, b>(self: World, id: Entity<T>, relation: Id<a>) -> () -> Id<b>,
+
 	children: <T>(self: World, id: Id<T>) -> () -> Entity,
 
 	--- Searches the world for entities that match a given query
 	query: ((World) -> Query<nil>)
-	& (<A>(World, Id<A>) -> Query<A>)
-	& (<A, B>(World, Id<A>, Id<B>) -> Query<A, B>)
-	& (<A, B, C>(World, Id<A>, Id<B>, Id<C>) -> Query<A, B, C>)
-	& (<A, B, C, D>(World, Id<A>, Id<B>, Id<C>, Id<D>) -> Query<A, B, C, D>)
-	& (<A, B, C, D, E>(World, Id<A>, Id<B>, Id<C>, Id<D>, Id<E>) -> Query<A, B, C, D, E>)
-	& (<A, B, C, D, E, F>(World, Id<A>, Id<B>, Id<C>, Id<D>, Id<E>, Id<F>) -> Query<A, B, C, D, E, F>)
-	& (<A, B, C, D, E, F, G>(
-		World,
-		Id<A>,
-		Id<B>,
-		Id<C>,
-		Id<D>,
-		Id<E>,
-		Id<F>,
-		Id<G>
+		& (<A>(World, Component<A>) -> Query<A>)
+		& (<A, B>(World, Component<A>, Component<B>) -> Query<A, B>)
+		& (<A, B, C>(World, Component<A>, Component<B>, Component<C>) -> Query<A, B, C>)
+		& (<A, B, C, D>(World, Component<A>, Component<B>, Component<C>, Component<D>) -> Query<A, B, C, D>)
+		& (<A, B, C, D, E>(World, Component<A>, Component<B>, Component<C>, Component<D>, Component<E>) -> Query<A, B, C, D, E>)
+		& (<A, B, C, D, E, F>(World, Component<A>, Component<B>, Component<C>, Component<D>, Component<E>, Component<F>) -> Query<A, B, C, D, E, F>)
+		& (<A, B, C, D, E, F, G>(
+			World,
+			Component<A>,
+			Component<B>,
+			Component<C>,
+			Component<D>,
+			Component<E>,
+			Component<F>,
+			Component<G>
 		) -> Query<A, B, C, D, E, F, G>)
-	& (<A, B, C, D, E, F, G, H>(
-		World,
-		Id<A>,
-		Id<B>,
-		Id<C>,
-		Id<D>,
-		Id<E>,
-		Id<F>,
-		Id<G>,
-		Id<H>,
-		...Id<any>
+		& (<A, B, C, D, E, F, G, H>(
+			World,
+			Component<A>,
+			Component<B>,
+			Component<C>,
+			Component<D>,
+			Component<E>,
+			Component<F>,
+			Component<G>,
+			Component<H>,
+			...Component<any>
 		) -> Query<A, B, C, D, E, F, G, H>),
 }
 
@@ -298,7 +305,7 @@ export type ComponentRecord = {
 	on_change: (<T>(entity: Entity, id: Entity<T>, value: T, oldArchetype: Archetype) -> ())?,
 	on_remove: ((entity: Entity, id: Entity) -> ())?,
 }
-export type ComponentIndex = Map<Id, ComponentRecord>
+export type ComponentIndex = Map<Component, ComponentRecord>
 export type Archetypes = { [i24]: Archetype }
 
 export type EntityIndex = {
@@ -341,10 +348,11 @@ local EcsRest =              HI_COMPONENT_ID + 15
 local NULL_ARRAY = table.freeze({}) :: Column
 local NULL = newproxy(false)
 
-local ECS_INTERNAL_ERROR = [[
-	This is an internal error, please file a bug report via the following link:
-
-	https://github.com/Ukendio/jecs/issues/new?template=BUG-REPORT.md
+local ECS_INTERNAL_ERROR_INVALID_ENTITIES = [[
+	You tried passing a pair that has invalid entities that are either unalive
+	or non-existing entities. You can enable DEBUG mode by passing in true to
+	jecs.world(true) and try doing it again in order to get better assertions so
+	that you can understand what went wrong.
 ]]
 
 local function ecs_assert(condition, msg: string?)
@@ -487,7 +495,11 @@ end
 local function entity_index_get_alive(entity_index: entityindex, entity: i53): i53?
 	local r = entity_index_try_get_any(entity_index, entity :: number)
 	if r then
-		return entity_index.dense_array[r.dense]
+		local dense = r.dense
+		if dense > entity_index.alive_count then
+			return nil
+		end
+		return entity_index.dense_array[dense]
 	end
 	return nil
 end
@@ -522,12 +534,14 @@ local function ENTITY_INDEX_NEW_ID(entity_index: entityindex): i53
 	local alive_count = entity_index.alive_count
 	local sparse_array = entity_index.sparse_array
 	local max_id = entity_index.max_id
+	local next_count = alive_count + 1
 
 	if alive_count < max_id then
-		alive_count += 1
-		entity_index.alive_count = alive_count
-		local id = dense_array[alive_count]
-		return id
+		local id = dense_array[next_count]
+		if id then 
+			entity_index.alive_count = next_count
+			return id
+		end
 	end
 
 	local id = max_id + 1
@@ -535,10 +549,9 @@ local function ENTITY_INDEX_NEW_ID(entity_index: entityindex): i53
 	ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
 
 	entity_index.max_id = id
-	alive_count += 1
-	entity_index.alive_count = alive_count
-	dense_array[alive_count] = id
-	sparse_array[id] = { dense = alive_count } :: record
+	entity_index.alive_count = next_count
+	dense_array[next_count] = id
+	sparse_array[id] = { dense = next_count } :: record
 
 	return id
 end
@@ -821,10 +834,10 @@ local function id_record_create(
 	if is_pair then
 		relation = entity_index_get_alive(entity_index, ECS_PAIR_FIRST(id)) :: i53
 		ecs_assert(relation and entity_index_is_alive(
-			entity_index, relation), ECS_INTERNAL_ERROR)
+			entity_index, relation), ECS_INTERNAL_ERROR_INVALID_ENTITIES)
 		target = entity_index_get_alive(entity_index, ECS_PAIR_SECOND(id)) :: i53
 		ecs_assert(target and entity_index_is_alive(
-			entity_index, target), ECS_INTERNAL_ERROR)
+			entity_index, target), ECS_INTERNAL_ERROR_INVALID_ENTITIES)
 
 		local cleanup_policy_target = WORLD_TARGET(world, relation, EcsOnDeleteTarget, 0)
 
@@ -996,8 +1009,8 @@ local function world_range(world: world, range_begin: number, range_end: number?
 				dense = 0
 			} :: record
 		end
-		entity_index.max_id = range_begin - 1
-		entity_index.alive_count = range_begin - 1
+		entity_index.max_id = range_begin
+		entity_index.alive_count = range_begin
 	end
 end
 
@@ -1196,9 +1209,9 @@ end
 
 local function NOOP() end
 
-local function query_archetypes(query: query)
+local function query_archetypes(query: query, override: boolean?)
 	local compatible_archetypes = query.compatible_archetypes
-	if not compatible_archetypes then
+	if not compatible_archetypes or override then
 		compatible_archetypes = {}
 		query.compatible_archetypes = compatible_archetypes
 
@@ -1275,354 +1288,503 @@ end
 local function query_iter_init(query: QueryInner): () -> (number, ...any)
 	local world_query_iter_next
 
-	local compatible_archetypes = query_archetypes(query::any) :: { Archetype }
-	local lastArchetype = 1
-	local archetype = compatible_archetypes[1]
-	if not archetype then
+	local compatible_archetypes_u = query_archetypes(query::any) :: { Archetype }
+	local last_archetype_u = 1
+	local archetype_u = compatible_archetypes_u[1]
+	if not archetype_u then
 		return NOOP :: () -> (number, ...any)
 	end
-	local entities = archetype.entities
-	local i = #entities
-	local columns_map = archetype.columns_map
+	local entities_u = archetype_u.entities
+	local i_u = #entities_u
+	local columns_map_u = archetype_u.columns_map
 
-	local ids = query.ids
-	local A, B, C, D, E, F, G, H, I = unpack(ids :: { Component })
-	local a: Column, b: Column, c: Column, d: Column
-	local e: Column, f: Column, g: Column, h: Column
+	local ids_u = query.ids
+	local id0, id1, id2, id3, id4, id5, id6, id7, id8 = unpack(ids_u :: { Component })
+	local col0_u: Column, col1_u: Column, col2_u: Column, col3_u: Column
+	local col4_u: Column, col5_u: Column, col6_u: Column, col7_u: Column
 
-	if not A then
+	if not id0 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
 
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
+				e = entities[i_u]
+				entities_u = entities
 			end
-			i -= 1
-			return entity
+			i_u -= 1
+			return e
 		end
 		query.next = world_query_iter_next
 		return world_query_iter_next
-	elseif not B then
-		a = columns_map[A]
-	elseif not C then
-		a = columns_map[A]
-		b = columns_map[B]
-	elseif not D then
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-	elseif not E then
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-		d = columns_map[D]
-	elseif not F then
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-		d = columns_map[D]
-		e = columns_map[E]
-	elseif not G then
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-		d = columns_map[D]
-		e = columns_map[E]
-		f = columns_map[F]
-	elseif not H then
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-		d = columns_map[D]
-		e = columns_map[E]
-		f = columns_map[F]
-		g = columns_map[G]
+	elseif not id1 then
+		col0_u = columns_map_u[id0]
+	elseif not id2 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+	elseif not id3 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+	elseif not id4 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+		col3_u = columns_map_u[id3]
+	elseif not id5 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+		col3_u = columns_map_u[id3]
+		col4_u = columns_map_u[id4]
+	elseif not id6 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+		col3_u = columns_map_u[id3]
+		col4_u = columns_map_u[id4]
+		col5_u = columns_map_u[id5]
+	elseif not id7 then
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+		col3_u = columns_map_u[id3]
+		col4_u = columns_map_u[id4]
+		col5_u = columns_map_u[id5]
+		col6_u = columns_map_u[id6]
 	else
-		a = columns_map[A]
-		b = columns_map[B]
-		c = columns_map[C]
-		d = columns_map[D]
-		e = columns_map[E]
-		f = columns_map[F]
-		g = columns_map[G]
-		h = columns_map[H]
+		col0_u = columns_map_u[id0]
+		col1_u = columns_map_u[id1]
+		col2_u = columns_map_u[id2]
+		col3_u = columns_map_u[id3]
+		col4_u = columns_map_u[id4]
+		col5_u = columns_map_u[id5]
+		col6_u = columns_map_u[id6]
+		col7_u = columns_map_u[id7]
 	end
 
-	if not B then
+	if not id1 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col0_u = col0
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row]
+			return e, col0[row]
 		end
-	elseif not C then
+	elseif not id2 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
-				if not archetype then
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+
+			while e == nil do
+				last_archetype_u += 1
+			local compatible_archetypes = compatible_archetypes_u
+			local archetype = compatible_archetypes[last_archetype_u]
+			archetype_u = archetype
+
+			if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col0_u = col0
+				col1_u = col1
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row]
+			return e, col0[row], col1[row]
 		end
-	elseif not D then
+	elseif not id3 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row]
+			return e, col0[row], col1[row], col2[row]
 		end
-	elseif not E then
+	elseif not id4 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row]
+			return e, col0[row], col1[row], col2[row], col3[row]
 		end
-	elseif not F then
+	elseif not id5 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row]
 		end
-	elseif not G then
+	elseif not id6 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row]
 		end
-	elseif not H then
+	elseif not id7 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row]
 		end
-	elseif not I then
+	elseif not id8 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+			local col7 = col7_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
-				h = columns_map[H]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col7 = columns_map[id7]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
+				col7_u = col7
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row], h[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row], col7[row]
 		end
 	else
 		local output = {}
-		local ids_len = #ids
+		local ids_len = #ids_u
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+			local col7 = col7_u
+			local ids = ids_u
+			local columns_map = columns_map_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
+				e = entities[i_u]
+				entities_u = entities
 				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
-				h = columns_map[H]
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col7 = columns_map[id7]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
+				col7_u = col7
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
 			for i = 9, ids_len do
 				output[i - 8] = columns_map[ids[i]::any][row]
 			end
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row], h[row], unpack(output)
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row], col7[row], unpack(output)
 		end
 	end
 
@@ -1639,21 +1801,16 @@ local function query_iter(query): () -> (number, ...any)
 end
 
 local function query_cached(query: QueryInner)
-	local ids = query.ids
-	local lastArchetype = 1
+	local ids_u = query.ids
 
-	local A, B, C, D, E, F, G, H, I = unpack(ids :: { Id })
-	if not A then
-		A = query.filter_with[1]
+	local id0, id1, id2, id3, id4, id5, id6, id7, id8 = unpack(ids_u :: { Component })
+	if not id0 then
+		id0 = query.filter_with[1]
 	end
-	local a: Column, b: Column, c: Column, d: Column
-	local e: Column, f: Column, g: Column, h: Column
+	local col0_u: Column, col1_u: Column, col2_u: Column, col3_u: Column
+	local col4_u: Column, col5_u: Column, col6_u: Column, col7_u: Column
 
 	local world_query_iter_next
-	local entities: { Entity }
-	local i: number
-	local archetype: Archetype
-	local columns_map: { [Id]: Column }
 	local archetypes = query_archetypes(query :: any) :: { Archetype }
 	local archetypes_map = {}
 	query.archetypes_map = archetypes_map
@@ -1662,7 +1819,21 @@ local function query_cached(query: QueryInner)
 		archetypes_map[arche.id] = j
 	end
 
-	local compatible_archetypes = archetypes :: { Archetype }
+	local compatible_archetypes_u = archetypes :: { Archetype }
+	local last_archetype_u = 1
+	local archetype_u = compatible_archetypes_u[1]
+	local entities_u: { Entity }
+	local i_u: number
+	local columns_map_u: { [Component]: Column }
+	if not archetype_u then
+		entities_u = {}
+		i_u = 0
+		columns_map_u = {}
+	else
+		entities_u = archetype_u.entities
+		i_u = #entities_u
+		columns_map_u = archetype_u.columns_map
+	end
 
 	local world = (query :: { world: World }).world
 	-- Only need one observer for EcsArchetypeCreate and EcsArchetypeDelete respectively
@@ -1670,24 +1841,24 @@ local function query_cached(query: QueryInner)
 	local observable = world.observable
 	local on_create_action = observable[EcsOnArchetypeCreate::any]
 	if not on_create_action then
-		on_create_action = {} :: Map<Id, { Observer }>
+		on_create_action = {} :: Map<Component, { Observer }>
 		observable[EcsOnArchetypeCreate::any] = on_create_action
 	end
-	local query_cache_on_create: { Observer } = on_create_action[A]
+	local query_cache_on_create: { Observer } = on_create_action[id0]
 	if not query_cache_on_create then
 		query_cache_on_create = {}
-		on_create_action[A] = query_cache_on_create
+		on_create_action[id0] = query_cache_on_create
 	end
 
 	local on_delete_action = observable[EcsOnArchetypeDelete::any]
 	if not on_delete_action then
-		on_delete_action = {} :: Map<Id, { Observer }>
+		on_delete_action = {} :: Map<Component, { Observer }>
 		observable[EcsOnArchetypeDelete::any] = on_delete_action
 	end
-	local query_cache_on_delete: { Observer } = on_delete_action[A]
+	local query_cache_on_delete: { Observer } = on_delete_action[id0]
 	if not query_cache_on_delete then
 		query_cache_on_delete = {}
-		on_delete_action[A] = query_cache_on_delete
+		on_delete_action[id0] = query_cache_on_delete
 	end
 
 	local function on_create_callback(archetype: Archetype)
@@ -1716,355 +1887,505 @@ local function query_cached(query: QueryInner)
 	table.insert(query_cache_on_delete, observer_for_delete)
 
 	local function cached_query_iter()
-		lastArchetype = 1
-		archetype = compatible_archetypes[lastArchetype]
-		if not archetype then
+		last_archetype_u = 1
+		local compatible_archetypes = compatible_archetypes_u
+		archetype_u = compatible_archetypes[last_archetype_u]
+		if not archetype_u then
 			return NOOP
 		end
-		entities = archetype.entities
-		i = #entities
-		columns_map = archetype.columns_map
-		if not A then
-		elseif not B then
-			a = columns_map[A]
-		elseif not C then
-			a = columns_map[A]
-			b = columns_map[B]
-		elseif not D then
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-		elseif not E then
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-			d = columns_map[D]
-		elseif not F then
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-			d = columns_map[D]
-			e = columns_map[E]
-		elseif not G then
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-			d = columns_map[D]
-			e = columns_map[E]
-			f = columns_map[F]
-		elseif not H then
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-			d = columns_map[D]
-			e = columns_map[E]
-			f = columns_map[F]
-			g = columns_map[G]
+		entities_u = archetype_u.entities
+		i_u = #entities_u
+		columns_map_u = archetype_u.columns_map
+		if not id0 then
+		elseif not id1 then
+			col0_u = columns_map_u[id0]
+		elseif not id2 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+		elseif not id3 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+		elseif not id4 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+			col3_u = columns_map_u[id3]
+		elseif not id5 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+			col3_u = columns_map_u[id3]
+			col4_u = columns_map_u[id4]
+		elseif not id6 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+			col3_u = columns_map_u[id3]
+			col4_u = columns_map_u[id4]
+			col5_u = columns_map_u[id5]
+		elseif not id7 then
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+			col3_u = columns_map_u[id3]
+			col4_u = columns_map_u[id4]
+			col5_u = columns_map_u[id5]
+			col6_u = columns_map_u[id6]
 		else
-			a = columns_map[A]
-			b = columns_map[B]
-			c = columns_map[C]
-			d = columns_map[D]
-			e = columns_map[E]
-			f = columns_map[F]
-			g = columns_map[G]
-			h = columns_map[H]
+			col0_u = columns_map_u[id0]
+			col1_u = columns_map_u[id1]
+			col2_u = columns_map_u[id2]
+			col3_u = columns_map_u[id3]
+			col4_u = columns_map_u[id4]
+			col5_u = columns_map_u[id5]
+			col6_u = columns_map_u[id6]
+			col7_u = columns_map_u[id7]
 		end
 
 		return world_query_iter_next
 	end
 
-	if not A then
+	if not id0 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
 
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
+				e = entities[i_u]
+				entities_u = entities
 			end
-			i -= 1
-			return entity
+			i_u -= 1
+			return e
 		end
-	elseif not B then
+	elseif not id1 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col0_u = col0
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row]
+			return e, col0[row]
 		end
-	elseif not C then
+	elseif not id2 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col0_u = col0
+				col1_u = col1
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row]
+			return e, col0[row], col1[row]
 		end
-	elseif not D then
+	elseif not id3 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row]
+			return e, col0[row], col1[row], col2[row]
 		end
-	elseif not E then
+	elseif not id4 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row]
+			return e, col0[row], col1[row], col2[row], col3[row]
 		end
-	elseif not F then
+	elseif not id5 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row]
 		end
-	elseif not G then
+	elseif not id6 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row]
 		end
-	elseif not H then
+	elseif not id7 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row]
 		end
-	elseif not I then
+	elseif not id8 then
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+			local col7 = col7_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
-				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
-				h = columns_map[H]
+				e = entities[i_u]
+				entities_u = entities
+				local columns_map = archetype.columns_map
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col7 = columns_map[id7]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
+				col7_u = col7
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row], h[row]
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row], col7[row]
 		end
 	else
 		local output = {}
-		local ids_len = #ids
+		local ids_len = #ids_u
 		function world_query_iter_next(): any
-			local entity = entities[i]
-			while entity == nil do
-				lastArchetype += 1
-				archetype = compatible_archetypes[lastArchetype]
+			local entities = entities_u
+			local e = entities[i_u]
+			local col0 = col0_u
+			local col1 = col1_u
+			local col2 = col2_u
+			local col3 = col3_u
+			local col4 = col4_u
+			local col5 = col5_u
+			local col6 = col6_u
+			local col7 = col7_u
+			local ids = ids_u
+			local columns_map = columns_map_u
+
+			while e == nil do
+				last_archetype_u += 1
+				local compatible_archetypes = compatible_archetypes_u
+				local archetype = compatible_archetypes[last_archetype_u]
+				archetype_u = archetype
+
 				if not archetype then
 					return nil
 				end
-
 				entities = archetype.entities
-				i = #entities
-				if i == 0 then
+				i_u = #entities
+				if i_u == 0 then
 					continue
 				end
-				entity = entities[i]
+				e = entities[i_u]
+				entities_u = entities
 				columns_map = archetype.columns_map
-				a = columns_map[A]
-				b = columns_map[B]
-				c = columns_map[C]
-				d = columns_map[D]
-				e = columns_map[E]
-				f = columns_map[F]
-				g = columns_map[G]
-				h = columns_map[H]
+				columns_map_u = columns_map
+				col0 = columns_map[id0]
+				col1 = columns_map[id1]
+				col2 = columns_map[id2]
+				col3 = columns_map[id3]
+				col4 = columns_map[id4]
+				col5 = columns_map[id5]
+				col6 = columns_map[id6]
+				col7 = columns_map[id7]
+				col0_u = col0
+				col1_u = col1
+				col2_u = col2
+				col3_u = col3
+				col4_u = col4
+				col5_u = col5
+				col6_u = col6
+				col7_u = col7
 			end
 
-			local row = i
-			i -= 1
+			local row = i_u
+			i_u -= 1
 
 			for i = 9, ids_len do
 				output[i - 8] = columns_map[ids[i]::any][row]
 			end
 
-			return entity, a[row], b[row], c[row], d[row], e[row], f[row], g[row], h[row], unpack(output)
+			return e, col0[row], col1[row], col2[row], col3[row], col4[row], col5[row], col6[row], col7[row], unpack(output)
 		end
 	end
 
 	local eindex = world.entity_index :: entityindex
 
-	local function cached_query_has(entity): boolean
+	local function cached_query_has(_, entity): boolean
 		local r = entity_index_try_get_fast(eindex, entity)
 		if not r then
 			return false
@@ -2078,11 +2399,30 @@ local function query_cached(query: QueryInner)
 		return archetypes_map[entityarchetype.id] ~= nil
 	end
 
+	local function cached_query_fini()
+		local create_pos = table.find(query_cache_on_create, observer_for_create)
+		if create_pos then
+			table.remove(query_cache_on_create, create_pos)
+		end
+
+		local delete_pos = table.find(query_cache_on_delete, observer_for_delete)
+		if delete_pos then
+			table.remove(query_cache_on_delete, delete_pos)
+		end
+
+		compatible_archetypes_u = nil
+		-- NOTE(marcus): Maybe we have to be even more aggressive with cleaning
+		-- things up to ensure it the memory is free`d. But since most of it are
+		-- references we cannot be sure that someone is holding onto them making
+		-- it implausible to free the memory anyways
+	end
+
 	local cached_query = query :: any
 	cached_query.archetypes = query_archetypes
 	cached_query.__iter = cached_query_iter
 	cached_query.iter = cached_query_iter
 	cached_query.has = cached_query_has
+	cached_query.fini = cached_query_fini
 	setmetatable(cached_query, cached_query)
 	return cached_query
 end
@@ -2191,20 +2531,21 @@ local function ecs_bulk_insert(world: world, entity: i53, ids: { i53 }, values: 
 		local to = archetype_ensure(world, dst_types)
 		new_entity(entity, r, to)
 		local ROOT_ARCHETYPE = world.ROOT_ARCHETYPE
+
 		for i, id in ids do
 			local value = values[i]
+			if value then
+				r.archetype.columns_map[id][r.row] = value
+			end
+		end
+
+		for i, id in ids do
 			local cdr = component_index[id]
 
 			local on_add = cdr.on_add
-			if value then
-				r.archetype.columns_map[id][r.row] = value
-				if on_add then
-					on_add(entity, id, value, ROOT_ARCHETYPE)
-				end
-			else
-				if on_add then
-					on_add(entity, id, nil, ROOT_ARCHETYPE)
-				end
+			if on_add then
+				local value = values[i]
+				on_add(entity, id, value, ROOT_ARCHETYPE)
 			end
 		end
 		return
@@ -2230,25 +2571,43 @@ local function ecs_bulk_insert(world: world, entity: i53, ids: { i53 }, values: 
 
 	if from ~= to then
 		entity_move(entity_index, entity, r, to)
-	end
 
-	for i, set in emplaced do
-		local id = ids[i]
-		local idr = component_index[id]
+		for i, id in ids do
+			local value = values[i] :: any
 
-		local value = values[i] :: any
-
-		local on_add = idr.on_add
-
-		if value ~= nil then
-			r.archetype.columns_map[id][r.row] = value
-			local on_change = idr.on_change
-			local hook = if set then on_change else on_add
-			if hook then
-				hook(entity, id, value :: any, from)
+			if value ~= nil then
+				r.archetype.columns_map[id][r.row] = value
 			end
-		elseif on_add then
-			on_add(entity, id, nil, from)
+		end
+
+		for i, exists in emplaced do
+			local value = values[i]
+			local id = ids[i]
+			local idr = component_index[id]
+			if exists then
+				local on_change = idr.on_change
+				if on_change then
+					on_change(entity, id, value, from)
+				end
+			else
+				local on_add = idr.on_add
+				if on_add then
+					on_add(entity, id, value, from)
+				end
+			end
+		end
+	else
+		for i, id in ids do
+			local value = values[i] :: any
+			local idr = component_index[id]
+			local on_change = idr.on_change
+			if on_change then
+				on_change(entity, id, value, from)
+			end
+
+			if value ~= nil then
+				r.archetype.columns_map[id][r.row] = value
+			end
 		end
 	end
 end
@@ -2302,18 +2661,20 @@ local function ecs_bulk_remove(world: world, entity: i53, ids: { i53 })
 	end
 end
 
-local function world_new()
+local function world_new(DEBUG: boolean?)
 	local eindex_dense_array = {} :: { i53 }
 	local eindex_sparse_array = {} :: { record }
 
-	local entity_index = {
+	local entity_index: entityindex = {
 		dense_array = eindex_dense_array,
 		sparse_array = eindex_sparse_array,
 		alive_count = 0,
 		max_id = 0,
-	} :: entityindex
+	}
 
-	local component_index = {} :: Map<i53, componentrecord>
+	-- NOTE(marcus): with the way the component index is accessed, we want to
+	-- ensure that components range has fast access.
+	local component_index = table.create(EcsRest) :: Map<i53, componentrecord>
 
 	local archetype_index = {} :: { [string]: archetype }
 	local archetypes = {} :: Map<i53, archetype>
@@ -2348,31 +2709,6 @@ local function world_new()
 		observable = observable,
 		signals = signals,
 	} :: world
-
-
-	local function entity_index_new_id(entity_index: entityindex): i53
-		local alive_count = entity_index.alive_count
-		local max_id = entity_index.max_id
-
-		if alive_count < max_id then
-			alive_count += 1
-			entity_index.alive_count = alive_count
-			local id = eindex_dense_array[alive_count]
-			return id
-		end
-
-		local id = max_id + 1
-		local range_end = entity_index.range_end
-		ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
-
-		entity_index.max_id = id
-		alive_count += 1
-		entity_index.alive_count = alive_count
-		eindex_dense_array[alive_count] = id
-		eindex_sparse_array[id] = { dense = alive_count } :: record
-
-		return id
-	end
 
 	local ROOT_ARCHETYPE = archetype_create(world, {}, "")
 	world.ROOT_ARCHETYPE = ROOT_ARCHETYPE
@@ -2466,6 +2802,8 @@ local function world_new()
 	-- end
 
 	local function entity_index_try_get_unsafe(entity: i53): record?
+		local eindex_sparse_array = eindex_sparse_array
+		local eindex_dense_array = eindex_dense_array
 		local r = eindex_sparse_array[ECS_ENTITY_T_LO(entity)]
 		if r then
 			local r_dense = r.dense
@@ -2502,6 +2840,7 @@ local function world_new()
 		end
 
 		local from: archetype = record.archetype
+		local ROOT_ARCHETYPE = ROOT_ARCHETYPE
 		local src = from or ROOT_ARCHETYPE
 		local column = src.columns_map[id]
 		if column then
@@ -2608,6 +2947,7 @@ local function world_new()
 		end
 
 		local from = record.archetype
+		local ROOT_ARCHETYPE = ROOT_ARCHETYPE
 		local src = from or ROOT_ARCHETYPE
 		if src.columns_map[id] then
 			return
@@ -2724,7 +3064,9 @@ local function world_new()
 		end
 	end
 
-	type Listener<T> = (e: i53, id: i53, value: T, oldarchetype: archetype) -> ()
+	type Listener<T> =
+		& ((e: i53, id: i53, value: T, oldarchetype: archetype) -> ())
+		& ((e: i53, id: i53, delete: boolean?) -> ())
 
 	world.added = function<T>(_: world, component: i53, fn: Listener<T>)
 		local listeners = signals.added[component]
@@ -2780,7 +3122,7 @@ local function world_new()
 					listener(entity, id, value, oldarchetype)
 				end
 			end
-			local existing_hook = world_get(world, component, EcsOnChange) :: Listener<T>
+			local existing_hook = world_get(world, component, EcsOnChange) :: Listener<T>?
 			if existing_hook then
 				table.insert(listeners, existing_hook)
 			end
@@ -2811,14 +3153,14 @@ local function world_new()
 		end
 	end
 
-	world.removed = function<T>(_: world, component: i53, fn: (i53, i53) -> ())
+	world.removed = function<T>(_: world, component: i53, fn: (i53, i53, boolean?) -> ())
 		local listeners = signals.removed[component]
 		if not listeners then
 			listeners = {}
 			signals.removed[component] = listeners
-			local function on_remove(entity, id)
+			local function on_remove(entity, id, delete)
 				for _, listener in listeners :: { (...any) -> () } do
-					listener(entity, id)
+					listener(entity, id, delete)
 				end
 			end
 
@@ -2845,11 +3187,11 @@ local function world_new()
 			world_set(world, component, EcsOnRemove, on_remove)
 		end
 
-		table.insert(listeners, fn)
+		table.insert(listeners, fn::Listener<any>)
 
 		return function()
 			local n = #listeners
-			local i = table.find(listeners, fn)
+			local i = table.find(listeners, fn::Listener<any>)
 			listeners[i] = listeners[n]
 			listeners[n] = nil
 		end
@@ -2920,202 +3262,85 @@ local function world_new()
 	local function world_parent(world: world, entity: i53): i53?
 		return world_target(world, entity, EcsChildOf, 0)
 	end
-	
-	local function world_targets(world: world, entity: i53, relation: i53)
-		local r = entity_index_try_get(world.entity_index, entity)
-		if not r or not r.archetype then 
-			return NOOP
-		end
-		local archetype = r.archetype
-		local archetype_id = archetype.id
-		local idr = world.component_index[ECS_PAIR(relation, EcsWildcard)]
-		if not idr then
-			return NOOP
-		end
 
-		local count = idr.counts[archetype_id]
-		if not count then 
-			return NOOP
-		end
-		local types = archetype.types
-		local tr = idr.records[archetype_id]
-		local i = 0
-		return function() : i53?
-			if i == count then 
-				return nil
-			end
-			local target = ECS_PAIR_SECOND(types[i+tr])
-			i += 1
-			return target
-		end
-	end
-	
-	local EXPECT_ERR_FMT = "Entity '%s' does not contain component '%s'."
-	local function getidentifier(world: world, id: i53): string
-		return world_get(world, id, EcsName) or tostring(id)
-	end
-	local function world_expect(world: world, entity: i53,
-		a: i53, b: i53?, c: i53?, d: i53?, e: i53?): ...any
-		local record = entity_index_try_get_unsafe(entity)
-		if not record then
-			return nil
-		end
+	local function world_entity(world: world, entity: i53?): i53
+		local sparse_array = eindex_sparse_array
+		local dense_array = eindex_dense_array
+		
+		if entity then
+			local index = ECS_ID(entity)
+			local alive_count = entity_index.alive_count
+			local r = sparse_array[index]
+			if r then
+				local dense = r.dense
 
-		local archetype = record.archetype
-		if not archetype then
-			return nil
-		end
-
-		local columns_map = archetype.columns_map
-		local row = record.row
-
-		local va = fetch(a, columns_map, row)
-		if va == nil then
-			error(
-				EXPECT_ERR_FMT:format(
-					getidentifier(world, entity),
-					getidentifier(world, a)
-				)
-			)
-		end
-
-		if not b then
-			return va
-		elseif not c then
-			local vb = fetch(b, columns_map, row)
-			if vb == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, b)
-					)
-				)
-			end
-			return va, vb
-		elseif not d then
-			local vb, vc = fetch(b, columns_map, row), fetch(c, columns_map, row)
-			if vb == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, b)
-					)
-				)
-			end
-			if vc == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, c)
-					)
-				)
-			end
-			return va, vb, vc
-		elseif not e then
-			local vb, vc, vd = fetch(b, columns_map, row), fetch(c, columns_map, row), fetch(d, columns_map, row)
-			if vb == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, b)
-					)
-				)
-			end
-			if vc == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, c)
-					)
-				)
-			end
-			if vd == nil then
-				error(
-					EXPECT_ERR_FMT:format(
-						getidentifier(world, entity),
-						getidentifier(world, d)
-					)
-				)
-			end
-			return va, vb, vc, vd
-		else
-			error("args exceeded")
-		end
-	end
-
-	local function world_clone(world: world, entity: i53): i53
-		local index = ECS_ID(entity)
-		local alive_count = entity_index.alive_count
-		local r = eindex_sparse_array[index]
-		if r then
-			local dense = r.dense
-
-			if not dense or r.dense == 0 then
-				r.dense = index
-				local dense = index
-				local e_swap = eindex_dense_array[dense]
-				local r_swap = entity_index_try_get_any(e_swap) :: record
-
-				r_swap.dense = dense
-				alive_count += 1
-				entity_index.alive_count = alive_count
-				r.dense = alive_count
-
-				eindex_dense_array[dense] = e_swap
-				eindex_dense_array[alive_count] = entity
-				return entity
-			end
-
-			local any = eindex_dense_array[dense]
-			if any ~= entity then
-				if alive_count <= dense then
-					local e_swap = eindex_dense_array[dense]
-					local r_swap = entity_index_try_get_any(e_swap) :: record
-
-					r_swap.dense = dense
+				-- If dense == 0, this is a pre-populated entry from world:range()
+				-- Just add the entity to the end of the dense array
+				if dense == 0 then
 					alive_count += 1
 					entity_index.alive_count = alive_count
 					r.dense = alive_count
-
-					eindex_dense_array[dense] = e_swap
-					eindex_dense_array[alive_count] = entity
+					dense_array[alive_count] = entity
+					return entity
 				end
+
+				-- If dense > 0, check if there's an existing entity at that position
+				local existing_entity = dense_array[dense]
+				if existing_entity and existing_entity ~= entity then
+					alive_count += 1
+					entity_index.alive_count = alive_count
+					r.dense = alive_count
+					dense_array[alive_count] = entity
+					return entity
+				end
+
+				return entity
+			else
+				local max_id = entity_index.max_id
+
+				if index > max_id then
+					-- Pre-populate all intermediate IDs to keep sparse_array as an array
+					for i = max_id + 1, index - 1 do
+						-- if not sparse_array[i] then
+						-- 	-- NOTE(marcus): We have to do this check to see if
+						-- 	-- they exist first because world:range() may have
+						-- 	-- pre-populated some slots already.
+						-- end
+
+						sparse_array[i] = { dense = 0 } :: record
+					end
+					entity_index.max_id = index
+				end
+
+				alive_count += 1
+				entity_index.alive_count = alive_count
+				dense_array[alive_count] = entity
+
+				r = { dense = alive_count } :: record
+				sparse_array[index] = r
+
+				return entity
 			end
+		end
 
-			return entity
-		else
-			for i = entity_index.max_id + 1, index do
-				eindex_sparse_array[i] = { dense = i } :: record
-				eindex_dense_array[i] = i
+		local alive_count = entity_index.alive_count
+		local max_id = entity_index.max_id
+		local next_count = alive_count + 1
+		if alive_count < max_id then
+			entity = dense_array[next_count]
+			if entity then 
+				entity_index.alive_count = next_count
+				return entity
 			end
-			entity_index.max_id = index
-
-			local e_swap = eindex_dense_array[alive_count]
-			local r_swap = eindex_sparse_array[alive_count]
-			r_swap.dense = index
-
-			alive_count += 1
-			entity_index.alive_count = alive_count
-
-			local r = eindex_sparse_array[index]
-
-			r.dense = alive_count
-
-			eindex_sparse_array[index] = r
-
-			eindex_dense_array[index] = e_swap
-			eindex_dense_array[alive_count] = entity
-
-			return entity
 		end
-	end
-
-	local function world_entity(world: world, name: string?): i53
-		local new_entity = entity_index_new_id(entity_index)
-		if name then
-			world_set(world, new_entity, EcsName, name)
-		end
-		return new_entity
+		local id = max_id + 1
+		local range_end = entity_index.range_end
+		ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
+		entity_index.max_id = id
+		entity_index.alive_count = next_count
+		dense_array[next_count] = id
+		sparse_array[id] = { dense = next_count } :: record
+		return id
 	end
 
 	local function world_remove(world: world, entity: i53, id: i53)
@@ -3150,13 +3375,15 @@ local function world_new()
 		end
 
 		local archetype = record.archetype
-
 		if archetype then
+			-- NOTE(marcus): It is important to remove the data and invoke
+			-- the hooks before the archetype and certain component records are
+			-- invalidated or else it will have a nasty runtime error.
 			for _, id in archetype.types do
-				local idr = component_index[id]
-				local on_remove = idr.on_remove
+				local cr = component_index[id]
+				local on_remove = cr.on_remove
 				if on_remove then
-					on_remove(entity, id)
+					on_remove(entity, id, true)
 				end
 			end
 			archetype_delete(world, record.archetype, record.row)
@@ -3164,13 +3391,35 @@ local function world_new()
 
 		local component_index = world.component_index
 		local archetypes = world.archetypes
-		local tgt = ECS_PAIR(EcsWildcard, entity::number)
-		local rel = ECS_PAIR(entity::number, EcsWildcard)
+		local tgt = ECS_PAIR(EcsWildcard, entity)
+		local rel = ECS_PAIR(entity, EcsWildcard)
 
 		local idr_t = component_index[tgt]
-		local idr = component_index[entity::number]
+		local idr = component_index[entity]
 		local idr_r = component_index[rel]
 
+		--[[
+			It is important to note that `world_delete` uses a depth-first
+			traversal that prunes the children of the entity before their
+			parents. archetypes can be destroyed and removed from component
+			records while we're still iterating over those records. The
+			recursive nature of this function entails that archetype ids can be
+			removed from component records (idr_t.records, idr.records and
+			idr_r.records) while that collection is still being iterated over.
+			If we try to look up an archetype by ID after it has been destroyed,
+			we get nil. This is hard to debug because the removal happens deep
+			in the opaque call stack. Essentially the entry is removed on a
+			first come first serve basis.
+
+			The solution is to separate processing from cleanup. We first iterate
+			over the archetypes to process entities (move them, call hooks, etc.),
+			but do not destroy the archetypes yet. Then we iterate again to destroy
+			the archetypes, but check if they still exist (archetypes[archetype_id]
+			is not nil) before destroying. This handles the case where recursive
+			world_delete calls have already destroyed some archetypes.
+
+										- Marcus
+		]]
 		if idr then
 			local flags = idr.flags
 			if (bit32.btest(flags, ECS_ID_DELETE) == true) then
@@ -3224,12 +3473,21 @@ local function world_new()
 				end
 			end
 		end
+
 		if idr_t then
 			local archetype_ids = idr_t.records
+            local to_remove = {}:: { [i53]: componentrecord}
+            local did_cascade_delete = false
+
 			for archetype_id in archetype_ids do
 				local idr_t_archetype = archetypes[archetype_id]
+				if not idr_t_archetype then
+					continue
+				end
 				local idr_t_types = idr_t_archetype.types
 				local entities = idr_t_archetype.entities
+                local deleted_any  = false
+                local remove_count = 0
 
 				for _, id in idr_t_types do
 					if not ECS_IS_PAIR(id) then
@@ -3244,30 +3502,84 @@ local function world_new()
 					local flags = id_record.flags
 					local flags_delete_mask = bit32.btest(flags, ECS_ID_DELETE)
 					if flags_delete_mask then
-						for i = #entities, 1, -1 do
-							local child = entities[i]
-							world_delete(world, child)
-						end
+                        for i = #entities, 1, -1 do
+						    local child = entities[i]
+						    world_delete(world, child)
+					    end
+                        deleted_any = true
 						break
 					else
-						local on_remove = id_record.on_remove
-
-						for i = #entities, 1, -1 do
-							local child = entities[i]
-							if on_remove then
-								on_remove(child, id)
-							end
-
-							local r = entity_index_try_get_unsafe(child) :: record
-							local to = archetype_traverse_remove(world, id, r.archetype)
-							inner_entity_move(child, r, to)
-						end
+                        to_remove[id] = id_record
+                        remove_count += 1
 					end
 				end
+
+                if deleted_any then
+                    did_cascade_delete = true
+                    continue
+                end
+
+                if remove_count == 1 then
+                    local id, id_record = next(to_remove)
+                    local to_u = archetype_traverse_remove(world, id :: i53, idr_t_archetype)
+                    local on_remove = id_record.on_remove
+                    for i = #entities, 1, -1 do
+                        local child = entities[i]
+                        local r = entity_index_try_get_unsafe(child) :: record
+                        local to = to_u
+                        if on_remove then
+                            on_remove(child, id :: i53)
+                            local src = r.archetype
+                            if src ~= idr_t_archetype then
+                                to = archetype_traverse_remove(world, id::i53, src)
+                            end
+                        end
+
+                        inner_entity_move(child, r, to)
+                    end
+                elseif remove_count > 1 then
+                    local dst_types = table.clone(idr_t_types)
+                    for id, component_record in to_remove do
+                        table.remove(dst_types, table.find(dst_types, id))
+                    end
+
+                    local to_u = archetype_ensure(world, dst_types)
+                    for i = #entities, 1, -1 do
+                        local child = entities[i]
+                        local r = entity_index_try_get_unsafe(child) :: record
+
+                        local to = to_u
+                        for id, component_record in to_remove do
+                            local on_remove = component_record.on_remove
+                            if on_remove then
+                                on_remove(child, id)
+                                local src = r.archetype
+                                if src ~= idr_t_archetype then
+                                    to = archetype_traverse_remove(world, id, src)
+                                end
+                            end
+                        end
+
+                        inner_entity_move(child, r, to)
+                    end
+                end
+
+                table.clear(to_remove)
+				archetype_destroy(world, idr_t_archetype)
 			end
 
-			for archetype_id in archetype_ids do
-				archetype_destroy(world, archetypes[archetype_id])
+			if did_cascade_delete then
+				for archetype_id in archetype_ids do
+					local idr_t_archetype = archetypes[archetype_id]
+					if not idr_t_archetype then
+						continue
+					end
+					local entities = idr_t_archetype.entities
+					for i = #entities, 1, -1 do
+						world_delete(world, entities[i])
+					end
+					archetype_destroy(world, idr_t_archetype)
+				end
 			end
 		end
 
@@ -3290,34 +3602,44 @@ local function world_new()
 				local records = idr_r.records
 				for archetype_id in archetype_ids do
 					local idr_r_archetype = archetypes[archetype_id]
-					local node = idr_r_archetype
+					-- local node = idr_r_archetype
 					local entities = idr_r_archetype.entities
 					local tr = records[archetype_id]
 					local tr_count = counts[archetype_id]
-					local types = idr_r_archetype.types
+					local idr_r_types = idr_r_archetype.types
+					local dst = table.clone(idr_r_types)
 					for i = tr, tr + tr_count - 1 do
-						local id = types[i]
-						node = archetype_traverse_remove(world, id, node)
+						local id = idr_r_types[i]
+						local at = table.find(dst, id)
+						if at then
+							table.remove(dst, at)
+						end
+						-- node = archetype_traverse_remove(world, id, node)
 						local on_remove = component_index[id].on_remove
 						if on_remove then
+							-- NOTE(marcus): Since hooks can move the entities
+							-- assumptions about which archetype it jumps to is
+							-- diminished. We assume that people who delete
+							-- relation will never have hooks on them.
 							for _, entity in entities do
 								on_remove(entity, id)
 							end
 						end
 					end
 
+					local node = archetype_ensure(world, dst)
+
 					for i = #entities, 1, -1 do
 						local e = entities[i]
 						local r = entity_index_try_get_unsafe(e) :: record
 						inner_entity_move(e, r, node)
 					end
-				end
 
-				for archetype_id in archetype_ids do
-					archetype_destroy(world, archetypes[archetype_id])
+					archetype_destroy(world, idr_r_archetype)
 				end
 			end
 		end
+
 
 
 		local dense = record.dense
@@ -3355,7 +3677,11 @@ local function world_new()
 	end
 
 	local function world_exists(world: world, entity: i53): boolean
-		return entity_index_try_get_any(entity) ~= nil
+		local r = entity_index_try_get_any(entity)
+		if not r or r.dense == 0 then 
+			return false
+		end
+		return true
 	end
 
 	local function world_contains(world: world, entity: i53): boolean
@@ -3383,53 +3709,20 @@ local function world_new()
 		world.archetypes = new_archetypes
 		world.archetype_index = new_archetype_map
 	end
-	
-	local function world_patch(world: world)
-		local ids, values = {}, {}
-		local tags = {}
-		local id_i = 1
-		local v_i = 1
-		local tag_i = 1
 
-		local patcher; patcher = {
-			set = function(component: i53, value: any)
-				ids[id_i] = component
-				values[v_i] = value
-				id_i += 1
-				v_i += 1
-				return patcher
-			end,
-			add = function(id: i53)
-				tags[tag_i] = id
-				tag_i += 1
-				return patcher
-			end,
-			apply = function(entity: i53)
-				table.move(tags, 1, tag_i, id_i, ids)
-				ecs_bulk_insert(world, entity, ids, values)
-				return patcher
-			end,
-		}
-		return patcher
-	end
-
-	local function world_component(world: world, name: string?): i53
-		max_component_id += 1
-		if max_component_id > HI_COMPONENT_ID then
+	local function world_component(world: world): i53
+		if max_component_id + 1 > HI_COMPONENT_ID then
 			-- IDs are partitioned into ranges because component IDs are not nominal,
 			-- so it needs to error when IDs intersect into the entity range.
 			error("Too many components, consider using world:entity() instead to create components.")
 		end
+		max_component_id += 1
 		world.max_component_id = max_component_id
 		world_add(world, max_component_id, EcsComponent)
 
-		local new_component = max_component_id
-		if name then
-			world_set(world, new_component, EcsName, name)
-		end
-		return new_component
+		return max_component_id
 	end
-	
+
 	world.entity = world_entity
 	world.query = world_query :: any
 	world.remove = world_remove
@@ -3449,13 +3742,97 @@ local function world_new()
 	world.each = world_each
 	world.children = world_children
 	world.range = world_range
-	world.targets = world_targets
-	world.expect = world_expect
-	world.clone = world_clone
-	world.patch = world_patch
+
+	if DEBUG then
+		-- NOTE(marcus): Make it easy to grep the debug functions and
+		-- being able to read the specification, without having to look
+		-- at the implementation to understand invariants.
+
+		local DEBUG_DELETING_ENTITY
+		local function DEBUG_IS_DELETING_ENTITY(entity: i53)
+			if DEBUG_DELETING_ENTITY == entity then
+				error([[
+					Tried to make structural changes while the entity is in process
+					of being deleted. You called this function inside of the
+					OnRemove hook, but the entity is going to remove all of its
+					components making this operation moot.
+				]], 2)
+			end
+		end
+
+		local function DEBUG_IS_INVALID_ENTITY(entity: i53)
+			local entity_id = ECS_ID(entity)
+			local r = eindex_sparse_array[entity_id]
+			local canonical_entity = eindex_dense_array[r.dense]
+
+			if canonical_entity ~= entity then
+				error([[
+					This Entity handle has an outdated generation. You are
+					probably holding onto an entity that you got from outside the ECS
+				]], 2)
+			end
+		end
+
+		local function DEBUG_ID_IS_INVALID(id: number)
+			if ECS_IS_PAIR(id) then
+				if ECS_ID_IS_WILDCARD(id) then
+					error([[
+						You tried to pass in a wildcard pair. This is strictly
+						forbidden. You probably want to iterate the targets and
+						remove them one by one. You can also populate a list of
+						targets to remove and use jecs.bulk_remove.
+					]], 2)
+				end
+				local first = ecs_pair_first(world, id)
+				local second = ecs_pair_second(world, id)
+
+				assert(world:contains(first), `The first element of the pair is invalid because it is not alive in the entity index. You might be holding onto an outdated handle or may have forward declared ids via jecs.component() and jecs.tag(). In the latter case, ensure that their calls precede jecs.world() or otherwise they will not register correctly`)
+				assert(world:contains(second), `The second element of the pair is invalid because it is not alive in the entity index. You might be holding onto an outdated handle or may have forward declared ids via jecs.component() and jecs.tag(). In the latter case, ensure that their calls precede jecs.world() or otherwise they will not register correctly`)
+			else
+				assert(world:contains(id), `The component in your parameters is invalid because it is not alive in the entity index. You might be holding onto an outdated handle or may have forward declared ids via jecs.component() and jecs.tag(). In the latter case, ensure that their calls precede jecs.world() or otherwise they will not register correctly`)
+			end
+		end
+
+		-- NOTE(marcus): I have to save the old function and overriding the
+		-- upvalue in order to actually allow cascaded deletions to also be
+		-- checked by our program because we use the world_delete ptr internally.
+		local canonical_world_delete = world_delete
+		local function world_delete_checked(world: world, entity: i53)
+			DEBUG_DELETING_ENTITY = entity
+			DEBUG_IS_INVALID_ENTITY(entity)
+			canonical_world_delete(world, entity)
+			DEBUG_DELETING_ENTITY = nil
+		end
+		world_delete = world_delete_checked
+
+		local function world_remove_checked(world: world, entity: i53, id: i53)
+			DEBUG_IS_DELETING_ENTITY(entity)
+			DEBUG_IS_INVALID_ENTITY(entity)
+			DEBUG_ID_IS_INVALID(id)
+
+			world_remove(world, entity, id)
+		end
+		local function world_add_checked(world: world, entity: i53, id: i53)
+			DEBUG_IS_DELETING_ENTITY(entity)
+			DEBUG_IS_INVALID_ENTITY(entity)
+			DEBUG_ID_IS_INVALID(id)
+
+			world_add(world, entity, id)
+		end
+		local function world_set_checked(world: world, entity: i53, id: i53, value: any)
+			DEBUG_IS_DELETING_ENTITY(entity)
+			DEBUG_IS_INVALID_ENTITY(entity)
+			DEBUG_ID_IS_INVALID(id)
+
+			world_set(world, entity, id, value)
+		end
+		world.remove = world_remove_checked
+		world.add = world_add_checked
+		world.set = world_set_checked
+	end
 
 	for i = 1, EcsRest do
-		entity_index_new_id(entity_index)
+		ENTITY_INDEX_NEW_ID(entity_index)
 	end
 
 	for i = 1, max_component_id do
@@ -3491,7 +3868,7 @@ local function world_new()
 	world_add(world, EcsOnDeleteTarget, EcsExclusive)
 
 	for i = EcsRest + 1, ecs_max_tag_id do
-		entity_index_new_id(entity_index)
+		ENTITY_INDEX_NEW_ID(entity_index)
 	end
 
 	for i, bundle in ecs_metadata do
@@ -3507,25 +3884,10 @@ local function world_new()
 	return world
 end
 
--- type function ecs_id_t(entity)
--- 	local ty = entity:components()[2]
--- 	local __T = ty:readproperty(types.singleton("__T"))
--- 	if not __T then
--- 		return ty:readproperty(types.singleton("__jecs_pair_value"))
--- 	end
--- 	return __T
--- end
-
--- type function ecs_pair_t(first, second)
--- 	if ecs_id_t(first):is("nil") then
--- 		return second
--- 	else
--- 		return first
--- 	end
--- end
---
-
 local function ecs_is_tag(world: world, entity: i53): boolean
+	if ECS_IS_PAIR(entity) then
+		return ecs_is_tag(world, ecs_pair_first(world, entity)) and ecs_is_tag(world, ecs_pair_second(world, entity))
+	end
 	local idr = world.component_index[entity]
 	if idr then
 		return bit32.btest(idr.flags, ECS_ID_IS_TAG)
@@ -3535,6 +3897,93 @@ end
 
 local function ecs_entity_record(world: world, entity: i53)
 	return entity_index_try_get(world.entity_index, entity)
+end
+
+local function entity_index_ensure(entity_index: entityindex, e: i53)
+	local eindex_sparse_array = entity_index.sparse_array
+	local eindex_dense_array = entity_index.dense_array
+	local index = ECS_ID(e)
+	local alive_count = entity_index.alive_count
+	local r = eindex_sparse_array[index]
+	if r then
+		local dense = r.dense
+
+		if dense == 0 then
+			alive_count += 1
+			entity_index.alive_count = alive_count
+			r.dense = alive_count
+			eindex_dense_array[alive_count] = e
+			return e
+		end
+
+		-- If dense > 0, check if there's an existing entity at that position
+		local existing_entity = eindex_dense_array[dense]
+		if existing_entity and existing_entity ~= e then
+			alive_count += 1
+			entity_index.alive_count = alive_count
+			r.dense = alive_count
+			eindex_dense_array[alive_count] = e
+			return e
+		end
+
+		return e
+	else
+		local max_id = entity_index.max_id
+
+		if index > max_id then
+			for i = max_id + 1, index - 1 do
+				if not eindex_sparse_array[i] then
+					-- NOTE(marcus): We have to do this check to see if
+					-- they exist first because world:range() may have
+					-- pre-populated some slots already.
+				end
+
+				eindex_sparse_array[i] = { dense = 0 } :: record
+			end
+			entity_index.max_id = index
+		end
+
+		alive_count += 1
+		entity_index.alive_count = alive_count
+		eindex_dense_array[alive_count] = e
+
+		r = { dense = alive_count } :: record
+		eindex_sparse_array[index] = r
+
+		return e
+	end
+end
+
+local function new(world: world)
+	local e = ENTITY_INDEX_NEW_ID(world.entity_index)
+	return e
+end
+
+local function new_low_id(world: world)
+	local entity_index = world.entity_index
+
+	local e = 0
+	if world.max_component_id < HI_COMPONENT_ID then
+		while true do
+			world.max_component_id += 1
+			e = world.max_component_id
+			if not (entity_index_try_get_any(entity_index, e) ~= nil and e <= HI_COMPONENT_ID) then
+				break
+			end
+		end
+	end
+	if e == 0 or e >= HI_COMPONENT_ID then
+		e = ENTITY_INDEX_NEW_ID(entity_index)
+	else
+		entity_index_ensure(entity_index, e)
+	end
+	return e
+end
+
+local function new_w_id(world: world, id: i53)
+	local e = ENTITY_INDEX_NEW_ID(world.entity_index)
+	world.add(world, e, id)
+	return e
 end
 
 local query_cache = setmetatable({}, {__mode = "v"})
@@ -3559,15 +4008,7 @@ local function ecs_cached_query(world: world, ...: i53)
 	return query
 end
 
-return {
-	world = world_new :: () -> World,
-	World = {
-		new = world_new
-	},
-	component = (ECS_COMPONENT :: any) :: <T>() -> Entity<T>,
-	tag = (ECS_TAG :: any) :: <T>() -> Entity<T>,
-	meta = (ECS_META :: any) :: <T, a>(id: Entity<T>, id: Id<a>, value: a?) -> Entity<T>,
-	is_tag = (ecs_is_tag :: any) :: <T>(World, Id<T>) -> boolean,
+return table.freeze({
 	cached_query = (ecs_cached_query :: any) :: ((World) -> Query<nil>)
 		& (<A>(World, Id<A>) -> Query<A>)
 		& (<A, B>(World, Id<A>, Id<B>) -> Query<A, B>)
@@ -3597,48 +4038,86 @@ return {
 			Id<H>,
 			...Id<any>
 			) -> Query<A, B, C, D, E, F, G, H>),
+	
+	new = new,
+	new_w_id = new_w_id,
+	new_low_id = new_low_id,
 
-    OnAdd = (EcsOnAdd :: any) :: Id<<T>(entity: Entity, id: Id<T>, data: T) -> ()>,
-	OnRemove = (EcsOnRemove :: any) :: Id<(entity: Entity, id: Id) -> ()>,
-	OnChange = (EcsOnChange :: any) :: Id<<T>(entity: Entity, id: Id<T>, data: T) -> ()>,
-	ChildOf = (EcsChildOf :: any) :: Entity,
-	Component = (EcsComponent :: any) :: Entity,
-	Wildcard = (EcsWildcard :: any) :: Id,
-	w = (EcsWildcard :: any) :: Id,
-	OnDelete = (EcsOnDelete :: any) :: Entity,
-	OnDeleteTarget = (EcsOnDeleteTarget :: any) :: Entity,
-	Delete = (EcsDelete :: any) :: Entity,
-	Remove = (EcsRemove :: any) :: Entity,
-	Name = (EcsName :: any) :: Id<string>,
-	Exclusive = (EcsExclusive :: any) :: Entity,
-	ArchetypeCreate = (EcsOnArchetypeCreate :: any) :: Entity,
-	ArchetypeDelete = (EcsOnArchetypeDelete :: any) :: Entity,
-	Rest = (EcsRest :: any) :: Entity,
+	--- Create the world
+	world = world_new :: (boolean?) -> World,
+	World = {
+		new = world_new
+	},
+	--- Create a preregistered ID (see more how_to/011_preregistering_components.luau)
+	component = (ECS_COMPONENT :: any) :: <T>() -> Entity<T>,
+	tag = (ECS_TAG :: any) :: () -> Entity<nil>,
+	--- Give the preregistered ID some data (see more how_to/011_preregistering_components.luau)
+	meta = (ECS_META :: any) :: <T, a>(id: Entity<T>, id: Component<a>, value: a?) -> Entity<T>,
+	--- Check if the ID is a tag
+	is_tag = (ecs_is_tag :: any) :: <T>(World, Component<T>) -> boolean,
 
-	pair = ECS_PAIR :: <P, O>(first: Id<P>, second: Id<O>) -> Pair<P, O>,
+	--- OnAdd Hook to detect added components (see more how_to/110_hooks.luau)
+    OnAdd = (EcsOnAdd :: any) :: Component<<T>(entity: Entity, id: Id<T>, data: T) -> ()>,
+    --- OnRemove Hook to detect removed components (see more how_to/110_hooks.luau)
+	OnRemove = (EcsOnRemove :: any) :: Component<<T>(entity: Entity, id: Id<T>, delete: boolean?) -> ()>,
+	--- OnChange Hook to detect mutations (see more how_to/110_hooks.luau)
+	OnChange = (EcsOnChange :: any) :: Component<<T>(entity: Entity, id: Id<T>, data: T) -> ()>,
+	--- Relationship to define the parent of an entity
+	ChildOf = (EcsChildOf :: any) :: Entity<nil>,
+	--- This marks an ID as a component and can therefore have data (see more how_to/010_how_components_work.luau)
+	Component = (EcsComponent :: any) :: Entity<nil>,
+	--- Used for querying relationships of any target (see more how_to/041_entity_relationships.luau)
+	Wildcard = (EcsWildcard :: any) :: Component,
+	--- Alias for jecs.Wildcard
+	w = (EcsWildcard :: any) :: Component,
+	--- OnDelete Cleanup condition (see more 100_cleanup_traits)
+	OnDelete = (EcsOnDelete :: any) :: Entity<nil>,
+	--- OnDeleteTarget Cleanup condition (see more 100_cleanup_traits)
+	OnDeleteTarget = (EcsOnDeleteTarget :: any) :: Entity<nil>,
+	--- Delete Cleanup action (see more 100_cleanup_traits)
+	Delete = (EcsDelete :: any) :: Entity<nil>,
+	--- Remove Cleanup action (see more 100_cleanup_traits)
+	Remove = (EcsRemove :: any) :: Entity<nil>,
+	--- This can be used to name your components with, either as some discriminant or for debugging purposes
+	Name = (EcsName :: any) :: Component<string>,
+	--- Used to mark whether a relationship is exclusive or not (see more 041_entity_relationships.luau)
+	Exclusive = (EcsExclusive :: any) :: Entity<nil>,
+	ArchetypeCreate = (EcsOnArchetypeCreate :: any) :: Entity<nil>,
+	ArchetypeDelete = (EcsOnArchetypeDelete :: any) :: Entity<nil>,
+	Rest = (EcsRest :: any) :: Entity<nil>,
 
-	IS_PAIR = ECS_IS_PAIR :: <P, O>(pair: Pair<P, O>) -> boolean,
-	ECS_PAIR_FIRST = ECS_PAIR_FIRST :: <P, O>(pair: Pair<P, O>) -> Id<P>,
-	ECS_PAIR_SECOND = ECS_PAIR_SECOND :: <P, O>(pair: Pair<P, O>) -> Id<O>,
-	pair_first = ecs_pair_first :: <P, O>(world: World, pair: Pair<P, O>) -> Id<P>,
-	pair_second = ecs_pair_second :: <P, O>(world: World, pair: Pair<P, O>) -> Id<O>,
+	--- Create a pair between two components
+	pair = ECS_PAIR :: <P, O>(first: Entity<P>, second: Entity<O>) -> Pair<P, O>,
+
+	--- To check if a component is a pair
+	IS_PAIR = ECS_IS_PAIR :: (pair: Component) -> boolean,
+	ECS_PAIR_FIRST = ECS_PAIR_FIRST :: <P, O>(pair: Id<P>) -> Component<P>,
+	ECS_PAIR_SECOND = ECS_PAIR_SECOND :: <P, O>(pair: Id<P>) -> Component<O>,
+	--- Lookup the first element in a pair
+	pair_first = ecs_pair_first :: <P, O>(world: World, pair: Id<P>) -> Component<P>,
+	--- Lookup the second element in a pair
+	pair_second = ecs_pair_second :: <P, O>(world: World, pair: Id<P>) -> Component<O>,
 	entity_index_get_alive = entity_index_get_alive,
 
 	archetype_append_to_records = archetype_append_to_records,
-	id_record_ensure = id_record_ensure :: (World, Id) -> ComponentRecord,
-	component_record = id_record_get :: (World, Id) -> ComponentRecord?,
-	record = ecs_entity_record :: (World, Entity) -> Record,
+	id_record_ensure = id_record_ensure :: (World, Component) -> ComponentRecord,
+	--- Grabs metadata on the component
+	component_record = id_record_get :: (World, Component) -> ComponentRecord?,
+	--- Grabs metadata on the entity
+	record = ecs_entity_record :: (World, Entity<any>) -> Record,
 
-	archetype_create = archetype_create :: (World, { Id }, string) -> Archetype,
-	archetype_ensure = archetype_ensure :: (World, { Id }) -> Archetype,
+	archetype_create = archetype_create :: (World, { Component }, string) -> Archetype,
+	archetype_ensure = archetype_ensure :: (World, { Component }) -> Archetype,
 	find_insert = find_insert,
-	find_archetype_with = find_archetype_with :: (World, Id, Archetype) -> Archetype,
-	find_archetype_without = find_archetype_without :: (World, Id, Archetype) -> Archetype,
+	find_archetype_with = find_archetype_with :: (World, Component, Archetype) -> Archetype,
+	find_archetype_without = find_archetype_without :: (World, Component, Archetype) -> Archetype,
 	create_edge_for_remove = create_edge_for_remove,
-	archetype_traverse_add = archetype_traverse_add :: (World, Id, Archetype) -> Archetype,
-	archetype_traverse_remove = archetype_traverse_remove :: (World, Id, Archetype) -> Archetype,
-	bulk_insert = ecs_bulk_insert :: (World, Entity, { Id }, { any }) -> (),
-	bulk_remove = ecs_bulk_remove :: (World, Entity, { Id }) -> (),
+	archetype_traverse_add = archetype_traverse_add :: (World, Component, Archetype) -> Archetype,
+	archetype_traverse_remove = archetype_traverse_remove :: (World, Component, Archetype) -> Archetype,
+	--- For bulk inserting components to an entity
+	bulk_insert = ecs_bulk_insert :: (World, Entity, { Component }, { any }) -> (),
+	--- For bulk removing components from an entity
+	bulk_remove = ecs_bulk_remove :: (World, Entity, { Component }) -> (),
 
 	entity_move = entity_move :: (EntityIndex, Entity, Record, Archetype) -> (),
 
@@ -3647,6 +4126,7 @@ return {
 	entity_index_try_get_any = entity_index_try_get_any :: (EntityIndex, Entity) -> Record,
 	entity_index_is_alive = entity_index_is_alive :: (EntityIndex, Entity) -> boolean,
 	entity_index_new_id = ENTITY_INDEX_NEW_ID :: (EntityIndex) -> Entity,
+	entity_index_ensure = entity_index_ensure,
 
 	Query = Query,
 
@@ -3657,9 +4137,8 @@ return {
 	query_archetypes = query_archetypes,
 	query_match = query_match,
 
-	find_observers = find_observers :: (World, Id, Id) -> { Observer },
+	find_observers = find_observers :: (World, Component, Component) -> { Observer },
 
-	-- Inwards facing API for testing
 	ECS_ID = ECS_ENTITY_T_LO :: (Entity) -> number,
 	ECS_GENERATION_INC = ECS_GENERATION_INC :: (Entity) -> Entity,
 	ECS_GENERATION = ECS_GENERATION :: (Entity) -> number,
@@ -3669,4 +4148,4 @@ return {
 	ECS_META_RESET = ECS_META_RESET,
 	ECS_COMBINE = ECS_COMBINE :: (number, number) -> Entity,
 	ECS_ENTITY_MASK = ECS_ENTITY_MASK,
-}
+})

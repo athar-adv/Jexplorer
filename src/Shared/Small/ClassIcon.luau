@@ -1,5 +1,6 @@
 --!strict
 local StudioService = game:GetService('StudioService')
+local getclassicon = StudioService.GetClassIcon
 
 local Types = require(script.Parent.Parent.Parent.Types)
 
@@ -11,18 +12,15 @@ function ClassIcon.getIcon(className: string): Types.StudioIconResult?
 	local cached = ClassIcon.CachedIcons[className]
 	if cached then return cached end
 
-	local success, icon = xpcall(
-		StudioService.GetClassIcon, function()end, StudioService, className
-	)
-	if not success then return end
+	local icon = getclassicon(StudioService, className)
 	ClassIcon.CachedIcons[className] = icon
 
 	return icon
 end
 
-function ClassIcon.loadIcons(apiMap: {[string]: any})
-	for k in apiMap do
-		ClassIcon.getIcon(k)
+function ClassIcon.loadIcons(classes: ReflectedClasses)
+	for _, v in classes do
+		ClassIcon.getIcon(v.Name)
 	end
 end
 

@@ -1,4 +1,5 @@
 --!strict
+--!optimize 2
 
 local ScriptEditorService = game:GetService("ScriptEditorService")
 
@@ -21,6 +22,7 @@ local getpropertychangedsignal = RawInst.getpropertychangedsignal
 local getattributes = game.GetAttributes
 local rawindex = RawInst.rawindex
 local index = RawInst.index
+local bulkinsert = Jecs.bulk_insert
 
 type Manager = Types.Manager
 type ExplorerEntity = Types.ExplorerEntity
@@ -581,6 +583,140 @@ function HierarchyState.queueForEntityDeletion(Manager, entity)
 	world:set(entity, components.DeletionTicket, {})
 end
 
+local function onChange(world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance, v: string, oldValueCache: {[string]: any})
+	local frame = world:get(ent, components.Frame)
+	if not frame then return end
+
+	local frameInst = Manager.frameOf(frame)
+	if not frameInst then return end
+
+	local oldValue = oldValueCache[v]
+	local value = rawindex(instance, v)
+	local oldTag = JexpTags.getTaggedPropertyTag(v, typeof(oldValue) == "EnumItem" and oldValue.Name or tostring(oldValue))
+	local newTag = JexpTags.getTaggedPropertyTag(v, typeof(value) == "EnumItem" and value.Name or tostring(value))
+
+	frameInst:RemoveTag(oldTag)
+	frameInst:AddTag(newTag)
+	oldValueCache[v] = value
+end
+
+local function onChanged(
+	world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance,
+	handlers: {[string]: () -> ()}, nameCache: {[ExplorerEntity]: string}, classNameCache: {[ExplorerEntity]: string}, prop: string
+)
+	if prop == "Name" then
+		nameCache[ent] = instance.Name
+		local frame = world:get(ent, components.Frame)
+		if frame then
+			local frameInst = Manager.frameOf(frame)
+			if frameInst then
+				local main = frameInst:FindFirstChild("Main")
+				if main and main:FindFirstChild("InstanceName") and main.InstanceName.Text ~= instance.Name then
+					local instanceName = main.InstanceName
+					instanceName.Text = instance.Name
+					local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+					local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+					main.Insert.Position = UDim2.new(0, x + 10, 0.5)
+					main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+				end
+			end
+		end
+	elseif prop == "ClassName" then
+		classNameCache[ent] = instance.ClassName
+	end
+	local handler = handlers[prop]
+	if not handler then return end
+	handler()
+end
+
+local function onChildAdded(Manager: Manager, ent: ExplorerEntity, child: Instance)
+	if Manager.isInstanceExcluded(child) then return end
+
+	local existing = Manager.InstanceToEntity[child]
+	if existing and Manager.WidgetState.World:has(existing, Manager.Components.AncestryLocked) then
+		return
+	end
+
+	HierarchyState.queueForOnChildAdded(Manager, ent, child)
+end
+
+local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Instance)
+	local world = Manager.WidgetState.World
+	local components = Manager.Components
+	local existing = Manager.InstanceToEntity[child]
+	if existing and world:has(existing, components.AncestryLocked) then
+		return
+	end
+
+	if child.Parent == nil then return end
+	if existing then
+		local parent = Manager.parentOf(existing)
+		if parent then
+			local inst = Manager.instanceOf(parent)
+			if inst and Manager.isInstanceExcluded(inst) then
+				return
+			end
+		end
+	end
+
+	HierarchyState.queueForOnChildRemoved(Manager, ent, child)
+end
+
+local function onParentChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance)
+	if rawindex(instance, "Parent") == nil then
+		HierarchyState.cleanupEntity(Manager, ent)
+	end
+end
+
+local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance, currentAttributes: {[string]: any}, attrName: string)
+	local queryWorld = Manager.WidgetState.QueryWorld
+	local components = Manager.Components
+	local usages = Manager.AttributeUsageAmounts
+	local attrValue = instance:GetAttribute(attrName)
+
+	if attrValue ~= nil and not currentAttributes[attrName] then
+		currentAttributes[attrName] = true
+		if usages[attrName] then
+			usages[attrName] += 1
+		else
+			usages[attrName] = 1
+		end
+		local attrComp = Manager.QueryAttrMap[attrName]
+		if not attrComp then
+			attrComp = queryWorld:entity()
+			queryWorld:set(attrComp::any, Jecs.Name, attrName)
+			Manager.QueryAttrMap[attrName] = attrComp
+		end
+
+		Manager.refreshQueryAttributes(ent, attrComp)
+	elseif attrValue == nil and currentAttributes[attrName] then
+		currentAttributes[attrName] = nil
+		if usages[attrName] then
+			usages[attrName] -= 1
+		else
+			usages[attrName] = 0
+		end
+		Manager.refreshQueryAttributes(ent, nil)
+
+		if usages[attrName] == 0 then
+			local attrComp = Manager.QueryAttrMap[attrName]
+			if attrComp then
+				for queryEnt, linked in queryWorld:query(components.QueryLinkedEntities, attrComp):iter() do
+					for _, ent in linked do
+						Manager.refreshQueryTags(ent, nil)
+					end
+					if #linked == 0 then
+						queryWorld:delete(queryEnt)
+					end
+				end
+				queryWorld:delete(attrComp)
+			end
+			Manager.QueryAttrMap[attrName] = nil
+			usages[attrName] = nil
+		end
+	end
+end
+
 function HierarchyState.flushEntityPropAssignQueue(Manager)
 	local world = Manager.WidgetState.World
 	local queryWorld = Manager.WidgetState.QueryWorld
@@ -614,55 +750,25 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		nameCache[ent] = instance.Name
 		classNameCache[ent] = className
 		childAmountCache[ent] = #instance:GetChildren()
-		
+
 		if ticketData.ty ~= "instance" then continue end
+
 		local appliedTaggedProps = {}
+		local currentAttributes = {}
+		local oldValueCache = {}
+		local handlers = {}
+		
 		local props = getClassPropMap(className)
 		assert(props)
-		
-		local attributes = {}
 
 		for _, name in Constants.TaggedProperties do
 			if not props[name] then continue end
 			table.insert(appliedTaggedProps, name)
 		end
 		
-		for attrName, attrValue in getattributes(instance) do
-			local attrComp = Manager.QueryAttrMap[attrName]
-			if not attrComp then continue end
-			table.insert(attributes, attrComp)
-		end
-		
-		local handlers = {}
-		for _, v in appliedTaggedProps do
-			local oldValue = rawindex(instance, v)
-			local function onChange()
-				local frame = world:get(ent, components.Frame)
-				if not frame then return end
-
-				local frameInst = Manager.frameOf(frame)
-				if not frameInst then return end
-
-				local value = rawindex(instance, v)
-				local oldTag = JexpTags.getTaggedPropertyTag(v, typeof(oldValue) == "EnumItem" and oldValue.Name or tostring(oldValue))
-				local newTag = JexpTags.getTaggedPropertyTag(v, typeof(value) == "EnumItem" and value.Name or tostring(value))
-
-				frameInst:RemoveTag(oldTag)
-				frameInst:AddTag(newTag)
-				oldValue = value
-			end
-			handlers[v] = onChange
-		end
-
-		--if instance:IsA("LuaSourceContainer") then
-		--	local src = ScriptEditorService:GetEditorSource(instance)
-		--	VersionControl.createInstanceVersion(instance, "Source", src)
-		--end
-		
-		local usages = Manager.AttributeUsageAmounts
-		local currentAttributes = {}
-		for attrName in instance:GetAttributes() do
+		for attrName in getattributes(instance) do
 			currentAttributes[attrName] = true
+			local usages = Manager.AttributeUsageAmounts
 			if usages[attrName] then
 				usages[attrName] += 1
 			else
@@ -670,122 +776,33 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 			end
 			local attrComp = Manager.QueryAttrMap[attrName]
 			if not attrComp then
-				-- Create new attribute component
 				attrComp = queryWorld:entity()
 				queryWorld:set(attrComp::any, Jecs.Name, attrName)
 				Manager.QueryAttrMap[attrName] = attrComp
 			end
 		end
+		for _, v in appliedTaggedProps do
+			oldValueCache[v] = rawindex(instance, v)
+			handlers[v] = function() onChange(world, components, Manager, ent, instance, v, oldValueCache) end
+		end
 		
-		connections:add_many({
-			rbxconnect(rawindex(instance, "Changed"), function(prop: string)
-				if prop == "Name" then
-					nameCache[ent] = instance.Name
-					local frame = world:get(ent, components.Frame)
-					if frame then
-						local frameInst = Manager.frameOf(frame)
-						if frameInst then
-							local main = frameInst:FindFirstChild("Main")
-							if main and main:FindFirstChild("InstanceName") and main.InstanceName.Text ~= instance.Name then
-								local instanceName = main.InstanceName
-								instanceName.Text = instance.Name
-								local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-								local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-								main.Insert.Position = UDim2.new(0, x + 10, 0.5)
-								main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
-							end
-						end
-					end
-				elseif prop == "ClassName" then
-					classNameCache[ent] = instance.ClassName
-				end
-				local handler = handlers[prop]
-				if not handler then return end
-				handler()
-			end),
-			rbxconnect(rawindex(instance, "ChildAdded"), function(child: Instance)
-				if Manager.isInstanceExcluded(child) then return end
+		local n = #connections.items
+		connections.items[n+1] = rbxconnect(rawindex(instance, "Changed"), function(prop: string)
+			onChanged(world, components, Manager, ent, instance, handlers, nameCache, classNameCache, prop)
+		end)
+		connections.items[n+2] = rbxconnect(rawindex(instance, "ChildAdded"), function(child: Instance)
+			onChildAdded(Manager, ent, child)
+		end)
+		connections.items[n+3] = rbxconnect(rawindex(instance, "ChildRemoved"), function(child: Instance)
+			onChildRemoved(Manager, ent, child)
+		end)
+		connections.items[n+4] = rbxconnect(getpropertychangedsignal(instance, "Parent"), function()
+			onParentChanged(Manager, ent, instance)
+		end)
+		connections.items[n+5] = rbxconnect(rawindex(instance, "AttributeChanged"), function(attrName: string)
+			onAttributeChanged(Manager, ent, instance, currentAttributes, attrName)
+		end)
 
-				local existing = Manager.InstanceToEntity[child]
-				if existing and world:has(existing, components.AncestryLocked) then
-					return
-				end
-
-				HierarchyState.queueForOnChildAdded(Manager, ent, child)
-			end),
-			rbxconnect(rawindex(instance, "ChildRemoved"), function(child: Instance)
-				local existing = Manager.InstanceToEntity[child]
-				if existing and world:has(existing, components.AncestryLocked) then
-					return
-				end
-
-				if child.Parent == nil then return end
-				if existing then
-					local parent = Manager.parentOf(existing)
-					if parent then
-						local inst = Manager.instanceOf(parent)
-						if inst and Manager.isInstanceExcluded(inst) then
-							return
-						end
-					end
-				end
-
-				HierarchyState.queueForOnChildRemoved(Manager, ent, child)
-			end),
-			rbxconnect(getpropertychangedsignal(instance, "Parent"), function()
-				if rawindex(instance, "Parent") == nil then
-					HierarchyState.cleanupEntity(Manager, ent)
-				end
-			end),
-			rbxconnect(instance.AttributeChanged, function(attrName: string)
-				local attrValue = instance:GetAttribute(attrName)
-
-				-- Handle attribute added/changed
-				if attrValue ~= nil and not currentAttributes[attrName] then
-					currentAttributes[attrName] = true
-					if usages[attrName] then
-						usages[attrName] += 1
-					else
-						usages[attrName] = 1
-					end
-					local attrComp = Manager.QueryAttrMap[attrName]
-					if not attrComp then
-						-- Create new attribute component
-						attrComp = queryWorld:entity()
-						queryWorld:set(attrComp::any, Jecs.Name, attrName)
-						Manager.QueryAttrMap[attrName] = attrComp
-					end
-					
-					Manager.refreshQueryAttributes(ent, attrComp)
-				elseif attrValue == nil and currentAttributes[attrName] then
-					currentAttributes[attrName] = nil
-					if usages[attrName] then
-						usages[attrName] -= 1
-					else
-						usages[attrName] = 0
-					end
-					Manager.refreshQueryAttributes(ent, nil)
-					
-					if usages[attrName] == 0 then
-						local attrComp = Manager.QueryAttrMap[attrName]
-						if attrComp then
-							for queryEnt, linked in queryWorld:query(components.QueryLinkedEntities, attrComp):iter() do
-								for _, ent in linked do
-									Manager.refreshQueryTags(ent, nil)
-								end
-								if #linked == 0 then
-									queryWorld:delete(queryEnt)
-								end
-							end
-							queryWorld:delete(attrComp)
-						end
-						Manager.QueryAttrMap[attrName] = nil
-						usages[attrName] = nil
-					end
-				end
-			end)
-		})
-		
 		Manager.refreshQueryAttributes(ent, nil)
 	end
 
@@ -793,7 +810,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 	return any
 end
 
-local archetypeToQueryEntity = {}
+local archetypeToQueryEntity: {[string]: Jecs.Id} = {}
 
 function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	local components = Manager.Components
@@ -862,7 +879,7 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags,
 	
 	archetypeToQueryEntity[hash] = queryEntity
 	
-	Jecs.bulk_insert(queryWorld::World, queryEntity, classComponents, {})
+	bulkinsert(queryWorld::World, queryEntity, classComponents, {})
 	return queryEntity
 end
 
@@ -905,6 +922,7 @@ function HierarchyState.getChildren(entity)
 	return hierarchyCache.childrenMap[entity] or {}
 end
 
+local VIRTUAL_ENTITY_PREFAB: {Jecs.Id}
 function HierarchyState.createVirtualEntity(Manager, options, extra)
 	assert(options.ClassName, "ClassName required")
 	assert(options.Name, 'Name required')
@@ -929,13 +947,15 @@ function HierarchyState.createVirtualEntity(Manager, options, extra)
 	local ent = world:entity()
 	
 	table.insert(state.Entities, ent)
-
+	if not VIRTUAL_ENTITY_PREFAB then
+		VIRTUAL_ENTITY_PREFAB = {
+			components.Instance,
+			components.Connections,
+			components.PropAssignTicket
+		}
+	end
 	local instConnections = connections:extend(cleanup.call)
-	Jecs.bulk_insert(world, ent, {
-		components.Instance,
-		components.Connections,
-		components.PropAssignTicket
-	}, {
+	bulkinsert(world, ent, VIRTUAL_ENTITY_PREFAB, {
 		tbl,
 		instConnections,
 		{ty = "virtual"}
@@ -944,6 +964,8 @@ function HierarchyState.createVirtualEntity(Manager, options, extra)
 	return ent
 end
 
+local pair = Jecs.pair
+local childof = Jecs.ChildOf
 function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetInInstanceToEntity)
 	profilebegin("Jexplorer::createInstanceEntity")
 	local state = Manager.WidgetState
@@ -969,21 +991,16 @@ function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetI
 
 	local connections = parentConnections:extend(cleanup.disconnect)
 	local className = instance.ClassName
-
+	
 	local entity = world:entity()
-	Jecs.bulk_insert(world, entity, {
-		components.Instance,
-		components.Connections,
-		components.ParentTabs,
-		components.PropAssignTicket,
-		(if parent then Manager.ChildOf(parent) else nil) :: any
-	},
-	{
-		instance,
-		connections,
-		{},
-		{ty = "instance"}
-	})
+	if parent then
+		world:add(entity, pair(childof, parent))
+	end
+	local set = world.set
+	set(world, entity, components.Instance, instance)
+	set(world, entity, components.Connections, connections)
+	set(world, entity, components.ParentTabs, {})
+	set(world, entity, components.PropAssignTicket, {ty = "instance"})
 	
 	local children = instance:GetChildren()
 	local childAmount = #children

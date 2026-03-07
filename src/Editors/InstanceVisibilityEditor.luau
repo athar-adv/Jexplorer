@@ -133,6 +133,7 @@ function InstanceVisibilityEditor.init(Manager)
 		end
 		for _, info in classes do
 			onClass(info)
+			task.wait()
 		end
 		classVisibilityDropdown:AddBulkItem(buttons)
 	end)

@@ -1,11 +1,13 @@
 --!strict
 
-local StudioService = game:GetService("StudioService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 local Types = require("../Types")
 
+local ClassIcon = require("./Small/ClassIcon")
 local RawInst = require("./Small/RawInst")
+local Categories = require("./Info/InstanceCategories")
+local InsertInfo = require("./Info/InstanceInsertInfo")
 
 local getClampedXY = require("./Small/GetClampedXY")
 local rawnewindex = RawInst.rawnewindex
@@ -206,7 +208,7 @@ function InsertMenu.init(Manager)
 			if not success then warn(inst) return end
 
 			local infos = {}
-			for k, v in require("./Info/InstanceInsertInfo") do
+			for k, v in InsertInfo do
 				if inst:IsA(k) then table.insert(infos, v) end
 			end
 			inst.Name = class
@@ -238,7 +240,8 @@ function InsertMenu.init(Manager)
 		end
 
 		local layoutOrder = 0
-		for category, tbl in require("./Info/InstanceCategories") do
+		local buttons = {}
+		for category, tbl in Categories do
 			local header = PluginUI.createHeader(insertInstanceList, category)
 			layoutOrder += 1
 			header.LayoutOrder = layoutOrder
@@ -247,18 +250,16 @@ function InsertMenu.init(Manager)
 			originalOrders.headers[category] = layoutOrder
 
 			for _, class in tbl do
-				local success, icon: Types.StudioIconResult = xpcall(
-					StudioService.GetClassIcon, function(err) warn(`Could not create class constructor '{class}' with error '{err}'`) end, StudioService, class
-				)
-				if not success then continue end
-
+				local icon = ClassIcon.getIcon(class)
+				if not icon then continue end
+				
 				local buttonItem = PluginUI.createButtonWithIcon(
-					insertInstanceList, class, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, 
+					nil, class, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, 
 					function()
 						insert(class)
 					end
 				)
-
+				table.insert(buttons, buttonItem.Instance)
 				layoutOrder += 1
 
 				local button = buttonItem.Instance
@@ -274,6 +275,7 @@ function InsertMenu.init(Manager)
 				})
 			end
 		end
+		insertInstanceList:AddBulkItem(buttons)
 		currentVisibleButtons = {}
 		for _, buttonData in allButtons do
 			table.insert(currentVisibleButtons, buttonData)
