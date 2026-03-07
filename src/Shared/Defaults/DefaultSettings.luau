@@ -131,7 +131,7 @@ return {
 		SaveOnClose = {
 			Type = "boolean",
 			Display = "Save On Close",
-			Default = false
+			Default = true
 		}
 	},
 	Language = {
@@ -164,7 +164,7 @@ return {
 		VirtualScrollFrameBuffer = {
 			Type = "number",
 			Display = "Virtual Scrolling Instance Frame Buffer",
-			Default = 3,
+			Default = 10,
 		},
 		VirtualScrollSettleTime = {
 			Type = "number",

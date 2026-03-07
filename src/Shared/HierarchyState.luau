@@ -23,6 +23,7 @@ local getattributes = game.GetAttributes
 local rawindex = RawInst.rawindex
 local index = RawInst.index
 local bulkinsert = Jecs.bulk_insert
+local match = string.match
 
 type Manager = Types.Manager
 type ExplorerEntity = Types.ExplorerEntity
@@ -35,6 +36,7 @@ local hierarchyCache = {
 local classPriorityCache = {}
 --local lastCacheVersion = -1
 local lastPriorityVersion = -1
+local SUFFIX_PATTERN = "(%d+)$"
 
 local flatCache = {
 	flattenedEntities = nil :: any,
@@ -169,7 +171,16 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 		if priorityA ~= priorityB then
 			return priorityA < priorityB
 		end
-		return nameCache[a] < nameCache[b]
+		local nameA = nameCache[a]
+		local nameB = nameCache[b]
+		
+		local numA = match(nameA, SUFFIX_PATTERN)
+		local numB = match(nameB, SUFFIX_PATTERN)
+		
+		if numA and numB then
+			return tonumber(numA) < tonumber(numB)
+		end
+		return nameA < nameB
 	end
 
 	-- Sort all at once for best performance
@@ -600,6 +611,18 @@ local function onChange(world: World, components: Types.Components, Manager: Man
 	oldValueCache[v] = value
 end
 
+local function onChangeRunContext(world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance, oldValueCache: {[string]: any})
+	local frame = world:get(ent, components.Frame)
+	if not frame then return end
+
+	local frameInst = Manager.frameOf(frame)
+	if not frameInst then return end
+
+	local value = rawindex(instance, "RunContext")
+	frameInst.Name = Constants.ExplorerFrameScriptClassNameFormat:format(value.Name)
+	oldValueCache.RunContext = value
+end
+
 local function onChanged(
 	world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance,
 	handlers: {[string]: () -> ()}, nameCache: {[ExplorerEntity]: string}, classNameCache: {[ExplorerEntity]: string}, prop: string
@@ -785,15 +808,31 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 			oldValueCache[v] = rawindex(instance, v)
 			handlers[v] = function() onChange(world, components, Manager, ent, instance, v, oldValueCache) end
 		end
+		if className == "Script" then
+			-- RunContext needs to be special cased because its ExplorerFrames are named differently
+			handlers.RunContext = function() onChangeRunContext(world, components, Manager, ent, instance, oldValueCache) end
+		end
+		
+		local packageLink = instance:FindFirstChildOfClass("PackageLink")
+		if packageLink then
+			world:add(ent, components.HasPackageLink)
+		end
 		
 		local n = #connections.items
 		connections.items[n+1] = rbxconnect(rawindex(instance, "Changed"), function(prop: string)
 			onChanged(world, components, Manager, ent, instance, handlers, nameCache, classNameCache, prop)
 		end)
 		connections.items[n+2] = rbxconnect(rawindex(instance, "ChildAdded"), function(child: Instance)
+			if rawindex(child, "ClassName") == "PackageLink" then
+				packageLink = child :: any
+				world:add(ent, components.HasPackageLink)
+			end
 			onChildAdded(Manager, ent, child)
 		end)
 		connections.items[n+3] = rbxconnect(rawindex(instance, "ChildRemoved"), function(child: Instance)
+			if child == packageLink then
+				world:remove(ent, components.HasPackageLink)
+			end
 			onChildRemoved(Manager, ent, child)
 		end)
 		connections.items[n+4] = rbxconnect(getpropertychangedsignal(instance, "Parent"), function()

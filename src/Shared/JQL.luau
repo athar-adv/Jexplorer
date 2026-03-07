@@ -15,6 +15,11 @@ local function fuzzyMatch(str, pattern)
 	return string.find(str, pattern, 1, true) ~= nil
 end
 
+local _error = error 
+local function error(msg, level)
+	_error({message  = msg}, level)
+end
+
 local function splitTopLevel(text, delimiter)
 	local parts = {}
 	local current = ""

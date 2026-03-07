@@ -141,6 +141,7 @@ export type World = Jecs.World
 export type ExplorerEntity = Jecs.Id
 export type QueryEntity = Jecs.Id
 export type FrameState = {
+	ruler: GuiObject,
 	isLMBActive: boolean,
 	tagsToRemove: {string},
 	hasBeenSelected: boolean,
@@ -157,6 +158,7 @@ export type FrameState = {
 	arrow: GuiButton,
 	hasPackageLink: boolean,
 	insertInstanceButton: GuiButton,
+	currentFrameName: string?,
 }
 
 export type Components = {
@@ -172,6 +174,7 @@ export type Components = {
 	PendingChanges: Jecs.Component,
 	Deleted: Jecs.Component,
 	DisplayTopLevel: Jecs.Component,
+	HasPackageLink: Jecs.Component,
 	
 	CleanupTicket: Jecs.Component<{}>,
 	DeletionTicket: Jecs.Component<{}>,

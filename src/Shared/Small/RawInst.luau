@@ -9,7 +9,7 @@ end, function()
 	return debug.info(2, "f")
 end)
 
-return {
+return table.freeze({
 	index = function(self, k)
 		if typeof(self) == "Instance" then
 			return index(self, k)
@@ -29,4 +29,4 @@ return {
 	
 	rbxconnect = game.Destroying.Connect,
 	getpropertychangedsignal = game.GetPropertyChangedSignal
-}
+})

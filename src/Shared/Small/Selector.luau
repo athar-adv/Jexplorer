@@ -1,4 +1,5 @@
 local StudioService = game:GetService('StudioService')
+local Constants = require("../../Constants")
 
 local JexpTags = require("./JexpTags")
 local format = string.format
@@ -11,7 +12,7 @@ local function getIconSelector(name: string?, class: string?)
 	if not name and not class then
 		return "#ClassIcon"
 	elseif not name and class then
-		return `{getTaggedPropertySelector("ClassName", class)} > #Main > #ClassIcon`
+		return `.JEXP_ExplorerFrame #{Constants.ExplorerFrameNameFormat:format(class)} > #Main > #ClassIcon`
 	elseif name and not class then
 		return `{getTaggedPropertySelector("Name", name)} > #Main > #ClassIcon`
 	elseif name and class then

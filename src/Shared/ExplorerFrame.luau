@@ -354,6 +354,7 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 
 	local connections = state.Connections:extend(cleanup.disconnect)
 	local frameState: Types.FrameState = {
+		ruler = frame.Ruler,
 		isLMBActive = false,
 		shouldDeselect = false,
 		tagsToRemove = {},
@@ -368,7 +369,7 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		pendingChanges = main.PendingChanges,
 		instanceName = instanceName,
 		arrow = arrow,
-		insertInstanceButton = insertInstanceButton
+		insertInstanceButton = insertInstanceButton,
 	}
 	
 	local frameEntity = frameWorld:entity()
@@ -538,8 +539,8 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	
 	profilebegin("Jexplorer::stepFlushFrameSetParentQueue")
 	
-	local withoutParents: {Instance} = {}
-	local withParents: {{inst: Instance, parent: Instance}} = {}
+	local withoutParents: {{inst: Instance, frame: ExplorerFrame}} = {}
+	local withParents: {{inst: Instance, parent: Instance, frame: ExplorerFrame}} = {}
 	local n = 0
 	
 	local stepSize = Manager.getSetting("FrameSetParentFlushStep")
@@ -549,16 +550,16 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 		n += 1
 		frameWorld:remove(frame, components.FRAMEWORLD_FrameSetParentTicket)
 		if ticketData.newParent then
-			table.insert(withParents, {inst = frameInst, parent = ticketData.newParent})
+			table.insert(withParents, {inst = frameInst, parent = ticketData.newParent, frame = frame})
 		else
-			table.insert(withoutParents, frameInst)
+			table.insert(withoutParents, {inst = frameInst, frame = frame})
 		end
 	end
 	
 	local PARENT = "Parent"
 	profilebegin("withoutParents")
 	for _, v in withoutParents do
-		rawnewindex(v, PARENT, nil)
+		rawnewindex(v.inst, PARENT, nil)
 	end
 	profileend()
 	profilebegin("withParents")
@@ -610,7 +611,9 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		return
 	end
 	
+	local name = Manager.NameCache[entity]
 	world:set(entity, components.Frame, frame)
+	
 	frameWorld:set(frame, components.Entity, entity)
 	if parentFrame then
 		frameWorld:add(frame, Manager.ChildOf(parentFrame))
@@ -621,32 +624,6 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		return
 	end
 	world:set(entity, components.FrameTagAssignTicket, {frame = frame})
-	
-	--if not frameState.isVisible then
-	--	frameState.isVisible = true
-	--	rawnewindex(frameInst, "Visible", true)
-	--end
-
-	rawnewindex(frameState.instanceName, "Text", Manager.NameCache[entity])
-
-	local arrow = frameState.arrow
-	if world:has(entity, components.ArrowInvisible) then
-		-- Handled in updateVirtualScroller
-		--arrow.Visible = false
-	else
-		if instance == game or Manager.ChildAmountCache[entity] == 0 then
-			arrow.Visible = false
-		else
-			arrow.Visible = true
-		end
-		if Manager.isExplorerEntityExpanded(entity) then
-			arrow.Rotation = 0
-			--frameInst.Children.Visible = true
-		else
-			arrow.Rotation = -90
-			--frameInst.Children.Visible = false
-		end
-	end
 	
 	if not state.LastSelectedEntity then
 		state.LastSelectedEntity = nil
@@ -793,6 +770,7 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 	profileend()
 end
 
+local createdClassRules = {}
 function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -835,13 +813,23 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			frameState.setIconColor = nil
 		end
 		
+		local className = Manager.ClassNameCache[entity]
+		local name = Manager.NameCache[entity]
+		
 		local newTags = {}
 		if typeof(inst) == "Instance" then
-			local propmap = getClassPropMap(Manager.ClassNameCache[entity])
+			local propmap = getClassPropMap(className)
 			for _, prop in Constants.TaggedProperties do
 				if not propmap[prop] then continue end
 				
-				local value = rawindex(inst, prop)
+				local value
+				if prop == "ClassName" then
+					value = className
+				elseif prop == "Name" then
+					value = name
+				else
+					value = rawindex(inst, prop)
+				end
 				table.insert(newTags, JexpTags.getTaggedPropertyTag(prop, typeof(value) == "EnumItem" and value.Name or tostring(value)))
 			end
 		end
@@ -903,32 +891,38 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			local rules = {}
 			local any = false
 			for _, entity in entitiesToAddIcons do
+				if Manager.isExplorerEntityInvisible(entity) then continue end
 				local className = Manager.ClassNameCache[entity]
+				local tag = `JEXP_Class_{className}`
+				
+				if createdClassRules[tag] then continue end
+				
 				local slctr = Selector.getIconSelector(nil, className)
 				local icon = ClassIcon.getIcon(className)
 
-				if icon and not sheet:FindRule(slctr) and not Manager.isExplorerEntityInvisible(entity) then
-					local name = `ClassIcon_{className}`
-					if className == "Script" or className == "LocalScript" then
-						-- Do nothing, handled in default style
-					else
-						local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
-						local normalIcon = rule(name, slctr, 0, {
-							ImageRectOffset = icon.ImageRectOffset,
-							ImageRectSize = icon.ImageRectSize,
-							Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
-						})
-						local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
-							ImageRectOffset = icon.ImageRectOffset,
-							ImageRectSize = icon.ImageRectSize,
-							Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
-						})
-						normalIcon:AddTag("DontSaveRule")
-						lightIcon:AddTag("DontSaveRule")
-						table.insert(rules, normalIcon)
-						table.insert(rules, lightIcon)
-						any = true
-					end
+				if not icon then continue end
+				local name = `ClassIcon_{className}`
+				if className == "Script" or className == "LocalScript" then
+					-- Do nothing, handled in default style
+				else
+					local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
+					local normalIcon = rule(name, slctr, 0, {
+						ImageRectOffset = icon.ImageRectOffset,
+						ImageRectSize = icon.ImageRectSize,
+						Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
+					})
+					local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
+						ImageRectOffset = icon.ImageRectOffset,
+						ImageRectSize = icon.ImageRectSize,
+						Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
+					})
+					normalIcon:AddTag("DontSaveRule")
+					lightIcon:AddTag("DontSaveRule")
+					
+					table.insert(rules, normalIcon)
+					table.insert(rules, lightIcon)
+					createdClassRules[tag] = true
+					any = true
 				end
 			end
 			if any then

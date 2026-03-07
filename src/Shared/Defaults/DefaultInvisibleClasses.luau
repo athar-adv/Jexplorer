@@ -1,4 +1,8 @@
+local studioSetting = settings().Studio
+local pluginDebugServiceEnabled = studioSetting.PluginDebuggingEnabled
+
 return {
+	if pluginDebugServiceEnabled then nil else "PluginDebugService",
 	"VirtualInputManager",
 	"InstanceFileSyncService",
 	"AdService",
@@ -85,7 +89,6 @@ return {
 	"PackageService",
 	"PermissionsService",
 	"PlacesService",
-	"PluginDebugService",
 	"PluginManagementService",
 	"ProcessInstancePhysicsService",
 	"PublishService",

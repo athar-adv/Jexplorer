@@ -3986,7 +3986,7 @@ local function new_w_id(world: world, id: i53)
 	return e
 end
 
-local query_cache = setmetatable({}, {__mode = "v"})
+local query_cache = {}
 local function ecs_cached_query(world: world, ...: i53)
 	local world_cache do
 		local existing = query_cache[world]

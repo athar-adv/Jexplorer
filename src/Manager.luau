@@ -107,6 +107,7 @@ local components: Types.Components do
 		PendingChanges = tag(),
 		Deleted = tag(),
 		DisplayTopLevel = tag(),
+		HasPackageLink = tag(),
 		
 		CleanupTicket = comp(),
 		DeletionTicket = comp(),
@@ -333,7 +334,7 @@ local function checkKeybinds(keybinds: {[string]: () -> ()}, input: InputObject)
 
 		-- Check if matched combo's tokens are all present in this longer combo
 		local isSuperset = true
-		for token in pairs(matchedTokens) do
+		for token in matchedTokens do
 			if not tokens[token] then
 				isSuperset = false
 				break
@@ -3032,6 +3033,361 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 	local autocompleteGroup: ItemGroup.ItemGroup?
 	local suppressAutocomplete = false
+	local queryErrorTimeout: thread?
+	
+	local function triggerQueryAutocompleteSuggestions()
+		if not Manager.getSetting("QueryAutocompleteEnabled") then return end
+		if suppressAutocomplete then return end
+		if autocompleteGroup then
+			autocompleteGroup:free()
+		end
+
+		local autocompleteResults: {{
+			label: string,
+			priority: number,
+			insert: () -> ()
+		}} = {}
+
+		local queryText = queryInput.Text
+		local tokenStart = 1
+		for i = #queryText, 1, -1 do
+			local c = queryText:sub(i, i)
+			if c == " " or c == "&" or c == "|" or c == "<" or c == ">" or c == "*" then
+				tokenStart = i + 1
+				break
+			end
+		end
+		local currentToken = queryText:sub(tokenStart)
+		local prefix = queryText:sub(1, tokenStart - 1)
+		-- Get the last logical segment (after the last | or & combinator)
+		local lastSegment = prefix:match("[^|&<>*]*$") or prefix
+		local inValueContext = lastSegment:match("[%w_]+%s*=") ~= nil
+
+		local UDF_READ_TAGS = {
+			"%",
+			"#",
+			"?",
+			"[str] ",
+			"[num] ",
+			"[bool] ",
+			"[rgb] ",
+			"[hex] ",
+			"[vec2] ",
+			"[vec3] ",
+			"[udim] ",
+			"[udim2] ",
+			"[json] ",
+			"[region3] ",
+			"[ray] ",
+			"[enum.Material] ",
+			"[enum.NormalId] ",
+			"[enum.PartType] ",
+			"[enum.SurfaceType] ",
+			"[enum.BrickColor] ",
+			"[enum.Font] ",
+			"[enum.KeyCode] ",
+		}
+
+		local function addResult(label: string, insertText: string, priority: number?)
+			table.insert(autocompleteResults, {
+				label = label,
+				priority = priority or 0,
+				insert = function()
+					suppressAutocomplete = true
+					queryInput.Text = prefix .. insertText
+					queryInput:CaptureFocus()
+					task.defer(function()
+						queryInput.CursorPosition = #queryInput.Text + 1
+						suppressAutocomplete = false
+					end)
+				end
+			})
+		end
+
+		local function matchesPartial(name: string, partial: string): boolean
+			return name:sub(1, #partial):lower() == partial:lower()
+		end
+
+		local function suggestUDFTags(valuePartial: string, pairPrefix: string)
+			for _, tag in UDF_READ_TAGS do
+				if matchesPartial(tag, valuePartial) then
+					addResult(tag, tag, 8)
+				end
+			end
+		end
+
+		local function detectContext(): boolean
+			do
+				local propAndEq, valuePartial = queryText:match("([%w_]+%s*=%s*)([^%s&|]*)$")
+				if propAndEq and valuePartial ~= nil and (valuePartial:sub(1,1) == "[" or #valuePartial == 0) then
+					local pairStart = #queryText - #propAndEq - #valuePartial + 1
+					local pairPrefix = queryText:sub(1, pairStart - 1) .. propAndEq
+					suggestUDFTags(valuePartial, pairPrefix)
+					return true
+				end
+			end
+
+			-- @has(partial
+			do
+				local partial = currentToken:match("^@has%((.*)$")
+				if partial then
+					for name, _ in Manager.QueryCtMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult(name, "@has(" .. name .. ")", 9)
+						end
+					end
+					return true
+				end
+			end
+
+			-- @is(prop, typePartial
+			do
+				local prop, partial = currentToken:match("^@is%(([^,]+),(.*)$")
+				if prop and partial then
+					partial = partial:gsub("^%s+", "")
+					local types = {
+						"string", "number", "boolean", "Vector2", "Vector3",
+						"UDim", "UDim2", "Color3", "CFrame", "Rect",
+						"EnumItem", "Enum.Material", "Enum.NormalId",
+						"Enum.PartType", "Enum.SurfaceType", "Enum.BrickColor"
+					}
+					for _, t in types do
+						if matchesPartial(t, partial) then
+							addResult(t, "@is(" .. prop .. ", " .. t .. ")", 8)
+						end
+					end
+					return true
+				end
+			end
+
+			-- @is(partial  (first arg, property name)
+			do
+				local partial = currentToken:match("^@is%((.*)$")
+				if partial then
+					for name, _ in Manager.QueryCtMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult(name, "@is(" .. name .. ", ", 9)
+						end
+					end
+					return true
+				end
+			end
+
+			-- @matches(prop, patternPartial  OR  @pattern(prop, patternPartial
+			do
+				local macro, prop, partial = currentToken:match("^(@matches%()([^,]+),(.*)$")
+				if not macro then
+					macro, prop, partial = currentToken:match("^(@pattern%()([^,]+),(.*)$")
+				end
+				if macro and prop and partial then
+					-- Second arg is a free-form string/pattern, nothing to suggest
+					return true
+				end
+			end
+
+			-- @matches(partial  OR  @pattern(partial  (first arg, property name)
+			do
+				local macro, partial = currentToken:match("^(@matches%()(.*)$")
+				if not macro then
+					macro, partial = currentToken:match("^(@pattern%()(.*)$")
+				end
+				if macro and partial then
+					for name, _ in Manager.QueryCtMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult(name, macro .. name .. ", ", 9)
+						end
+					end
+					return true
+				end
+			end
+
+			-- @ prefix: suggest macro names
+			do
+				local partial = currentToken:match("^@(.*)$")
+				if partial then
+					local macros = {"has(", "matches(", "is(", "pattern("}
+					for _, macro in macros do
+						if matchesPartial(macro, partial) then
+							addResult("@" .. macro, "@" .. macro, 10)
+						end
+					end
+					return true
+				end
+			end
+
+			-- . prefix: suggest tag names
+			do
+				local partial = currentToken:match("^%.(.*)$")
+				if partial and not inValueContext then
+					for name, _ in Manager.QueryTagMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult("." .. name, "." .. name, 7)
+						end
+					end
+					return true
+				end
+			end
+
+			-- # prefix: suggest instance names
+			do
+				local partial = currentToken:match("#([^?].*)$")
+				if partial and not inValueContext then
+					local seen: {[string]: boolean} = {}
+					for entity in world:query(components.Instance):iter() do
+						local inst = world:get(entity, components.Instance)
+						if inst and not seen[inst.Name] then
+							if matchesPartial(inst.Name, partial) then
+								seen[inst.Name] = true
+								addResult("#" .. inst.Name, "#" .. inst.Name, 7)
+							end
+						end
+					end
+					return true
+				end
+			end
+
+			-- $ prefix: suggest attribute names
+			do
+				local partial = currentToken:match("^%$(.*)$")
+				if partial and not inValueContext then
+					for name, _ in Manager.QueryAttrMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult("$" .. name, "$" .. name .. " = ", 7)
+						end
+					end
+					return true
+				end
+			end
+
+			if not inValueContext and currentToken:match("^[%a_][%w_]*$") then
+				local partial = currentToken
+				for name, _ in Manager.QueryCtMap do
+					if type(name) == "string" and matchesPartial(name, partial) then
+						addResult(name .. " = ", name .. " = ", 5)
+					end
+				end
+			end
+
+			do
+				local atExprStart = currentToken == ""
+					or currentToken == "#"
+					or currentToken == "#?"
+					or currentToken == "$"
+					or currentToken == "."
+					or currentToken == "@"
+					or currentToken == "*<"
+					or currentToken == "*>"
+					or currentToken == "<"
+					or currentToken == ">"
+
+				if atExprStart and not inValueContext then
+					local prefixSymbols = {
+						{ label = "#name",   insert = "#",  priority = 6 },
+						{ label = "#?fuzzyname", insert = "#?", priority = 6 },
+						{ label = "$attr",   insert = "$",  priority = 6 },
+						{ label = ".tag",    insert = ".",  priority = 6 },
+						{ label = "@macro",  insert = "@",  priority = 6 },
+						{ label = "*<firstancestor",  insert = "*<",  priority = 6 },
+						{ label = "*>firstdescendant",  insert = "*>",  priority = 6 },
+						{ label = "<parent (stackable, like <<)",  insert = "<",  priority = 6 },
+						{ label = ">firstchild (stackable, like >>)",  insert = "*<",  priority = 6 },
+					}
+					for _, sym in prefixSymbols do
+						if matchesPartial(sym.insert, currentToken) then
+							addResult(sym.label, sym.insert, sym.priority)
+						end
+					end
+				end
+			end
+
+			return false
+		end
+
+		detectContext()
+
+		table.sort(autocompleteResults, function(a, b)
+			if a.priority ~= b.priority then
+				return a.priority > b.priority
+			end
+			return a.label < b.label
+		end)
+
+		-- Cap results
+		while #autocompleteResults > 12 do
+			table.remove(autocompleteResults)
+		end
+
+		if #autocompleteResults > 0 then
+			local list = PluginUI.createItemList({Visible = true})
+			local group = ItemGroup.create(function(v) v:Destroy() end, {list})
+
+			local buttons = {}
+			for _, result in autocompleteResults do
+				local button = PluginUI.createButton(nil, result.label, function()
+					result.insert()
+					if autocompleteGroup then
+						autocompleteGroup:free()
+					end
+					task.defer(function()
+						list:Destroy()
+					end)
+				end)
+				table.insert(buttons, button.Instance)
+			end
+			list:AddBulkItem(buttons)
+
+			local frameSize = list.Backdrop.AbsoluteSize
+			list:SetAnchor(
+				Vector2.new(0, 0),
+				UDim2.fromOffset(
+					getClampedXY(
+						frameSize,
+						queryInput.AbsolutePosition + Vector2.new(0, queryInput.AbsoluteSize.Y),
+						Vector2.zero,
+						jexplorerUi.AbsolutePosition,
+						jexplorerUi.AbsoluteSize
+					)
+				)
+			)
+
+			local currentSelection = 1
+
+			group:extend(cleanup.disconnect, {
+				Manager.connectInputBegan(function(input)
+					if input.KeyCode == Enum.KeyCode.Up then
+						local lastButton = buttons[currentSelection]
+						currentSelection = math.clamp(currentSelection - 1, 1, #autocompleteResults)
+						local button = buttons[currentSelection]
+
+						lastButton:RemoveTag("JEXP_SelectedColor");
+						(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
+						button:AddTag("JEXP_SelectedColor");
+						(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+					elseif input.KeyCode == Enum.KeyCode.Down then
+						local lastButton = buttons[currentSelection]
+						currentSelection = math.clamp(currentSelection + 1, 1, #autocompleteResults)
+						local button = buttons[currentSelection]
+
+						lastButton:RemoveTag("JEXP_SelectedColor");
+						(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
+						button:AddTag("JEXP_SelectedColor");
+						(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+					elseif input.KeyCode == Enum.KeyCode.Return then
+						autocompleteResults[currentSelection].insert()
+					elseif input.KeyCode == Enum.KeyCode.Escape and autocompleteGroup then
+						autocompleteGroup:free()
+					end
+				end)
+			})
+			local button = buttons[currentSelection]
+			button:AddTag("JEXP_SelectedColor");
+			(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
+
+			autocompleteGroup = group
+
+			list.Backdrop.Parent = jexplorerUi
+		end
+	end
 	
 	-->> Initialize connections
 	return {
@@ -3296,327 +3652,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			topbarMenuDropdown:Show()
 		end),
 		
-		queryInput:GetPropertyChangedSignal("Text"):Connect(function()
-			if not Manager.getSetting("QueryAutocompleteEnabled") then return end
-			if suppressAutocomplete then return end
-			if autocompleteGroup then
-				autocompleteGroup:free()
-			end
-
-			local autocompleteResults: {{
-				label: string,
-				priority: number,
-				insert: () -> ()
-			}} = {}
-
-			local queryText = queryInput.Text
-			local tokenStart = 1
-			for i = #queryText, 1, -1 do
-				local c = queryText:sub(i, i)
-				if c == " " or c == "&" or c == "|" or c == "<" or c == ">" or c == "*" then
-					tokenStart = i + 1
-					break
-				end
-			end
-			local currentToken = queryText:sub(tokenStart)
-			local prefix = queryText:sub(1, tokenStart - 1)
-			-- Get the last logical segment (after the last | or & combinator)
-			local lastSegment = prefix:match("[^|&<>*]*$") or prefix
-			local inValueContext = lastSegment:match("[%w_]+%s*=") ~= nil
-
-			local UDF_READ_TAGS = {
-				"%",
-				"#",
-				"?",
-				"[str] ",
-				"[num] ",
-				"[bool] ",
-				"[rgb] ",
-				"[hex] ",
-				"[vec2] ",
-				"[vec3] ",
-				"[udim] ",
-				"[udim2] ",
-				"[json] ",
-				"[region3] ",
-				"[ray] ",
-				"[enum.Material] ",
-				"[enum.NormalId] ",
-				"[enum.PartType] ",
-				"[enum.SurfaceType] ",
-				"[enum.BrickColor] ",
-				"[enum.Font] ",
-				"[enum.KeyCode] ",
-			}
-
-			local function addResult(label: string, insertText: string, priority: number?)
-				table.insert(autocompleteResults, {
-					label = label,
-					priority = priority or 0,
-					insert = function()
-						suppressAutocomplete = true
-						queryInput.Text = prefix .. insertText
-						queryInput:CaptureFocus()
-						task.defer(function()
-							queryInput.CursorPosition = #queryInput.Text + 1
-							suppressAutocomplete = false
-						end)
-					end
-				})
-			end
-
-			local function matchesPartial(name: string, partial: string): boolean
-				return name:sub(1, #partial):lower() == partial:lower()
-			end
-			
-			local function suggestUDFTags(valuePartial: string, pairPrefix: string)
-				for _, tag in UDF_READ_TAGS do
-					if matchesPartial(tag, valuePartial) then
-						addResult(tag, tag, 8)
-					end
-				end
-			end
-			
-			local function detectContext(): boolean
-				do
-					local propAndEq, valuePartial = queryText:match("([%w_]+%s*=%s*)([^%s&|]*)$")
-					if propAndEq and valuePartial ~= nil and (valuePartial:sub(1,1) == "[" or #valuePartial == 0) then
-						local pairStart = #queryText - #propAndEq - #valuePartial + 1
-						local pairPrefix = queryText:sub(1, pairStart - 1) .. propAndEq
-						suggestUDFTags(valuePartial, pairPrefix)
-						return true
-					end
-				end
-
-				-- @has(partial
-				do
-					local partial = currentToken:match("^@has%((.*)$")
-					if partial then
-						for name, _ in Manager.QueryCtMap do
-							if type(name) == "string" and matchesPartial(name, partial) then
-								addResult(name, "@has(" .. name .. ")", 9)
-							end
-						end
-						return true
-					end
-				end
-
-				-- @is(prop, typePartial
-				do
-					local prop, partial = currentToken:match("^@is%(([^,]+),(.*)$")
-					if prop and partial then
-						partial = partial:gsub("^%s+", "")
-						local types = {
-							"string", "number", "boolean", "Vector2", "Vector3",
-							"UDim", "UDim2", "Color3", "CFrame", "Rect",
-							"EnumItem", "Enum.Material", "Enum.NormalId",
-							"Enum.PartType", "Enum.SurfaceType", "Enum.BrickColor"
-						}
-						for _, t in types do
-							if matchesPartial(t, partial) then
-								addResult(t, "@is(" .. prop .. ", " .. t .. ")", 8)
-							end
-						end
-						return true
-					end
-				end
-
-				-- @is(partial  (first arg, property name)
-				do
-					local partial = currentToken:match("^@is%((.*)$")
-					if partial then
-						for name, _ in Manager.QueryCtMap do
-							if type(name) == "string" and matchesPartial(name, partial) then
-								addResult(name, "@is(" .. name .. ", ", 9)
-							end
-						end
-						return true
-					end
-				end
-
-				-- @matches(prop, patternPartial  OR  @pattern(prop, patternPartial
-				do
-					local macro, prop, partial = currentToken:match("^(@matches%()([^,]+),(.*)$")
-					if not macro then
-						macro, prop, partial = currentToken:match("^(@pattern%()([^,]+),(.*)$")
-					end
-					if macro and prop and partial then
-						-- Second arg is a free-form string/pattern, nothing to suggest
-						return true
-					end
-				end
-
-				-- @matches(partial  OR  @pattern(partial  (first arg, property name)
-				do
-					local macro, partial = currentToken:match("^(@matches%()(.*)$")
-					if not macro then
-						macro, partial = currentToken:match("^(@pattern%()(.*)$")
-					end
-					if macro and partial then
-						for name, _ in Manager.QueryCtMap do
-							if type(name) == "string" and matchesPartial(name, partial) then
-								addResult(name, macro .. name .. ", ", 9)
-							end
-						end
-						return true
-					end
-				end
-
-				-- @ prefix: suggest macro names
-				do
-					local partial = currentToken:match("^@(.*)$")
-					if partial then
-						local macros = {"has(", "matches(", "is(", "pattern("}
-						for _, macro in macros do
-							if matchesPartial(macro, partial) then
-								addResult("@" .. macro, "@" .. macro, 10)
-							end
-						end
-						return true
-					end
-				end
-
-				-- . prefix: suggest tag names
-				do
-					local partial = currentToken:match("^%.(.*)$")
-					if partial and not inValueContext then
-						for name, _ in Manager.QueryTagMap do
-							if type(name) == "string" and matchesPartial(name, partial) then
-								addResult("." .. name, "." .. name, 7)
-							end
-						end
-						return true
-					end
-				end
-
-				-- # prefix: suggest instance names
-				do
-					local partial = currentToken:match("#([^?].*)$")
-					if partial and not inValueContext then
-						local seen: {[string]: boolean} = {}
-						for entity in world:query(components.Instance):iter() do
-							local inst = world:get(entity, components.Instance)
-							if inst and not seen[inst.Name] then
-								if matchesPartial(inst.Name, partial) then
-									seen[inst.Name] = true
-									addResult("#" .. inst.Name, "#" .. inst.Name, 7)
-								end
-							end
-						end
-						return true
-					end
-				end
-
-				-- $ prefix: suggest attribute names
-				do
-					local partial = currentToken:match("^%$(.*)$")
-					if partial and not inValueContext then
-						for name, _ in Manager.QueryAttrMap do
-							if type(name) == "string" and matchesPartial(name, partial) then
-								addResult("$" .. name, "$" .. name .. " = ", 7)
-							end
-						end
-						return true
-					end
-				end
-				
-				if not inValueContext and currentToken:match("^[%a_][%w_]*$") then
-					local partial = currentToken
-					for name, _ in Manager.QueryCtMap do
-						if type(name) == "string" and matchesPartial(name, partial) then
-							addResult(name .. " = ", name .. " = ", 5)
-						end
-					end
-				end
-
-				return false
-			end
-
-			detectContext()
-			
-			table.sort(autocompleteResults, function(a, b)
-				if a.priority ~= b.priority then
-					return a.priority > b.priority
-				end
-				return a.label < b.label
-			end)
-
-			-- Cap results
-			while #autocompleteResults > 12 do
-				table.remove(autocompleteResults)
-			end
-
-			if #autocompleteResults > 0 then
-				local list = PluginUI.createItemList({Visible = true})
-				local group = ItemGroup.create(function(v) v:Destroy() end, {list})
-
-				local buttons = {}
-				for _, result in autocompleteResults do
-					local button = PluginUI.createButton(nil, result.label, function()
-						result.insert()
-						if autocompleteGroup then
-							autocompleteGroup:free()
-						end
-						task.defer(function()
-							list:Destroy()
-						end)
-					end)
-					table.insert(buttons, button.Instance)
-				end
-				list:AddBulkItem(buttons)
-
-				local frameSize = list.Backdrop.AbsoluteSize
-				list:SetAnchor(
-					Vector2.new(0, 0),
-					UDim2.fromOffset(
-						getClampedXY(
-							frameSize,
-							queryInput.AbsolutePosition + Vector2.new(0, queryInput.AbsoluteSize.Y),
-							Vector2.zero,
-							jexplorerUi.AbsolutePosition,
-							jexplorerUi.AbsoluteSize
-						)
-					)
-				)
-
-				local currentSelection = 1
-
-				group:extend(cleanup.disconnect, {
-					Manager.connectInputBegan(function(input)
-						if input.KeyCode == Enum.KeyCode.Up then
-							local lastButton = buttons[currentSelection]
-							currentSelection = math.clamp(currentSelection - 1, 1, #autocompleteResults)
-							local button = buttons[currentSelection]
-
-							lastButton:RemoveTag("JEXP_SelectedColor");
-							(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
-							button:AddTag("JEXP_SelectedColor");
-							(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
-						elseif input.KeyCode == Enum.KeyCode.Down then
-							local lastButton = buttons[currentSelection]
-							currentSelection = math.clamp(currentSelection + 1, 1, #autocompleteResults)
-							local button = buttons[currentSelection]
-
-							lastButton:RemoveTag("JEXP_SelectedColor");
-							(lastButton:FindFirstChildOfClass("TextLabel") :: any):RemoveTag("JEXP_SelectedColor")
-							button:AddTag("JEXP_SelectedColor");
-							(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
-						elseif input.KeyCode == Enum.KeyCode.Return then
-							autocompleteResults[currentSelection].insert()
-						elseif input.KeyCode == Enum.KeyCode.Escape and autocompleteGroup then
-							autocompleteGroup:free()
-						end
-					end)
-				})
-				local button = buttons[currentSelection]
-				button:AddTag("JEXP_SelectedColor");
-				(button:FindFirstChildOfClass("TextLabel") :: any):AddTag("JEXP_SelectedColor")
-
-				autocompleteGroup = group
-
-				list.Backdrop.Parent = jexplorerUi
-			end
-		end),
+		queryInput:GetPropertyChangedSignal("Text"):Connect(triggerQueryAutocompleteSuggestions),
+		queryInput.Focused:Connect(triggerQueryAutocompleteSuggestions),
 		-- Search bar functionality
 		queryInput.FocusLost:Connect(function(enterPressed)
 			if not enterPressed then return end
@@ -3710,10 +3747,21 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end)
 			
 			if not success then
-				if not success then
-					warn("JEXPLORER Query error: " .. tostring(result))
+				local err = `Query Error: '{type(result) == "table" and result.message or tostring(result)}'`
+				if queryErrorTimeout then
+					task.cancel(queryErrorTimeout)
 				end
+				local button = topbar.PathBar.Segments.PathSegment
+				local terr = err .. " (error clears in 5s)"
+				button.Text = terr
+				queryErrorTimeout = task.delay(5, function()
+					if button.Text == terr then button.Text = "" end
+					queryErrorTimeout = nil
+				end)
+				warn(err)
+				
 				profilebegin("Jexplorer::query::showEntities")
+				topbar.QueryInputFrame.QueryCount.Text = "0"
 				for entity in world:query(components.QueryInvisible):iter() do
 					world:remove(entity, components.QueryInvisible)
 					HierarchyState.invalidateEntityStateCache(entity)
@@ -3721,7 +3769,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				end
 				profileend()
 				VirtualScroller.clearHeightCache(Manager)
-				VirtualScroller.update(Manager, false)
+				ExplorerFrame.updateExpandedVisuals(Manager)
+				VirtualScroller.rebuildAndUpdate(Manager, false)
 				profileend()
 				return
 			end
@@ -3736,6 +3785,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 			-- Everything is invisible if no results
 			if n == 0 then
+				VirtualScroller.clearHeightCache(Manager)
+				ExplorerFrame.updateExpandedVisuals(Manager)
+				VirtualScroller.rebuildAndUpdate(Manager, false)
 				topbar.QueryInputFrame.QueryCount.Text = "0"
 				return
 			end

@@ -1,10 +1,11 @@
 --!strict
 
-local Style = require(script.Parent.Parent.Style)
-local Selector = require(script.Parent.Parent.Small.Selector)
-local ClassIcon = require(script.Parent.Parent.Small.ClassIcon)
-local Types = require(script.Parent.Parent.Parent.Types)
-local InstClasses = require(script.Parent.Parent.Info.InstClasses)
+local Style = require("../Style")
+local Selector = require("../Small/Selector")
+local ClassIcon = require("../Small/ClassIcon")
+local Types = require("../../Types")
+local InstClasses = require("../Info/InstClasses")
+local Constants = require("../../Constants")
 
 local rule = Style.rule
 local var = Style.var
@@ -409,7 +410,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),
 		}),
-		rule("ExplorerFrameStyle", "#InstanceFrame Frame", 0, {
+		rule("ExplorerFrameStyle", ".JEXP_ExplorerFrame Frame", 0, {
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.XY,
 			SizeConstraint = Enum.SizeConstraint.RelativeXX,
@@ -572,53 +573,53 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			BackgroundColor3 = "$HoverColor"
 		}),
 		
-		rule("LocalScriptIcon", `{Selector.getTaggedPropertySelector("ClassName", "LocalScript")} > #Main > #ClassIcon`, 1, {
+		rule("LocalScriptIcon", Selector.getIconSelector(nil, "LocalScript"), 1, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/![$Theme]/Standard/LegacyClientRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("LegacyRunContextIcon", `{Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Legacy")} > #Main > #ClassIcon`, 1, {
+		rule("LegacyRunContextIcon", `#{Constants.ExplorerFrameScriptClassNameFormat:format("Legacy")} > #Main > #ClassIcon`, 1, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/![$Theme]/Standard/LegacyServerRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("ServerRunContextIcon", `{Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Server")} > #Main > #ClassIcon`, 1, {
+		rule("ServerRunContextIcon", `#{Constants.ExplorerFrameScriptClassNameFormat:format("Server")} > #Main > #ClassIcon`, 1, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/![$Theme]/Standard/ServerRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("ClientRunContextIcon", `{Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Client")} > #Main > #ClassIcon`, 1, {
+		rule("ClientRunContextIcon", `#{Constants.ExplorerFrameScriptClassNameFormat:format("Client")} > #Main > #ClassIcon`, 1, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/![$Theme]/Standard/ClientRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("PluginRunContextIcon", `{Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Plugin")} > #Main > #ClassIcon`, 1, {
+		rule("PluginRunContextIcon", `#{Constants.ExplorerFrameScriptClassNameFormat:format("Plugin")} > #Main > #ClassIcon`, 1, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/![$Theme]/Standard/PluginRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
 		
-		rule("LocalScriptIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "LocalScript")} > #Main > #ClassIcon`, 100, {
+		rule("LocalScriptIcon_Selected", `.JEXP_Selected {Selector.getIconSelector(nil, "LocalScript")}`, 100, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/LegacyClientRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("LegacyRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Legacy")} > #Main > #ClassIcon`, 100, {
+		rule("LegacyRunContextIcon_Selected", `.JEXP_Selected #{Constants.ExplorerFrameScriptClassNameFormat:format("Legacy")} > #Main > #ClassIcon`, 100, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/LegacyServerRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("ServerRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Server")} > #Main > #ClassIcon`, 100, {
+		rule("ServerRunContextIcon_Selected", `.JEXP_Selected #{Constants.ExplorerFrameScriptClassNameFormat:format("Server")} > #Main > #ClassIcon`, 100, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/ServerRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("ClientRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Client")} > #Main > #ClassIcon`, 100, {
+		rule("ClientRunContextIcon_Selected", `.JEXP_Selected #{Constants.ExplorerFrameScriptClassNameFormat:format("Client")} > #Main > #ClassIcon`, 100, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/ClientRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero
 		}),
-		rule("PluginRunContextIcon_Selected", `.JEXP_Selected {Selector.getTaggedPropertySelector("ClassName", "Script")} {Selector.getTaggedPropertySelector("RunContext", "Plugin")} > #Main > #ClassIcon`, 100, {
+		rule("PluginRunContextIcon_Selected", `.JEXP_Selected #{Constants.ExplorerFrameScriptClassNameFormat:format("Plugin")} > #Main > #ClassIcon`, 100, {
 			Image = var "'rbxasset://studio_svg_textures/Shared/Scripting/Dark/Standard/PluginRunContext.png'",
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero

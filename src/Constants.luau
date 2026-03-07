@@ -1,6 +1,8 @@
 return {
 	TaggedProperties = {
-		"RunContext", "Enabled", "Name", "ClassName"
+		--[["RunContext",]] "Enabled", "Name", "ClassName"
 	},
-	EditorsEnabled = true
+	EditorsEnabled = true,
+	ExplorerFrameNameFormat = "f_%s",
+	ExplorerFrameScriptClassNameFormat = "s_%s"
 }

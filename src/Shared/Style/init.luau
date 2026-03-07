@@ -600,6 +600,7 @@ function RuleMethods:Destroy()
 		rules[l] = nil
 	end
 	rule:Destroy()
+	self.Sheet.SlctrToRule[self.Rule.Selector] = nil
 	table.clear(self.RawProperties)
 	table.clear(self.AppliedProperties)
 
@@ -748,9 +749,12 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		RuleRemoved = SimpleSignal.new()
 	} :: Rule, RuleMethods) :: any
 	
+	local currentSlctr = rule.Selector
 	rule:GetPropertyChangedSignal("Selector"):Connect(function()
 		if ruleTbl.Sheet then
+			ruleTbl.Sheet.SlctrToRule[currentSlctr] = nil
 			ruleTbl.Sheet.SlctrToRule[rule.Selector] = ruleTbl
+			currentSlctr = rule.Selector
 		end
 		rule.Name = RULE_NAME_FORMAT:format(rule.Selector)
 	end)

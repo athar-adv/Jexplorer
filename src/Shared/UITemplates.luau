@@ -100,6 +100,7 @@ return {
 	InstanceFrame = template "Frame" {
 		Name = "InstanceFrame",
 		"JEXP_Background",
+		"JEXP_ExplorerFrame",
 		
 		template "Frame" {
 			Name = "Buffer",

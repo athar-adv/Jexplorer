@@ -5,8 +5,10 @@ local Jecs = require("../Jecs")
 local Types = require("../Types")
 
 local RawInst = require("./Small/RawInst")
+local Constants = require("../Constants")
 
 local rawnewindex = RawInst.rawnewindex
+local rawindex = RawInst.rawindex
 
 local profilebegin, profileend = debug.profilebegin, debug.profileend
 
@@ -206,20 +208,6 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
 end
 
-local function stickToRightEdge(state: Types.WidgetState, frameInst: GuiObject, toStick: GuiObject, offset: number)
-	local scrollingFrame = state.TreeScroller
-	local containerWidth = scrollingFrame.AbsoluteSize.X
-	local frameX = frameInst.Position.X.Offset -- this goes negative as you scroll right
-	local padding = 20
-
-	toStick.Position = UDim2.new(
-		0,
-		containerWidth - frameX - padding + offset,
-		0.5,
-		0
-	)
-end
-
 local lastCanvasPos = Vector2.zero
 function VirtualScroller.update(Manager, isScroller)
 	local state = Manager.WidgetState
@@ -275,15 +263,30 @@ function VirtualScroller.update(Manager, isScroller)
 	
 	lastCanvasPos = scrollPos
 	
-	local function updatePendingChanges(frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
+	local scrollingFrame = state.TreeScroller
+	local containerWidth = scrollingFrame.AbsoluteSize.X
+	local function stickToRightEdge(frameX: number, frameInst: GuiObject, toStick: GuiObject, offset: number)
+		local padding = 20
+
+		toStick.Position = UDim2.new(
+			0,
+			containerWidth - frameX - padding + offset,
+			0.5,
+			0
+		)
+	end
+	
+	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
 		local padding = 4
 		if frameState.hasPackageLink then
-			stickToRightEdge(state, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
+			stickToRightEdge(frameX, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
 		else
-			stickToRightEdge(state, frameInst, frameState.pendingChanges, 0)
+			stickToRightEdge(frameX, frameInst, frameState.pendingChanges, 0)
 		end
 	end
 	
+	local framesToAssignNames = {}
+	local ftamI = 1
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
@@ -309,7 +312,13 @@ function VirtualScroller.update(Manager, isScroller)
 
 		local frameInst = frameOf(frame)
 		if not frameInst then continue end
-
+		
+		local frameState = state.FrameWorld:get(frame, components.FrameState)
+		if not frameState then continue end
+		
+		framesToAssignNames[ftamI] = {entity = entity, inst = instance, frameInst = frameInst, frameState = frameState}
+		ftamI += 1
+		
 		frameInst.LayoutOrder = entityToIndex[entity]
 
 		local children = childrenMap[entity]
@@ -318,52 +327,103 @@ function VirtualScroller.update(Manager, isScroller)
 		end
 
 		if world:has(entity, components.ArrowInvisible) then
-			frameInst.Main.Arrow.Visible = false
+			frameState.arrow.Visible = false
 		else
 			local visible = (childAmountCache[entity] or 0) > 0
-			frameInst.Main.Arrow.Visible = visible
+			frameState.arrow.Visible = visible
 		end
-
-		frameInst.Position = UDim2.fromOffset(-smoothed.X + info.indentoffset, -smoothed.Y + absoluteYOffset)
+		
+		local frameX = -smoothed.X + info.indentoffset
+		local frameY = -smoothed.Y + absoluteYOffset
+		
+		frameInst.Position = UDim2.fromOffset(frameX, frameY)
+		
 		local expandedHeight = expandedHeightIndex[entity]
 		if expandedHeight then
-			local ruler = frameInst.Ruler
+			local ruler = frameState.ruler
 			ruler.Visible = true
 			ruler.Size = UDim2.fromOffset(1, (expandedHeight - 1) * height)
 		else
-			local ruler = frameInst.Ruler
+			local ruler = frameState.ruler
 			ruler.Visible = false
 		end
 		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
 		
-		local frameState = state.FrameWorld:get(frame, components.FrameState)
-		if not frameState then continue end
-
-		local link = instance:FindFirstChildOfClass("PackageLink")
-		if link then
+		profilebegin("PositionExplorerFrameIcons")
+		if world:has(entity, components.HasPackageLink) then
 			local linkIcon = frameState.packageLinkIcon
-			stickToRightEdge(state, frameInst, linkIcon, 0)
+			stickToRightEdge(frameX, frameInst, linkIcon, 0)
 			linkIcon.Visible = true
 			frameState.hasPackageLink = true
 		else
 			frameState.packageLinkIcon.Visible = false
 			frameState.hasPackageLink = false
-			updatePendingChanges(frameState, frameInst, state)
+			updatePendingChanges(frameX, frameState, frameInst, state)
 		end
 		
 		if world:has(entity, components.PendingChanges) then
-			updatePendingChanges(frameState, frameInst, state)
+			updatePendingChanges(frameX, frameState, frameInst, state)
 			frameState.pendingChanges.Visible = true
 		else
 			frameState.pendingChanges.Visible = false
 		end
+		profileend()
+	end
+	
+	local classNameCache = Manager.ClassNameCache
+	local nameCache = Manager.NameCache
+	local childAmountCache = Manager.ChildAmountCache
+	for _, info in framesToAssignNames do
+		local inst = info.inst
+		local className = classNameCache[info.entity]
+		local frameState = info.frameState
+		local frameInst = info.frameInst
+		
+		local newName
+		if className == "Script" then
+			newName = Constants.ExplorerFrameScriptClassNameFormat:format(
+				rawindex(inst, "RunContext").Name
+			)
+		else
+			newName = Constants.ExplorerFrameNameFormat:format(className)
+		end
+		if newName ~= frameState.currentFrameName then
+			rawnewindex(frameInst, "Name", newName)
+			frameState.currentFrameName = newName
+		end
+	end
+	for _, info in framesToAssignNames do
+		local frameState = info.frameState
+		local entity = info.entity
+		
+		local arrow = frameState.arrow
+		if world:has(entity, components.ArrowInvisible) then
+			-- Handled in updateVirtualScroller
+			--arrow.Visible = false
+		else
+			if info.inst == game or childAmountCache[entity] == 0 then
+				arrow.Visible = false
+			else
+				arrow.Visible = true
+			end
+			if Manager.isExplorerEntityExpanded(entity) then
+				arrow.Rotation = 0
+				--frameInst.Children.Visible = true
+			else
+				arrow.Rotation = -90
+				--frameInst.Children.Visible = false
+			end
+		end
+	end
+	for _, info in framesToAssignNames do
+		rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
 	end
 	
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
 	
-	local size = UDim2.new(5, 0, 0, (flatCount + 1) * height)
+	local size = UDim2.new(5, 0, 0, (flatCount + 3) * height)
 	state.TreeScroller.CanvasSize = size
 
 	VirtualScroller.IsVirtualScrollerUpdating = false
