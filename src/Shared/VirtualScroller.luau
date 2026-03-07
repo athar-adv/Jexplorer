@@ -285,7 +285,7 @@ function VirtualScroller.update(Manager, isScroller)
 		end
 	end
 	
-	local framesToAssignNames = {}
+	local frameInfo = {}
 	local ftamI = 1
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
@@ -315,30 +315,31 @@ function VirtualScroller.update(Manager, isScroller)
 		
 		local frameState = state.FrameWorld:get(frame, components.FrameState)
 		if not frameState then continue end
-		
-		framesToAssignNames[ftamI] = {entity = entity, inst = instance, frameInst = frameInst, frameState = frameState}
-		ftamI += 1
-		
-		frameInst.LayoutOrder = entityToIndex[entity]
 
 		local children = childrenMap[entity]
 		if not isScroller and children then
 			childAmountCache[entity] = #children
 		end
-
-		if world:has(entity, components.ArrowInvisible) then
-			frameState.arrow.Visible = false
-		else
-			local visible = (childAmountCache[entity] or 0) > 0
-			frameState.arrow.Visible = visible
-		end
 		
 		local frameX = -smoothed.X + info.indentoffset
 		local frameY = -smoothed.Y + absoluteYOffset
 		
-		frameInst.Position = UDim2.fromOffset(frameX, frameY)
+		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState}
+		ftamI += 1
 		
-		local expandedHeight = expandedHeightIndex[entity]
+		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
+	end
+	
+	local classNameCache = Manager.ClassNameCache
+	local nameCache = Manager.NameCache
+	local childAmountCache = Manager.ChildAmountCache
+	
+	for _, info in frameInfo do
+		info.frameInst.Position = UDim2.fromOffset(info.frameX, info.frameY)
+	end
+	for _, info in frameInfo do
+		local frameState = info.frameState
+		local expandedHeight = expandedHeightIndex[info.entity]
 		if expandedHeight then
 			local ruler = frameState.ruler
 			ruler.Visible = true
@@ -347,9 +348,14 @@ function VirtualScroller.update(Manager, isScroller)
 			local ruler = frameState.ruler
 			ruler.Visible = false
 		end
-		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
+	end
+	profilebegin("PositionExplorerFrameIcons")
+	for _, info in frameInfo do
+		local frameState = info.frameState
+		local entity = info.entity
+		local frameX = info.frameX
+		local frameInst = info.frameInst
 		
-		profilebegin("PositionExplorerFrameIcons")
 		if world:has(entity, components.HasPackageLink) then
 			local linkIcon = frameState.packageLinkIcon
 			stickToRightEdge(frameX, frameInst, linkIcon, 0)
@@ -360,20 +366,16 @@ function VirtualScroller.update(Manager, isScroller)
 			frameState.hasPackageLink = false
 			updatePendingChanges(frameX, frameState, frameInst, state)
 		end
-		
+
 		if world:has(entity, components.PendingChanges) then
 			updatePendingChanges(frameX, frameState, frameInst, state)
 			frameState.pendingChanges.Visible = true
 		else
 			frameState.pendingChanges.Visible = false
 		end
-		profileend()
 	end
-	
-	local classNameCache = Manager.ClassNameCache
-	local nameCache = Manager.NameCache
-	local childAmountCache = Manager.ChildAmountCache
-	for _, info in framesToAssignNames do
+	profileend()
+	for _, info in frameInfo do
 		local inst = info.inst
 		local className = classNameCache[info.entity]
 		local frameState = info.frameState
@@ -392,14 +394,13 @@ function VirtualScroller.update(Manager, isScroller)
 			frameState.currentFrameName = newName
 		end
 	end
-	for _, info in framesToAssignNames do
+	for _, info in frameInfo do
 		local frameState = info.frameState
 		local entity = info.entity
 		
 		local arrow = frameState.arrow
 		if world:has(entity, components.ArrowInvisible) then
-			-- Handled in updateVirtualScroller
-			--arrow.Visible = false
+			arrow.Visible = false
 		else
 			if info.inst == game or childAmountCache[entity] == 0 then
 				arrow.Visible = false
@@ -408,14 +409,12 @@ function VirtualScroller.update(Manager, isScroller)
 			end
 			if Manager.isExplorerEntityExpanded(entity) then
 				arrow.Rotation = 0
-				--frameInst.Children.Visible = true
 			else
 				arrow.Rotation = -90
-				--frameInst.Children.Visible = false
 			end
 		end
 	end
-	for _, info in framesToAssignNames do
+	for _, info in frameInfo do
 		rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
 	end
 	
