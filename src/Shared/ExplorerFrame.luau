@@ -47,6 +47,12 @@ local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected
 	profileend()
 end
 
+local function onCleanupFrameState(frameState: Types.FrameState, currentTypingConn: RBXScriptConnection?)
+	if currentTypingConn then
+		currentTypingConn:Disconnect()
+	end
+end
+
 local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlHeld: boolean, isShiftHeld: boolean)
 	profilebegin("Jexplorer::toggleSelection")
 	local VirtualScroller = Manager.VirtualScroller
@@ -178,19 +184,6 @@ local function onSelectExplorerFrame(Manager: Manager, world: Types.World, frame
 
 		if not frameState.isLMBActive then return end -- User released mouse quickly
 		Manager.startDraggingSelected()
-	end
-end
-
-local EXPLORER_FRAME_PREFAB: {Jecs.Id}
-local bulkinsert = Jecs.bulk_insert
-
-local function onCleanupFrameState(frameState: Types.FrameState, currentTypingConn: RBXScriptConnection?)
-	for _, v in frameState.packageIconConns do
-		v:Disconnect()
-	end
-	table.clear(frameState.packageIconConns)
-	if currentTypingConn then
-		currentTypingConn:Disconnect()
 	end
 end
 
@@ -336,6 +329,7 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 	VirtualScroller.update(Manager, false)
 end
 
+local set
 local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
@@ -367,36 +361,24 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		packageLinkIcon = main.PackageLinkIcon,
 		hasBeenSelected = false,
 		isAssigning = false,
-		hasPendingChangesConn = false,
+		hasPackageLink = false,
 		lastPackageIconPos = 0,
-		packageIconConns = {},
-		pendingChangeIconConns = {},
 		icon = iconImage,
-		hasPackageLinkConn = false,
 		isVisible = true,
 		pendingChanges = main.PendingChanges,
-		instanceName = instanceName
+		instanceName = instanceName,
+		arrow = arrow,
+		insertInstanceButton = insertInstanceButton
 	}
-
-	if not EXPLORER_FRAME_PREFAB then
-		EXPLORER_FRAME_PREFAB = {
-			components.Instance,
-			components.Connections,
-			components.Entity,
-			components.FrameState,
-			components.FRAMEWORLD_Main
-		}
-	end
-
+	
 	local frameEntity = frameWorld:entity()
-	bulkinsert(frameWorld, frameEntity, EXPLORER_FRAME_PREFAB, {
-		frame,
-		connections,
-		nil,
-		frameState,
-		main
-	} :: {any})
-
+	if not set then set = frameWorld.set end
+	
+	set(frameWorld, frameEntity, components.Instance, frame)
+	set(frameWorld, frameEntity, components.Connections, connections)
+	set(frameWorld, frameEntity, components.FrameState, frameState)
+	set(frameWorld, frameEntity, components.FRAMEWORLD_Main, main)
+	
 	Manager.FrameToInstanceFrame[frame] = frameEntity
 	overlayFrame:AddTag("JEXP_Hover")
 
@@ -609,9 +591,6 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	
 	frameState.isAssigning = true
 	
-	local main = frameWorld:get(frame, components.FRAMEWORLD_Main)
-	if not main then return end
-	
 	local parentFrame
 	if parent then
 		parentFrame = world:get(parent, components.Frame)
@@ -623,14 +602,9 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		if oldParent then
 			frameWorld:remove(frame, Manager.ChildOf(oldParent))
 		end
-		main.Insert.Visible = false
+		frameState.insertInstanceButton.Visible = false
 		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
 		
-		for _, v in frameState.packageIconConns do
-			v:Disconnect()
-		end
-		table.clear(frameState.packageIconConns)
-
 		frameState.isAssigning = false
 		profileend()
 		return
@@ -648,14 +622,14 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	end
 	world:set(entity, components.FrameTagAssignTicket, {frame = frame})
 	
-	if not frameState.isVisible then
-		frameState.isVisible = true
-		rawnewindex(frameInst, "Visible", true)
-	end
+	--if not frameState.isVisible then
+	--	frameState.isVisible = true
+	--	rawnewindex(frameInst, "Visible", true)
+	--end
 
-	rawnewindex(frameState.instanceName, "Text", instance.Name)
+	rawnewindex(frameState.instanceName, "Text", Manager.NameCache[entity])
 
-	local arrow = main.Arrow
+	local arrow = frameState.arrow
 	if world:has(entity, components.ArrowInvisible) then
 		-- Handled in updateVirtualScroller
 		--arrow.Visible = false
@@ -701,11 +675,11 @@ function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	
 	profilebegin("ExplorerFrame::Reuse");
 	if currentEntity and not world:has(currentEntity, components.FrameReuseTicket) then
-		frameInst.Visible = false
-		local frameState = frameWorld:get(frame, components.FrameState)
-		if frameState then
-			frameState.isVisible = false
-		end
+		--frameInst.Visible = false
+		--local frameState = frameWorld:get(frame, components.FrameState)
+		--if frameState then
+		--	frameState.isVisible = false
+		--end
 		world:set(currentEntity, components.FrameReuseTicket, {frame = frame})
 	end
 

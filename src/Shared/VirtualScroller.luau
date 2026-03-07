@@ -107,6 +107,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 
 	local visible = {}--table.create(endIndex - startIndex + 1)
 	local invisible = {}
+	local visibleN = 1
 	
 	local expandedHeightIndex = {}
 
@@ -134,11 +135,12 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 		end
 		
 		visibleSet[entity] = true
-		table.insert(visible, {
+		visible[visibleN] = {
 			entity = entity,
 			yoffset = absoluteYOffset,
 			indentoffset = indexToIndentOffset[index] * indentWidth,
-		})
+		}
+		visibleN += 1
 	end
 	profileend()
 	
@@ -180,11 +182,12 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 
 		if topIsVisible or bottomIsVisible or spanIsVisible1 or spanIsVisible2 then
 			visibleSet[entity] = true
-			table.insert(visible, {
+			visible[visibleN] = {
 				entity = entity,
 				yoffset = absoluteYOffset,
 				indentoffset = indexToIndentOffset[index] * indentWidth
-			})
+			}
+			visibleN += 1
 		end
 	end
 	profileend()
@@ -229,7 +232,7 @@ function VirtualScroller.update(Manager, isScroller)
 	local HierarchyState = Manager.HierarchyState
 
 	if isScroller and VirtualScroller.IsVirtualScrollerUpdating then
-		task.defer(VirtualScroller.update, Manager, true)
+		--task.defer(VirtualScroller.update, Manager, true)
 		return
 	end
 	profilebegin("Jexplorer::updateVirtualScroller")
@@ -274,7 +277,7 @@ function VirtualScroller.update(Manager, isScroller)
 	
 	local function updatePendingChanges(frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
 		local padding = 4
-		if frameState.hasPackageLinkConn then
+		if frameState.hasPackageLink then
 			stickToRightEdge(state, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
 		else
 			stickToRightEdge(state, frameInst, frameState.pendingChanges, 0)
@@ -339,21 +342,19 @@ function VirtualScroller.update(Manager, isScroller)
 		local link = instance:FindFirstChildOfClass("PackageLink")
 		if link then
 			local linkIcon = frameState.packageLinkIcon
-			frameState.hasPackageLinkConn = true
 			stickToRightEdge(state, frameInst, linkIcon, 0)
 			linkIcon.Visible = true
+			frameState.hasPackageLink = true
 		else
-			frameState.hasPackageLinkConn = false
 			frameState.packageLinkIcon.Visible = false
+			frameState.hasPackageLink = false
 			updatePendingChanges(frameState, frameInst, state)
 		end
 		
 		if world:has(entity, components.PendingChanges) then
-			frameState.hasPendingChangesConn = true
 			updatePendingChanges(frameState, frameInst, state)
 			frameState.pendingChanges.Visible = true
 		else
-			frameState.hasPendingChangesConn = false
 			frameState.pendingChanges.Visible = false
 		end
 	end

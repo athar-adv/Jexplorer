@@ -146,18 +146,17 @@ export type FrameState = {
 	hasBeenSelected: boolean,
 	shouldDeselect: boolean,
 	lastClickTime: number,
-	packageIconConns: {RBXScriptConnection},
-	pendingChangeIconConns: {RBXScriptConnection},
 	lastPackageIconPos: number,
 	isAssigning: boolean,
 	setIconColor: Color3?,
 	icon: ImageLabel,
-	hasPackageLinkConn: boolean,
-	hasPendingChangesConn: boolean,
 	packageLinkIcon: ImageLabel,
 	isVisible: boolean,
 	instanceName: TextBox,
 	pendingChanges: ImageLabel,
+	arrow: GuiButton,
+	hasPackageLink: boolean,
+	insertInstanceButton: GuiButton,
 }
 
 export type Components = {

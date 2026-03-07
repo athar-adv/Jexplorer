@@ -63,6 +63,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 	--end :: typeof(_rule)
 		
 	local defaultRules = {
+		rule("NoRichText", "TextButton, TextLabel, TextBox", 0, {
+			RichText = false
+		}),
 		rule("UniversalProps", "GuiObject", 0, {
 			BorderSizePixel = 0,
 			BorderColor3 = Color3.fromRGB(0, 0, 0),
