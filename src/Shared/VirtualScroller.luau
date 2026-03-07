@@ -203,6 +203,20 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
 end
 
+local function stickToRightEdge(state: Types.WidgetState, frameInst: GuiObject, toStick: GuiObject, offset: number)
+	local scrollingFrame = state.TreeScroller
+	local containerWidth = scrollingFrame.AbsoluteSize.X
+	local frameX = frameInst.Position.X.Offset -- this goes negative as you scroll right
+	local padding = 20
+
+	toStick.Position = UDim2.new(
+		0,
+		containerWidth - frameX - padding + offset,
+		0.5,
+		0
+	)
+end
+
 local lastCanvasPos = Vector2.zero
 function VirtualScroller.update(Manager, isScroller)
 	local state = Manager.WidgetState
@@ -254,7 +268,18 @@ function VirtualScroller.update(Manager, isScroller)
 	
 	local scrollPos = Vector2.new(rawPos.X, top)
 	local smoothed = lastCanvasPos:Lerp(scrollPos, 0.8)
+	local xMoved = math.abs(lastCanvasPos.X - scrollPos.X) > 0
+	
 	lastCanvasPos = scrollPos
+	
+	local function updatePendingChanges(frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
+		local padding = 4
+		if frameState.hasPackageLinkConn then
+			stickToRightEdge(state, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
+		else
+			stickToRightEdge(state, frameInst, frameState.pendingChanges, 0)
+		end
+	end
 	
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
@@ -307,6 +332,30 @@ function VirtualScroller.update(Manager, isScroller)
 			ruler.Visible = false
 		end
 		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
+		
+		local frameState = state.FrameWorld:get(frame, components.FrameState)
+		if not frameState then continue end
+
+		local link = instance:FindFirstChildOfClass("PackageLink")
+		if link then
+			local linkIcon = frameState.packageLinkIcon
+			frameState.hasPackageLinkConn = true
+			stickToRightEdge(state, frameInst, linkIcon, 0)
+			linkIcon.Visible = true
+		else
+			frameState.hasPackageLinkConn = false
+			frameState.packageLinkIcon.Visible = false
+			updatePendingChanges(frameState, frameInst, state)
+		end
+		
+		if world:has(entity, components.PendingChanges) then
+			frameState.hasPendingChangesConn = true
+			updatePendingChanges(frameState, frameInst, state)
+			frameState.pendingChanges.Visible = true
+		else
+			frameState.hasPendingChangesConn = false
+			frameState.pendingChanges.Visible = false
+		end
 	end
 	
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do

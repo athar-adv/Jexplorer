@@ -51,7 +51,8 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["FadedColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)",
 		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
 		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
-		["CornerRadius"] = UDim.new(0, 6)
+		["CornerRadius"] = UDim.new(0, 6),
+		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29)
 	}
 	
 	--local rule = function(...)
@@ -192,12 +193,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				}),
 				rule("TabBarStyle", "> #TabBar", 0, {
 					Size = "$TabBarSize",
-					AnchorPoint = Vector2.new(0, 1),
 					Position = UDim2.fromScale(0, 0),
+					AnchorPoint = Vector2.new(0, 1),
 					
 					rule("ScrollingFrameStyle", "> #Tabs ScrollingFrame", 0, {
 						BackgroundTransparency = 1,
 						Size = UDim2.new(1, 0, 1, 0),
+						Position = var "udim2(0, $IconSizeOffset.X.Offset + 2, 0, 0)",
 						AutomaticCanvasSize = Enum.AutomaticSize.X,
 						BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -209,6 +211,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						
 						rule("InsertTabButtonStyle", "> #InsertTabButton TextButton", 10, {
 							LayoutOrder = 9999999
+						}),
+						rule("Padding", "::UIPadding", 0, {
+							PaddingLeft = UDim.new(0, 4)
 						}),
 						rule("ListLayout", "::UIListLayout", 0, {
 							FillDirection = Enum.FillDirection.Horizontal,
@@ -396,7 +401,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			}),
 		}),
 		rule("SelectingTabStyle", ".JEXP_TabFrame Frame.JEXP_SelectingRoots", 10, {
-			BackgroundColor3 = Color3.fromRGB(34, 112, 29),
+			BackgroundColor3 = "$TabPickingRootsColor",
 			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
 				TextColor3 = Color3.fromRGB(255, 255, 255),
 			}),

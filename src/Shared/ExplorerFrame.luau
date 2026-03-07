@@ -395,7 +395,7 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		nil,
 		frameState,
 		main
-	})
+	} :: {any})
 
 	Manager.FrameToInstanceFrame[frame] = frameEntity
 	overlayFrame:AddTag("JEXP_Hover")
@@ -589,20 +589,6 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	return any
 end
 
-local function stickToRightEdge(state: Types.WidgetState, frameInst: GuiObject, toStick: GuiObject, offset: number)
-	local scrollingFrame = state.TreeScroller
-	local containerWidth = scrollingFrame.AbsoluteSize.X
-	local frameX = frameInst.Position.X.Offset -- this goes negative as you scroll right
-	local padding = 20
-	
-	toStick.Position = UDim2.new(
-		0,
-		containerWidth - frameX - padding + offset,
-		0.5,
-		0
-	)
-end
-
 function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, parentIsGame)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -687,6 +673,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 			--frameInst.Children.Visible = false
 		end
 	end
+	
 	if not state.LastSelectedEntity then
 		state.LastSelectedEntity = nil
 	end
@@ -923,70 +910,6 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 				addCount += 1
 				tagsToAdd[addCount] = newTag
 			end
-		end
-		
-		local function updatePendingChanges()
-			local padding = 4
-			if frameState.hasPackageLinkConn then
-				stickToRightEdge(state, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			else
-				stickToRightEdge(state, frameInst, frameState.pendingChanges, 0)
-			end
-		end
-
-		local link = inst:FindFirstChildOfClass("PackageLink")
-		if link then
-			if not frameState.hasPackageLinkConn then
-				local linkIcon = frameState.packageLinkIcon
-				frameState.packageIconConns = {
-					state.TreeScroller:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-						stickToRightEdge(state, frameInst, linkIcon, 0)
-					end),
-					frameInst:GetPropertyChangedSignal("Position"):Connect(function()
-						stickToRightEdge(state, frameInst, linkIcon, 0)
-					end)
-				}
-				frameState.hasPackageLinkConn = true
-				stickToRightEdge(state, frameInst, linkIcon, 0)
-				linkIcon.Visible = true
-				--else
-				-- Already has a packagelink connection, just don't do anything
-			end
-		else
-			if frameState.hasPackageLinkConn then
-				for _, v in frameState.packageIconConns do
-					v:Disconnect()
-				end
-				table.clear(frameState.packageIconConns)
-			end
-
-			frameState.hasPackageLinkConn = false
-			frameState.packageLinkIcon.Visible = false
-			
-			updatePendingChanges()
-		end
-		if hasPendingChanges then
-			if not frameState.hasPendingChangesConn then
-				local pendingChanges = frameState.pendingChanges
-				frameState.pendingChangeIconConns = {
-					state.TreeScroller:GetPropertyChangedSignal("CanvasPosition"):Connect(updatePendingChanges),
-					frameInst:GetPropertyChangedSignal("Position"):Connect(updatePendingChanges)
-				}
-				frameState.hasPendingChangesConn = true
-
-				updatePendingChanges()
-				frameState.pendingChanges.Visible = true
-			end
-		else
-			if frameState.hasPendingChangesConn then
-				for _, v in frameState.pendingChangeIconConns do
-					v:Disconnect()
-				end
-				table.clear(frameState.pendingChangeIconConns)
-			end
-
-			frameState.hasPendingChangesConn = false
-			frameState.pendingChanges.Visible = false
 		end
 		
 		if removeCount > 0 or addCount > 0 then

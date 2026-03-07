@@ -69,6 +69,13 @@ migrations = {
 		reset_settings(self, state, manager, "Scrolling")
 		reset_styles(self, state, manager)
 	end,
+	v22_to_v23 = function(self, state, manager)
+		for _, v in state.tabs do
+			for _, tab in v do
+				tab.layout_order = 1
+			end
+		end
+	end,
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

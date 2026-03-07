@@ -10,6 +10,7 @@ local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local StudioService = game:GetService("StudioService")
 local SerializationService = game:GetService("SerializationService")
 local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 local TextService = game:GetService("TextService")
 
@@ -1193,8 +1194,18 @@ end
 local function getTabImageIcon(tab: Tab, oldIcon: string)
 	local iconLabel = tab.IconLabel
 	local icon
+	
 	if sharedTabState.currentlyOpenTab == tab then
 		local backgroundColor: Color3 = Manager.Style:GetToken("SelectedColor")
+		if getColorBrightness(backgroundColor) > 0.5 then
+			-- Background is light so icon is dark
+			-- Light mode icon is dark
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Light/")
+		else
+			icon = convertToContrastCategory(oldIcon, "/Light/", "/Dark/", "/Dark/")
+		end
+	elseif sharedTabState.currentlyPickingTabRoots == tab then
+		local backgroundColor: Color3 = Manager.Style:GetToken("TabPickingRootsColor")
 		if getColorBrightness(backgroundColor) > 0.5 then
 			-- Background is light so icon is dark
 			-- Light mode icon is dark
@@ -1213,6 +1224,31 @@ local function getTabImageIcon(tab: Tab, oldIcon: string)
 		end
 	end
 	return icon
+end
+
+local function switchTabIcon(tab: Tab)
+	RunService.Heartbeat:Once(function()
+		tab.IconLabel.Image = getTabImageIcon(tab, tab.Icon)
+	end)
+end
+
+local function cancelTabPickingRoots(changeImage: boolean)
+	local state = Manager.WidgetState
+	local pickingTab = sharedTabState.currentlyPickingTabRoots
+	local listener = sharedTabState.tabInsertListener
+	if listener then
+		listener:Disconnect()
+		sharedTabState.tabInsertListener = nil
+	end
+	if pickingTab then
+		pickingTab.TabFrame:RemoveTag("JEXP_SelectingRoots")
+		state.OverridePathBarText = nil
+		refreshPathBar(game.Selection:Get(), state, components)
+		sharedTabState.currentlyPickingTabRoots = nil
+		if changeImage then
+			switchTabIcon(pickingTab)
+		end
+	end
 end
 
 function Manager.registerTab(name, icon, stored, registerIntoTabs)
@@ -1264,19 +1300,6 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		end
 
 		state.TreeScroller.CanvasPosition = Vector2.zero
-		
-		local listener = sharedTabState.tabInsertListener
-		if listener then
-			listener:Disconnect()
-			sharedTabState.tabInsertListener = nil
-			local pickingTab = sharedTabState.currentlyPickingTabRoots
-			if pickingTab then
-				tabFrame:RemoveTag("JEXP_SelectingRoots")
-			end
-			state.OverridePathBarText = nil
-			refreshPathBar(game.Selection:Get(), state, components)
-			sharedTabState.currentlyPickingTabRoots = nil
-		end
 
 		for entity in world:query(components.Instance):without(ChildOf(Jecs.Wildcard)):iter() do
 			world:add(entity, components.Invisible)
@@ -1292,7 +1315,8 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 			local background = currentlyOpenTab.TabFrame
 			local iconLabel = currentlyOpenTab.IconLabel
 			background:RemoveTag("JEXP_SelectedColor")
-			iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
+			sharedTabState.currentlyOpenTab = nil
+			switchTabIcon(currentlyOpenTab)
 			
 			for _,v in currentlyOpenTab.Roots do
 				local frame = world:get(v, components.Frame)
@@ -1304,7 +1328,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		tabFrame:AddTag("JEXP_SelectedColor")
 		
 		sharedTabState.currentlyOpenTab = tab
-		iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
+		switchTabIcon(tab)
 
 		for _, entity in stored do
 			world:remove(entity, components.Invisible)
@@ -1314,6 +1338,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 			HierarchyState.updateEntityOrder(Manager, entity)
 		end
 		
+		cancelTabPickingRoots(true)
 		task.delay(0.1, VirtualScroller.rebuildAndUpdate, Manager, false)
 	end
 
@@ -1334,18 +1359,8 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		if idx then table.remove(currentTabs, idx) end
 
 		if sharedTabState.currentlyOpenTab == tab then
-			local listener = sharedTabState.tabInsertListener
-			if listener then
-				listener:Disconnect()
-				sharedTabState.tabInsertListener = nil
-				local pickingTab = sharedTabState.currentlyPickingTabRoots
-				if pickingTab then
-					tabFrame:RemoveTag("JEXP_SelectingRoots")
-				end
-				state.OverridePathBarText = nil
-				refreshPathBar(game.Selection:Get(), state, components)
-				sharedTabState.currentlyPickingTabRoots = nil
-			end
+			cancelTabPickingRoots(true)
+			
 			for entity in world:query(components.Instance):without(ChildOf(Jecs.Wildcard)):iter() do
 				world:add(entity, components.Invisible)
 				HierarchyState.invalidateEntityStateCache(entity)
@@ -1499,7 +1514,8 @@ function Manager.saveState()
 						display_name = v.Name,
 						icon = v.Icon,
 						icon_color = UDF.to(v.IconColor),
-						inst_ids = inst_ids
+						inst_ids = inst_ids,
+						layout_order = v.TabFrame.LayoutOrder
 					})
 				end
 			end)
@@ -1596,6 +1612,7 @@ function Manager.loadState(savedState)
 				end
 				local tab = Manager.registerTab(t.display_name, t.icon, roots, true)
 				tab.IconLabel.ImageColor3 = UDF.from(t.icon_color)
+				tab.TabFrame.LayoutOrder = t.layout_order
 			end
 		end,
 		repo_proxies = function()
@@ -1693,7 +1710,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local tabEditName do
 		tabEditName = createPluginAction(
-			"EditName", "Edit Name", "Edits the name of a tab."
+			"TabEditName", "Edit Name", "Edits the name of a tab."
 		)
 
 		tabEditName.Triggered:Connect(function()
@@ -1701,6 +1718,31 @@ local function initRegisterPluginMenusAndActions(
 
 			local box: TextBox = sharedTabState.contextTargetTab.NameBox
 			box:CaptureFocus()
+		end)
+	end
+
+	local tabEditLayoutOrder do
+		tabEditLayoutOrder = createPluginAction(
+			"TabEditLayoutOrder", "Edit Layout Order", "Edits the layout order of this tab."
+		)
+
+		tabEditLayoutOrder.Triggered:Connect(function()
+			local tab = sharedTabState.contextTargetTab
+			if not tab then return end
+			
+			local orderBox = PluginUI.createAttributeBox(nil, "Layout Order", tab.TabFrame.LayoutOrder)
+			local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", {
+				orderBox
+			})
+			Manager.Style:Link(widget)
+			
+			cancel:OnTrigger(function()
+				close()
+			end)
+			confirm:OnTrigger(function()
+				tab.TabFrame.LayoutOrder = assert(tonumber(orderBox:Get()), "LayoutOrder for tab must be a number")
+				close()
+			end)
 		end)
 	end
 
@@ -1725,17 +1767,15 @@ local function initRegisterPluginMenusAndActions(
 		tabInsert.Triggered:Connect(function()
 			local tab = sharedTabState.contextTargetTab
 			if not tab then return end
-			if sharedTabState.currentlyPickingTabRoots then return end
+			if sharedTabState.currentlyPickingTabRoots then
+				cancelTabPickingRoots(false)
+			end
 			if sharedTabState.currentlyOpenTab ~= Manager.AllTab then
 				Manager.AllTab.Toggle()
 			end
 			
 			local tabFrame = tab.TabFrame
 			tabFrame:AddTag("JEXP_SelectingRoots")
-			local iconLabel = tab.IconLabel
-			task.defer(function()
-				iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
-			end)
 			
 			state.OverridePathBarText = "Press [Enter] to confirm selection, [Escape] to cancel."
 			refreshPathBar({}, state, components)
@@ -1760,17 +1800,13 @@ local function initRegisterPluginMenusAndActions(
 					sink = true
 				end
 				if sink then
-					tabFrame:RemoveTag("JEXP_SelectingRoots")
-					task.defer(function()
-						iconLabel.Image = getTabImageIcon(tab, iconLabel.Image)
-					end)
-					
-					state.OverridePathBarText = nil
-					refreshPathBar(game.Selection:Get(), state, components)
+					cancelTabPickingRoots(true)
 					Manager.setExplorerEntitiesAsSelection({}, true)
 					tab.Toggle()
 				end
-			end) 
+			end)
+			
+			switchTabIcon(tab)
 		end)
 	end
 	
@@ -2636,6 +2672,7 @@ local function initRegisterPluginMenusAndActions(
 		Tab_EditIcon = tabEditIcon,
 		Tab_Delete = tabDelete,
 		Tab_InsertRoots = tabInsert,
+		Tab_EditLayoutOrder = tabEditLayoutOrder
 	}
 
 	state.DefaultInstanceActionsArray = {
@@ -2750,6 +2787,7 @@ local function initRegisterPluginMenusAndActions(
 		{
 			"Tab_InsertRoots",
 			"Tab_EditName",
+			"Tab_EditLayoutOrder",
 			"Tab_EditIcon",
 			"Tab_Delete"
 		}
@@ -2759,6 +2797,7 @@ local function initRegisterPluginMenusAndActions(
 		getId("Jexplorer_AllTabContextMenu", true),
 		{
 			"Tab_EditName",
+			"Tab_EditLayoutOrder",
 			"Tab_EditIcon",
 		}
 	)

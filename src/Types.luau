@@ -41,7 +41,8 @@ export type SavedState = {
 			display_name: string,
 			icon: string,
 			icon_color: UDFValue,
-			inst_ids: {InstanceId}
+			inst_ids: {InstanceId},
+			layout_order: number
 		}>
 	},
 	display_order: {
