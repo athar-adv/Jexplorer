@@ -4008,7 +4008,54 @@ local function ecs_cached_query(world: world, ...: i53)
 	return query
 end
 
+local clone = table.clone
+local sort = table.sort
+local function ecs_entity_with_archetype(world: world, is_sorted: boolean, components: {Component}, ...: any)
+	local entity_index = world.entity_index
+	local sparse_array = entity_index.sparse_array
+	local dense_array = entity_index.dense_array
+	local alive_count = entity_index.alive_count
+	local max_id = entity_index.max_id
+	local component_index = world.component_index
+
+	local next_count = alive_count + 1
+	if alive_count < max_id then
+		local entity = dense_array[next_count]
+		if entity then 
+			entity_index.alive_count = next_count
+			return entity
+		end
+	end
+	local id = max_id + 1
+	local range_end = entity_index.range_end
+	ecs_assert(range_end == nil or id < range_end, ECS_INTERNAL_ERROR_INCOMPATIBLE_ENTITY)
+	entity_index.max_id = id
+	entity_index.alive_count = next_count
+	dense_array[next_count] = id
+	local r = { dense = next_count } :: record
+	sparse_array[id] = r
+	
+	local cloned_components = clone(components)
+	if not is_sorted then
+		sort(cloned_components)
+	end
+	local to = archetype_ensure(world, cloned_components)
+	new_entity(id, r, to)
+
+	local columns_map = r.archetype.columns_map
+	local row = r.row
+	for i, id in components do
+		local value = select(i, ...) :: any
+		if value ~= nil then
+			columns_map[id][row] = value
+		end
+	end
+	
+	return id
+end
+
 return table.freeze({
+	entity_with_archetype = (ecs_entity_with_archetype :: any) :: (World, boolean, {Id}, ...any) -> Entity,
 	cached_query = (ecs_cached_query :: any) :: ((World) -> Query<nil>)
 		& (<A>(World, Id<A>) -> Query<A>)
 		& (<A, B>(World, Id<A>, Id<B>) -> Query<A, B>)

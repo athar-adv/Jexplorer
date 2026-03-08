@@ -54,6 +54,7 @@ local ExplorerFrame = require("./Shared/ExplorerFrame")
 local VirtualScroller = require("./Shared/VirtualScroller")
 local InsertMenu = require("./Shared/InsertMenu")
 local CreateOptionsDropdown = require("./Shared/CreateOptionsDropdown")
+local Constants = require("./Constants")
 
 local rule = Style.rule
 local cleanup = ItemGroup.cleanup
@@ -1566,7 +1567,14 @@ function Manager.saveState()
 				local tokens = {}
 				SavedState._serialize_rules(style.Rules, rules, "DontSaveRule")
 				for k, v in style.Tokens do
-					tokens[k] = UDF.to(v)
+					if v:HasTag(Constants.UnsavedTokenTag) or v:HasTag(Constants.DefaultTokenTag) then continue end
+					local tags = {}
+					for t in v.Tags do table.insert(tags, t) end
+					
+					tokens[k] = {
+						value = UDF.to(v.RawValue),
+						tags = tags
+					}
 				end
 				ser.rules = rules
 				ser.tokens = tokens
@@ -1652,9 +1660,6 @@ function Manager.loadState(savedState)
 				end
 			end
 			deserialize_rules(savedState.style.rules, rules)
-			for k, v in savedState.style.tokens do
-				tokens[k] = UDF.from(v)
-			end
 			
 			local default_tokens, default_rules = require("./Shared/Defaults/DefaultStyle")(Manager)
 			for k, v in default_tokens do
@@ -1663,7 +1668,21 @@ function Manager.loadState(savedState)
 			for _, v in default_rules do
 				table.insert(rules, v)
 			end
-			return Style.fromRulesTokens(rules, tokens)
+			local sheet = Style.fromRulesTokens(rules, tokens)
+			for _, token in sheet.Tokens do
+				token:AddTag(Constants.DefaultTokenTag)
+			end
+			for k, v in savedState.style.tokens do
+				local value = UDF.from(v.value)
+				local token = Style.token(value)
+				for _, tag in v.tags do
+					token:AddTag(tag)
+				end
+				sheet:SetToken(k, token, false)
+			end
+			sheet:UpdateTokens()
+			
+			return sheet
 		end,
 		order = function()
 			OrderEditor.ClassPriorities = savedState.display_order.class_order

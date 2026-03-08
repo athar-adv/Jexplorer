@@ -370,6 +370,8 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		instanceName = instanceName,
 		arrow = arrow,
 		insertInstanceButton = insertInstanceButton,
+		packageLinkIconVisible = false,
+		pendingChangesIconVisible = false
 	}
 	
 	local frameEntity = frameWorld:entity()
@@ -618,11 +620,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	if parentFrame then
 		frameWorld:add(frame, Manager.ChildOf(parentFrame))
 	end
-	local instance: Instance? = world:get(entity, components.Instance)
-	if not instance then
-		frameState.isAssigning = false
-		return
-	end
+	
 	world:set(entity, components.FrameTagAssignTicket, {frame = frame})
 	
 	if not state.LastSelectedEntity then
@@ -771,6 +769,57 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 end
 
 local createdClassRules = {}
+local entitiesToAddIcons: {ExplorerEntity} = {}
+local clear = table.clear
+local isEntityInvisible
+local function addMissingIconStyleRules(Manager: Manager)
+	if not isEntityInvisible then
+		isEntityInvisible = Manager.isExplorerEntityInvisible
+	end
+	
+	local sheet = Manager.Style
+	local rules = {}
+	local any = false
+	for _, entity in entitiesToAddIcons do
+		if isEntityInvisible(entity) then continue end
+		local className = Manager.ClassNameCache[entity]
+		local tag = `JEXP_Class_{className}`
+
+		if createdClassRules[tag] then continue end
+
+		local slctr = Selector.getIconSelector(nil, className)
+		local icon = ClassIcon.getIcon(className)
+
+		if not icon then continue end
+		local name = `ClassIcon_{className}`
+		if className == "Script" or className == "LocalScript" then
+			-- Do nothing, handled in default style
+		else
+			local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
+			local normalIcon = rule(name, slctr, 0, {
+				ImageRectOffset = icon.ImageRectOffset,
+				ImageRectSize = icon.ImageRectSize,
+				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
+			})
+			local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
+				ImageRectOffset = icon.ImageRectOffset,
+				ImageRectSize = icon.ImageRectSize,
+				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
+			})
+			normalIcon:AddTag("DontSaveRule")
+			lightIcon:AddTag("DontSaveRule")
+
+			table.insert(rules, normalIcon)
+			table.insert(rules, lightIcon)
+			createdClassRules[tag] = true
+			any = true
+		end
+	end
+	if any then
+		sheet:AddRules(rules)
+	end
+end
+
 function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -781,7 +830,6 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	local any = false
 	profilebegin("Jexplorer::flushTagAssignQueue")
 	
-	local entitiesToAddIcons = {}
 	for entity, ticketData in query:iter() do
 		world:remove(entity, components.FrameTagAssignTicket)
 		any = true
@@ -886,49 +934,8 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	end
 	
 	if #entitiesToAddIcons > 0 then
-		task.defer(function()
-			local sheet = Manager.Style
-			local rules = {}
-			local any = false
-			for _, entity in entitiesToAddIcons do
-				if Manager.isExplorerEntityInvisible(entity) then continue end
-				local className = Manager.ClassNameCache[entity]
-				local tag = `JEXP_Class_{className}`
-				
-				if createdClassRules[tag] then continue end
-				
-				local slctr = Selector.getIconSelector(nil, className)
-				local icon = ClassIcon.getIcon(className)
-
-				if not icon then continue end
-				local name = `ClassIcon_{className}`
-				if className == "Script" or className == "LocalScript" then
-					-- Do nothing, handled in default style
-				else
-					local dir, image = string.match(icon.Image, "rbxasset://studio_svg_textures/Shared/(.-)/.-/Standard/(.+)")
-					local normalIcon = rule(name, slctr, 0, {
-						ImageRectOffset = icon.ImageRectOffset,
-						ImageRectSize = icon.ImageRectSize,
-						Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
-					})
-					local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
-						ImageRectOffset = icon.ImageRectOffset,
-						ImageRectSize = icon.ImageRectSize,
-						Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
-					})
-					normalIcon:AddTag("DontSaveRule")
-					lightIcon:AddTag("DontSaveRule")
-					
-					table.insert(rules, normalIcon)
-					table.insert(rules, lightIcon)
-					createdClassRules[tag] = true
-					any = true
-				end
-			end
-			if any then
-				sheet:AddRules(rules)
-			end
-		end)
+		addMissingIconStyleRules(Manager)
+		clear(entitiesToAddIcons)
 	end
 
 	profileend()

@@ -3,6 +3,7 @@ local UDF = require("../UDF")
 local default_style = require("../Defaults/DefaultStyle")
 local default_settings = require("../Defaults/DefaultSettings")
 local default_invisible_classes = require("../Defaults/DefaultInvisibleClasses")
+local Constants = require("../../Constants")
 
 local function noop() end
 
@@ -13,7 +14,10 @@ local function reset_styles(self, state, manager)
 
 	self._serialize_rules(defaultRules, rules, nil, "Default")
 	for k, v in defaultTokens do
-		tokens[k] = UDF.to(v)
+		tokens[k] = {
+			value = UDF.to(v),
+			tags = {Constants.DefaultTokenTag}
+		}
 	end
 	state.style.rules = rules
 	state.style.tokens = tokens
@@ -76,6 +80,7 @@ migrations = {
 			end
 		end
 	end,
+	v23_to_v24 = reset_styles
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

@@ -12,6 +12,7 @@ local UITemplates = require(shared.UITemplates)
 local ItemGroup = require(shared.Vendor.ItemGroup)
 local SavedState = require(shared.SavedState)
 local Style = require(shared.Style)
+local Constants = require(main.Constants)
 local cleanup = ItemGroup.cleanup
 
 local DefaultStyle = require(shared.Defaults.DefaultStyle)
@@ -67,6 +68,9 @@ function StateEditor.init(Manager)
 		end
 		local tokens, rules = DefaultStyle(Manager)
 		local style = Style.fromRulesTokens(rules, tokens)
+		for _, token in style.Tokens do
+			token:AddTag(Constants.DefaultTokenTag)
+		end
 
 		style:AddRules(customRules)
 		Manager.Style:Replace(style)

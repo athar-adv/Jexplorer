@@ -9,13 +9,15 @@ local DefaultInvisibleClasses = require("./Defaults/DefaultInvisibleClasses")
 local DefaultSettings = require("./Defaults/DefaultSettings")
 local DefaultStyle = require("./Defaults/DefaultStyle")
 
+local Constants = require("../Constants")
+
 local UDF = require("./UDF")
 local Migrations = require("@self/Migrations")
 
 export type SavedState = Types.SavedState
 
 local SavedState = {
-	data_version = 23
+	data_version = 25
 }
 
 function SavedState._migrate(state: any, manager: Types.Manager): SavedState
@@ -95,7 +97,10 @@ function SavedState.get_default(manager: Types.Manager): SavedState
 
 	local dtokens, drules = DefaultStyle(manager)
 	for k, v in dtokens do
-		tokens[k] = UDF.to(v)
+		tokens[k] = {
+			value = UDF.to(v),
+			tags = {Constants.DefaultTokenTag}
+		}
 	end
 
 	SavedState._serialize_rules(drules, rules)

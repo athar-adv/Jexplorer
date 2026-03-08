@@ -61,7 +61,7 @@ function OrderEditor.init(Manager)
 	local dropdown = PluginUI.createDropDownItemList({
 		Name = "InstSortingPriorities",
 		Visible = true
-	}, "Instance Sorting Priorities (descending)")
+	}, "")
 	dropdown:Parent(list)
 	
 	local currentDrag: {
@@ -216,6 +216,7 @@ function OrderEditor.init(Manager)
 		end)
 	end)
 	
+	dropdown:SetText("Loading, please wait...")
 	connections:extend(task.cancel, {
 		task.spawn(function()
 			local items = {}
@@ -224,6 +225,7 @@ function OrderEditor.init(Manager)
 				task.wait()
 			end
 			dropdown:AddBulkItem(items)
+			dropdown:SetText("Instance Sorting Priorities (descending)")
 		end)
 	})
 end

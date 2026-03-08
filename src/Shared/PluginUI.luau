@@ -440,7 +440,9 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 	return itemList :: any
 end
 
-function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, headerText: string?, headerLabelIsBox: boolean?, headerHeight: number?): ItemList
+type DropdownList = ItemList & {SetText: (DropdownList, txt: string) -> ()}
+
+function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, headerText: string?, headerLabelIsBox: boolean?, headerHeight: number?): DropdownList
 	local HEADER_HEIGHT = headerHeight or 20
 	local INDENT_WIDTH = 16
 
@@ -549,13 +551,17 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 		Container = container,
 		Items = items,
 		IsShown = false
-	} :: ItemList
+	} :: DropdownList
 	
 	function itemList:AddItem(item: GuiObject)
 		item.Parent = container
 		item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
 		table.insert(self.Items, item)
 		updateLayout(container)
+	end
+	
+	function itemList:SetText(txt)
+		headerLabel.Text = txt
 	end
 	
 	function itemList:AddBulkItem(items: {GuiObject})

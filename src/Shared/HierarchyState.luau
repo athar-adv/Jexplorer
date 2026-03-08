@@ -23,7 +23,18 @@ local getattributes = game.GetAttributes
 local rawindex = RawInst.rawindex
 local index = RawInst.index
 local bulkinsert = Jecs.bulk_insert
+local pair = Jecs.pair
+local childof = Jecs.ChildOf
+local getchildren = game.GetChildren
+
 local match = string.match
+
+local move = table.move
+local sort = table.sort
+local concat = table.concat
+local clear = table.clear
+local insert = table.insert
+local clone = table.clone
 
 type Manager = Types.Manager
 type ExplorerEntity = Types.ExplorerEntity
@@ -740,6 +751,7 @@ local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instanc
 	end
 end
 
+local appliedTaggedProps = {}
 function HierarchyState.flushEntityPropAssignQueue(Manager)
 	local world = Manager.WidgetState.World
 	local queryWorld = Manager.WidgetState.QueryWorld
@@ -775,18 +787,19 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		childAmountCache[ent] = #instance:GetChildren()
 
 		if ticketData.ty ~= "instance" then continue end
-
-		local appliedTaggedProps = {}
+		
 		local currentAttributes = {}
 		local oldValueCache = {}
 		local handlers = {}
 		
 		local props = getClassPropMap(className)
 		assert(props)
-
+		
+		local n = 0
 		for _, name in Constants.TaggedProperties do
 			if not props[name] then continue end
-			table.insert(appliedTaggedProps, name)
+			n += 1
+			appliedTaggedProps[n] = name
 		end
 		
 		for attrName in getattributes(instance) do
@@ -808,6 +821,8 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 			oldValueCache[v] = rawindex(instance, v)
 			handlers[v] = function() onChange(world, components, Manager, ent, instance, v, oldValueCache) end
 		end
+		clear(appliedTaggedProps)
+		
 		if className == "Script" then
 			-- RunContext needs to be special cased because its ExplorerFrames are named differently
 			handlers.RunContext = function() onChangeRunContext(world, components, Manager, ent, instance, oldValueCache) end
@@ -878,6 +893,7 @@ function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	world:remove(entity, components.LinkedQueryEntity)
 end
 
+local temporaryComponentArray: {Jecs.Id} = {}
 function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags, attributes)
 	if not className then
 		warn("classname aint it")
@@ -889,15 +905,20 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags,
 	local queryWorld = state.QueryWorld
 	local components = Manager.Components
 	
-	local classComponents = table.clone(Manager.getPropertyComponentsForClass(queryWorld, className))
-	table.move(tags, 1, #tags, #classComponents + 1, classComponents)
-	table.move(attributes, 1, #attributes, #classComponents + 1, classComponents)
+	local classComponents = Manager.getPropertyComponentsForClass(queryWorld, className)
 	
-	table.sort(classComponents)
-	local hash = table.concat(classComponents, ",")
+	local n = #classComponents
+	local tn = #tags
+	move(classComponents, 1, n, 1, temporaryComponentArray)
+	move(tags, 1, tn, n + 1, temporaryComponentArray)
+	move(attributes, 1, #attributes, n + tn + 1, temporaryComponentArray)
+	
+	sort(temporaryComponentArray)
+	local hash = concat(temporaryComponentArray, ",")
 	
 	local existingQueryEntity = archetypeToQueryEntity[hash]
 	if existingQueryEntity then
+		clear(temporaryComponentArray)
 		local linked = queryWorld:get(existingQueryEntity, components.QueryLinkedEntities)
 		if not linked then
 			world:set(entity, components.PropAssignTicket, {ty = "instance"})
@@ -909,16 +930,18 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags,
 		return existingQueryEntity
 	end
 	
-	-- Query entity not found, create new
-	local queryEntity = queryWorld:entity()
 	local linked = {entity}
+	
+	-- Query entity not found, create new
+	local queryEntity = Jecs.entity_with_archetype(queryWorld, true, temporaryComponentArray)
 	queryWorld:set(queryEntity, components.QUERYWORLD_ComponentHash, hash)
 	queryWorld:set(queryEntity, components.QueryLinkedEntities, linked)
+	
 	world:set(entity, components.LinkedQueryEntity, queryEntity)
 	
 	archetypeToQueryEntity[hash] = queryEntity
 	
-	bulkinsert(queryWorld::World, queryEntity, classComponents, {})
+	clear(temporaryComponentArray)
 	return queryEntity
 end
 
@@ -1003,8 +1026,6 @@ function HierarchyState.createVirtualEntity(Manager, options, extra)
 	return ent
 end
 
-local pair = Jecs.pair
-local childof = Jecs.ChildOf
 function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetInInstanceToEntity)
 	profilebegin("Jexplorer::createInstanceEntity")
 	local state = Manager.WidgetState
@@ -1031,19 +1052,23 @@ function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetI
 	local connections = parentConnections:extend(cleanup.disconnect)
 	local className = instance.ClassName
 	
-	local entity = world:entity()
-	if parent then
-		world:add(entity, pair(childof, parent))
-	end
-	local set = world.set
-	set(world, entity, components.Instance, instance)
-	set(world, entity, components.Connections, connections)
-	set(world, entity, components.ParentTabs, {})
-	set(world, entity, components.PropAssignTicket, {ty = "instance"})
+	local entity = Jecs.entity_with_archetype(world,
+		false,
+		{
+			components.Instance,
+			components.Connections,
+			components.ParentTabs,
+			components.PropAssignTicket,
+			if parent then pair(childof, parent) :: any else nil,
+		}, 
+		instance,
+		connections,
+		{},
+		{ty = "instance"}
+	)
 	
-	local children = instance:GetChildren()
-	local childAmount = #children
-	if childAmount > 0 then
+	local children = getchildren(instance)
+	if #children > 0 then
 		world:set(entity, components.CreationTicket, {children = children})
 	end
 	if parent then
@@ -1052,7 +1077,7 @@ function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetI
 		Manager.ChildAmountCache[parent] = value and value + 1 or 1
 	end
 
-	table.insert(state.Entities, entity)
+	insert(state.Entities, entity)
 	if not dontSetInInstanceToEntity then
 		Manager.InstanceToEntity[instance] = entity
 	end

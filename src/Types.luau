@@ -28,6 +28,10 @@ export type SerializedStyleRule = {
 	props: {[string]: UDFValue},
 	rules: {SerializedStyleRule}
 }
+export type SerializedStyleToken = {
+	value: UDFValue,
+	tags: {string}
+}
 export type SavedState = {
 	repo_proxies: {
 		[PlaceId]: Array<{
@@ -54,7 +58,7 @@ export type SavedState = {
 	settings: {[string]: UDFValue},
 	style: {
 		rules: {SerializedStyleRule},
-		tokens: {[string]: UDFValue}
+		tokens: {[string]: SerializedStyleToken}
 	},
 	icon_colors: {
 		[PlaceId]: {[InstanceId]: UDFValue}
@@ -159,6 +163,8 @@ export type FrameState = {
 	hasPackageLink: boolean,
 	insertInstanceButton: GuiButton,
 	currentFrameName: string?,
+	packageLinkIconVisible: boolean,
+	pendingChangesIconVisible: boolean
 }
 
 export type Components = {

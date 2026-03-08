@@ -208,6 +208,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
 end
 
+local isModifyingInstances = false
 local lastCanvasPos = Vector2.zero
 function VirtualScroller.update(Manager, isScroller)
 	local state = Manager.WidgetState
@@ -290,22 +291,14 @@ function VirtualScroller.update(Manager, isScroller)
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
-		
-		local entityState = stateCache[entity]
 
 		local frame = world:get(entity, components.Frame)
 
 		reuseDebounceTime[entity] = nil
-
-		local parent = parentOf(entity)
-		local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
 		
-		if frame then
-			assign(Manager, frame, entity, parent, instance.Parent == game or isTopLevel)
-		else
+		if not frame then
 			local f = allocateFrame(Manager)
 			world:set(entity, components.Frame, f)
-			assign(Manager, f, entity, parent, instance.Parent == game or isTopLevel)
 			frame = f
 		end
 		if not frame then continue end
@@ -324,7 +317,7 @@ function VirtualScroller.update(Manager, isScroller)
 		local frameX = -smoothed.X + info.indentoffset
 		local frameY = -smoothed.Y + absoluteYOffset
 		
-		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState}
+		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState, frame = frame}
 		ftamI += 1
 		
 		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
@@ -334,88 +327,104 @@ function VirtualScroller.update(Manager, isScroller)
 	local nameCache = Manager.NameCache
 	local childAmountCache = Manager.ChildAmountCache
 	
-	for _, info in frameInfo do
-		info.frameInst.Position = UDim2.fromOffset(info.frameX, info.frameY)
-	end
-	for _, info in frameInfo do
-		local frameState = info.frameState
-		local expandedHeight = expandedHeightIndex[info.entity]
-		if expandedHeight then
-			local ruler = frameState.ruler
-			ruler.Visible = true
-			ruler.Size = UDim2.fromOffset(1, (expandedHeight - 1) * height)
-		else
-			local ruler = frameState.ruler
-			ruler.Visible = false
-		end
-	end
-	profilebegin("PositionExplorerFrameIcons")
-	for _, info in frameInfo do
-		local frameState = info.frameState
-		local entity = info.entity
-		local frameX = info.frameX
-		local frameInst = info.frameInst
+	if not isModifyingInstances then
+		isModifyingInstances = true
 		
-		if world:has(entity, components.HasPackageLink) then
-			local linkIcon = frameState.packageLinkIcon
-			stickToRightEdge(frameX, frameInst, linkIcon, 0)
-			linkIcon.Visible = true
-			frameState.hasPackageLink = true
-		else
-			frameState.packageLinkIcon.Visible = false
-			frameState.hasPackageLink = false
-			updatePendingChanges(frameX, frameState, frameInst, state)
+		for _, info in frameInfo do
+			local entity = info.entity
+			local frame = info.frame
+			local instance = info.inst
+			
+			local entityState = stateCache[entity]
+			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
+			
+			assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel)
 		end
+		for _, info in frameInfo do
+			info.frameInst.Position = UDim2.fromOffset(info.frameX, info.frameY)
+		end
+		for _, info in frameInfo do
+			local frameState = info.frameState
+			local expandedHeight = expandedHeightIndex[info.entity]
+			if expandedHeight then
+				local ruler = frameState.ruler
+				ruler.Visible = true
+				ruler.Size = UDim2.fromOffset(1, (expandedHeight - 1) * height)
+			else
+				local ruler = frameState.ruler
+				ruler.Visible = false
+			end
+		end
+		profilebegin("PositionExplorerFrameIcons")
+		for _, info in frameInfo do
+			local frameState = info.frameState
+			local entity = info.entity
+			local frameX = info.frameX
+			local frameInst = info.frameInst
 
-		if world:has(entity, components.PendingChanges) then
-			updatePendingChanges(frameX, frameState, frameInst, state)
-			frameState.pendingChanges.Visible = true
-		else
-			frameState.pendingChanges.Visible = false
+			if world:has(entity, components.HasPackageLink) then
+				local linkIcon = frameState.packageLinkIcon
+				stickToRightEdge(frameX, frameInst, linkIcon, 0)
+				linkIcon.Visible = true
+				frameState.hasPackageLink = true
+			else
+				frameState.packageLinkIcon.Visible = false
+				frameState.hasPackageLink = false
+				updatePendingChanges(frameX, frameState, frameInst, state)
+			end
+
+			if world:has(entity, components.PendingChanges) then
+				updatePendingChanges(frameX, frameState, frameInst, state)
+				frameState.pendingChanges.Visible = true
+			else
+				frameState.pendingChanges.Visible = false
+			end
 		end
-	end
-	profileend()
-	for _, info in frameInfo do
-		local inst = info.inst
-		local className = classNameCache[info.entity]
-		local frameState = info.frameState
-		local frameInst = info.frameInst
-		
-		local newName
-		if className == "Script" then
-			newName = Constants.ExplorerFrameScriptClassNameFormat:format(
-				rawindex(inst, "RunContext").Name
-			)
-		else
-			newName = Constants.ExplorerFrameNameFormat:format(className)
+		profileend()
+		for _, info in frameInfo do
+			local inst = info.inst
+			local className = classNameCache[info.entity]
+			local frameState = info.frameState
+			local frameInst = info.frameInst
+
+			local newName
+			if className == "Script" then
+				newName = Constants.ExplorerFrameScriptClassNameFormat:format(
+					rawindex(inst, "RunContext").Name
+				)
+			else
+				newName = Constants.ExplorerFrameNameFormat:format(className)
+			end
+			if newName ~= frameState.currentFrameName then
+				rawnewindex(frameInst, "Name", newName)
+				frameState.currentFrameName = newName
+			end
 		end
-		if newName ~= frameState.currentFrameName then
-			rawnewindex(frameInst, "Name", newName)
-			frameState.currentFrameName = newName
-		end
-	end
-	for _, info in frameInfo do
-		local frameState = info.frameState
-		local entity = info.entity
-		
-		local arrow = frameState.arrow
-		if world:has(entity, components.ArrowInvisible) then
-			arrow.Visible = false
-		else
-			if info.inst == game or childAmountCache[entity] == 0 then
+		for _, info in frameInfo do
+			local frameState = info.frameState
+			local entity = info.entity
+
+			local arrow = frameState.arrow
+			if world:has(entity, components.ArrowInvisible) then
 				arrow.Visible = false
 			else
-				arrow.Visible = true
-			end
-			if Manager.isExplorerEntityExpanded(entity) then
-				arrow.Rotation = 0
-			else
-				arrow.Rotation = -90
+				if info.inst == game or childAmountCache[entity] == 0 then
+					arrow.Visible = false
+				else
+					arrow.Visible = true
+				end
+				if Manager.isExplorerEntityExpanded(entity) then
+					arrow.Rotation = 0
+				else
+					arrow.Rotation = -90
+				end
 			end
 		end
-	end
-	for _, info in frameInfo do
-		rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
+		for _, info in frameInfo do
+			rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
+		end
+		
+		isModifyingInstances = false
 	end
 	
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do

@@ -4,5 +4,7 @@ return {
 	},
 	EditorsEnabled = true,
 	ExplorerFrameNameFormat = "f_%s",
-	ExplorerFrameScriptClassNameFormat = "s_%s"
+	ExplorerFrameScriptClassNameFormat = "s_%s",
+	UnsavedTokenTag = "DontSaveToken",
+	DefaultTokenTag = "Default"
 }

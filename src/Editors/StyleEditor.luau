@@ -53,10 +53,22 @@ function StyleEditor.init(Manager)
 	local function resolve(v: any): Color3
 		if typeof(v) == "Color3" then
 			return v
-		elseif typeof(v) == "string" then
-			return Style.eval(v, sheet.Tokens)
+		elseif typeof(v) == "string" and v:sub(1, 1) == "$" then
+			local tokens = {}
+			for k, token in sheet.Tokens do
+				tokens[k] = token.RawValue
+			end
+			local value = Style.eval(v, tokens)
+			return resolve(value)
+		elseif typeof(v) == "table" and v.__styletoken then
+			return resolve(v.RawValue)
 		elseif typeof(v) == "table" and v.__stylevar then
-			return Style.eval(v.__expr, sheet.Tokens)
+			local tokens = {}
+			for k, token in sheet.Tokens do
+				tokens[k] = token.RawValue
+			end
+			local value = Style.eval(v.__expr, tokens)
+			return resolve(value)
 		else
 			error(`'{v}' cannot be converted into Color3`)
 		end
@@ -456,7 +468,7 @@ function StyleEditor.init(Manager)
 		end)
 	end
 	
-	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string)
+	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string, createDeleteButton: boolean)
 		local box
 		box = PluginUI.createAttributeBox(nil, k, defaultStr, function(newValue)
 			if newValue == defaultStr then 
@@ -473,7 +485,8 @@ function StyleEditor.init(Manager)
 		
 		local conn = sheet.TokenChanged:Connect(function(name, newValue)
 			if name ~= k then return end
-			box.Instance.ValueBox.Text = UDF.to(newValue)
+			if not newValue then return end
+			box.Instance.ValueBox.Text = UDF.to(newValue.RawValue)
 		end)
 		local conn2
 		box.Instance.ValueBox.InputBegan:Connect(function(input: InputObject)
@@ -488,17 +501,20 @@ function StyleEditor.init(Manager)
 			}
 			stylePropertyResetMenu:ShowAsync()
 		end)
-
-		local button = PluginUI.createDeleteButton(box.Instance, function()
-			sheet:SetToken(k, nil, true)
-			conn:Disconnect()
-			if conn2 then
-				conn2:Disconnect()
-			end
-			box:Destroy()
-		end)
-		button.AnchorPoint = Vector2.new(1, 0)
-		button.Position = UDim2.fromScale(1, 0)
+		
+		if createDeleteButton then
+			local button = PluginUI.createDeleteButton(box.Instance, function()
+				sheet:SetToken(k, nil, true)
+				conn:Disconnect()
+				if conn2 then
+					conn2:Disconnect()
+				end
+				box:Destroy()
+			end)
+			button.ZIndex = 10
+			button.AnchorPoint = Vector2.new(1, 0)
+			button.Position = UDim2.fromScale(1, 0)
+		end
 		
 		local function iscolor(v: any): boolean
 			local success, result = pcall(resolve, v)
@@ -512,7 +528,7 @@ function StyleEditor.init(Manager)
 			local function colorChanged(newColor: Color3)
 				assert(rule)
 
-				sheet:SetToken(k, newColor, true)
+				sheet:SetToken(k, Style.token(newColor), true)
 				box.Instance.ValueBox.Text = UDF.to(newColor)
 				chooseColorButton.BackgroundColor3 = newColor
 			end
@@ -571,24 +587,27 @@ function StyleEditor.init(Manager)
 			local defaultValue = UDF.from(defaultStr)
 			sheet:SetToken(name, defaultValue, true)
 
-			local box = createTokenAttribute(name, defaultValue, defaultStr)
+			local box = createTokenAttribute(name, defaultValue, defaultStr, true)
 			tokensDropdown:AddItem(box.Instance)
 
 			close()
 		end)
 	end
 	
+	tokensDropdown:SetText("Loading, please wait...")
+	rulesDropdown:SetText("Loading, please wait...")
 	connections:extend(task.cancel, {
 		task.spawn(function()
 			local tokens = {}
 			for k, v in sheet.Tokens do
 				local defaultValue = v
-				local defaultStr = UDF.to(v)
+				local defaultStr = UDF.to(v.RawValue)
 
-				table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr).Instance)
+				table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr, not v:HasTag(Constants.DefaultTokenTag)).Instance)
 				task.wait()
 			end
 			tokensDropdown:AddBulkItem(tokens)
+			tokensDropdown:SetText("StyleTokens")
 		end),
 
 		task.spawn(function()
@@ -598,6 +617,7 @@ function StyleEditor.init(Manager)
 				task.wait(0.1)
 			end
 			rulesDropdown:AddBulkItem(dropdowns)
+			rulesDropdown:SetText("StyleRules")
 		end)
 	})
 	

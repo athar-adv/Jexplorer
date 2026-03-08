@@ -12,7 +12,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "4.0.0"
+local VERSION = "4.1.0"
 
 local global = shared
 local shared = script.Shared
@@ -36,7 +36,7 @@ connections:extend(cleanup.call, {function()
 	repeat
 		local success = pcall(task.cancel, running)
 		task.wait()
-	until success
+	until success or coroutine.status(running) == "dead"
 end})
 
 local finished_init = false

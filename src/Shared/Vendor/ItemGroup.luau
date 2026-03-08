@@ -70,7 +70,7 @@ local function group_extend<A>(self: ItemGroup, new_cleanup_handler: any, items)
 end
 
 function create<T>(cleanup_handler: (T) -> (), items: {T}?): ItemGroup<T>
-	local items: {T} = if items ~= nil then table.clone(items) else {}
+	local items: {T} = if items ~= nil then items else {}
 	
 	return ({
 		items = items,

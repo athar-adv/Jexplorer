@@ -50,13 +50,15 @@ function InstanceVisibilityEditor.init(Manager)
 
 	local list = PluginUI.createItemListFromExisting(mainframe, mainframe.Items.Content, mainframe.Items)
 
-	local classVisibilityDropdown = PluginUI.createDropDownItemList({Name = "InvisibleClassesDropdown", Visible = true}, "Invisible Classes")
+	local classVisibilityDropdown = PluginUI.createDropDownItemList({Name = "InvisibleClassesDropdown", Visible = true}, "")
 	classVisibilityDropdown:Parent(list)
 	
 	local instIcon = ClassIcon.getIcon("Instance")
 	assert(instIcon)
 	
 	local jsonBox
+	
+	classVisibilityDropdown:SetText("Loading, please wait...")
 	local thread = task.spawn(function()
 		local i = 1
 		local classes = ReflectionService:GetClasses({
@@ -136,6 +138,7 @@ function InstanceVisibilityEditor.init(Manager)
 			task.wait()
 		end
 		classVisibilityDropdown:AddBulkItem(buttons)
+		classVisibilityDropdown:SetText("Invisible Classes")
 	end)
 	connections:extend(task.cancel, {thread})
 

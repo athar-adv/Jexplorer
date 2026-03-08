@@ -17,14 +17,14 @@ return {
 			Type = "boolean",
 			Display = "Increment Names With No Number Suffix",
 			Default = false,
-		}
-	},
-	Keybinds = {
+		},
 		NormalDuplicateIncrementsName = {
 			Type = "boolean",
 			Display = "Normal Duplicate Increments Name",
 			Default = true
 		},
+	},
+	Keybinds = {
 		KeybindEscapeTarget = {
 			Type = "string",
 			Display = "Escape Target",
