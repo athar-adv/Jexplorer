@@ -262,10 +262,17 @@ local function onMouseEnter(
 )
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
-
+	
+	local inst = Manager.instanceOf(entity)
+	if not inst then return end
+	
 	local bounds: Vector2 = rawindex(instanceName, "TextBounds")
 	local x = instanceName:GetStyled("Position").X.Offset + bounds.X
 	frameState.currentNameBoundX = x
+	
+	if state.IsDragging then
+		frame:AddTag("JEXP_DropTarget")
+	end
 	
 	do
 		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
@@ -274,14 +281,13 @@ local function onMouseEnter(
 	do
 		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
 		frameState.reclassIconVisible = true
-		local info = ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
-		if info and info.reclassIconIsVisible then
-			reclassButton.Visible = true
+		-- Can't reclass services
+		if inst.Parent ~= game then
+			local info = ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
+			if info and info.reclassIconIsVisible then
+				reclassButton.Visible = true
+			end
 		end
-	end
-	
-	if state.IsDragging then
-		frame:AddTag("JEXP_DropTarget")
 	end
 end
 
