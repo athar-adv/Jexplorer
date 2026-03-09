@@ -3925,10 +3925,10 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		queryInput.Focused:Connect(triggerQueryAutocompleteSuggestions),
 		-- Search bar functionality
 		queryInput.FocusLost:Connect(function(enterPressed)
-			if not enterPressed then return end
 			if autocompleteGroup then
 				autocompleteGroup:free()
 			end
+			if not enterPressed then return end
 			
 			local queryText = queryInput.Text
 			
