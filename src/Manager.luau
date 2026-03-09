@@ -222,7 +222,7 @@ local function pasteCopiedInstances(world: World)
 	end
 end
 
-local function checkCombo(str: string): boolean
+local function checkCombo(str: string, input: InputObject): (boolean, number?)
 	str = str:gsub("%s+", "")
 
 	local function parseExpr(s, i): (any, number)
@@ -242,9 +242,18 @@ local function checkCombo(str: string): boolean
 				error("Expected key name at position " .. i)
 			end
 
-			local enumVal = Enum.KeyCode[key]
-			local result = enumVal ~= nil and Manager.isKeyDown(enumVal)
-			return result, i + #key
+			local isDown = false
+			if key == "Shift" then
+				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Shift)
+			elseif key == "Alt" then
+				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Alt)
+			elseif key == "Control" then
+				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Alt)
+			else
+				local en = assert(Enum.KeyCode:FromName(key), `Invalid KeyCode: '{key}'`)
+				isDown = Manager.isKeyDown(en)
+			end
+			return isDown, i + #key
 		end
 
 		local function parseAnd(i): (any, number)
@@ -304,7 +313,7 @@ local function checkKeybinds(keybinds: {[string]: () -> ()}, input: InputObject)
 		end
 		if not containsTrigger then continue end
 
-		if checkCombo(combo) then
+		if checkCombo(combo, input) then
 			local count = countKeys(combo)
 			if count > bestCount then
 				bestCount = count

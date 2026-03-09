@@ -102,7 +102,10 @@ local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlH
 	profileend()
 end
 
-local function onSelectExplorerFrame(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, state: Types.WidgetState, components: Types.Components, frameState: Types.FrameState, input: InputObject)
+local function onSelectExplorerFrame(
+	Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, state: Types.WidgetState,
+	components: Types.Components, frameState: Types.FrameState, input: InputObject
+)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
@@ -159,8 +162,8 @@ local function onSelectExplorerFrame(Manager: Manager, world: Types.World, frame
 			return
 		end
 
-		local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
-		local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
+		local isCtrlHeld = input:IsModifierKeyDown(Enum.ModifierKey.Ctrl)
+		local isShiftHeld = input:IsModifierKeyDown(Enum.ModifierKey.Shift)
 
 		-- Handle selection logic immediately (don't wait for drag)
 		if not frameState.hasBeenSelected then
@@ -239,8 +242,8 @@ local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Ty
 	-- If we have multiple selections and this was just a click (not drag),
 	-- then deselect others and select only this one
 	if not state.IsDragging and frameState.hasBeenSelected and #state.CurrentSelection > 1 then
-		local isCtrlHeld = Manager.isKeyDown(Enum.KeyCode.LeftControl)
-		local isShiftHeld = Manager.isKeyDown(Enum.KeyCode.LeftShift)
+		local isCtrlHeld = input:IsModifierKeyDown(Enum.ModifierKey.Ctrl)
+		local isShiftHeld = input:IsModifierKeyDown(Enum.ModifierKey.Shift)
 
 		if not isCtrlHeld and not isShiftHeld then
 			-- Normal click on multi-selection - select only this one
@@ -825,6 +828,15 @@ function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, fram
 	local function updateReclassIcon(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState, hasPendingChanges: boolean, setPosition: boolean)
 		if frameState.hasPackageLink and hasPendingChanges then
 			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - frameState.pendingChanges.AbsoluteSize.X - padding)
+			if pos.X.Offset > nameBoundX then
+				if setPosition then
+					frameInst.Position = pos
+				end
+			else
+				reclassIconIsVisible = false
+			end
+		elseif hasPendingChanges then
+			local pos = stickToRightEdge(containerWidth, frameX, -frameState.pendingChanges.AbsoluteSize.X - padding)
 			if pos.X.Offset > nameBoundX then
 				if setPosition then
 					frameInst.Position = pos

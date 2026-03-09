@@ -28,7 +28,7 @@ return {
 		KeybindEscapeTarget = {
 			Type = "string",
 			Display = "Escape Target",
-			Default = "Escape | (LeftShift & Backspace)"
+			Default = "Escape | (Shift & Backspace)"
 		},
 		KeybindDeleteTarget = {
 			Type = "string",
@@ -38,32 +38,32 @@ return {
 		KeybindDuplicateTarget = {
 			Type = "string",
 			Display = "Duplicate Target",
-			Default = "LeftControl & D"
+			Default = "Control & D"
 		},
 		KeybindDuplicateTargetWithIncrementName = {
 			Type = "string",
 			Display = "Duplicate Target With Increment Name",
-			Default = "LeftControl & D & E"
+			Default = "Control & D & E"
 		},
 		KeybindCopy = {
 			Type = "string",
 			Display = "Copy",
-			Default = "LeftControl & C"
+			Default = "Control & C"
 		},
 		KeybindPaste = {
 			Type = "string",
 			Display = "Paste",
-			Default = "LeftControl & V"
+			Default = "Control & V"
 		},
 		KeybindUndo = {
 			Type = "string",
 			Display = "Undo",
-			Default = "LeftControl & Z"
+			Default = "Control & Z"
 		},
 		KeybindRedo = {
 			Type = "string",
 			Display = "Redo",
-			Default = "LeftControl & Y"
+			Default = "Control & Y"
 		},
 	},
 	Internal = {
