@@ -216,10 +216,16 @@ local function evalMathExpression(expr: string): number
 end
 
 local tonumber = evalMathExpression
-function UDF.from(input: string): any
+function UDF.from(input: string, expectedType: string?): any
 	if input == "" then return "" end
 	-- Truncate leading whitespace
 	input = input:match("^%s*(.*)") or input
+
+	local function checkType(got: string)
+		if expectedType and expectedType ~= got then
+			error(`Expected '{expectedType}', got '{got}'`)
+		end
+	end
 
 	-- Check if input starts with a shorthand punctuation
 	local shorthand = input:sub(1, 1)
@@ -227,14 +233,19 @@ function UDF.from(input: string): any
 	if shorthand:match("%p") then
 		local val = input:sub(2)
 		if shorthand == "%" then
-			return val -- String
+			checkType("string")
+			return val
 		elseif shorthand == "#" then
-			return tonumber(val) -- Number
+			checkType("number")
+			return tonumber(val)
 		elseif shorthand == "?" then
-			return val == "true" -- boolean
+			checkType("boolean")
+			return val == "true"
 		elseif shorthand == "$" then
-			return Style.var(val) -- JSLExpression
+			checkType("Expression")
+			return Style.var(val)
 		elseif shorthand == "@" then
+			checkType("selector")
 			local value = Selector.parseSelectorMacro(val)
 			assert(value, `'{val}' is not a valid selector macro`)
 			return value
@@ -260,8 +271,10 @@ function UDF.from(input: string): any
 	datatype = datatype:sub(2, #datatype - 1)
 
 	if datatype == "str" then
+		checkType("string")
 		return input
 	elseif datatype == "rgb" then
+		checkType("Color3")
 		local values = string.split(input, ",")
 		return Color3.fromRGB(
 			tonumber(values[1]),
@@ -269,35 +282,41 @@ function UDF.from(input: string): any
 			tonumber(values[3])
 		)
 	elseif datatype == "hex" then
+		checkType("Color3")
 		return Color3.fromHex(input)
-	elseif datatype:match("enum.") then
-		datatype = datatype:sub(6)
+	elseif datatype:match("^enum%.") then
+		local enumName = datatype:sub(6)
+		checkType(`Enum.{enumName}`)
 		local success, enum = pcall(function()
-			return Enum[datatype]
+			return Enum[enumName]
 		end)
 		if not success then
-			warn(`[{datatype}] is not a valid enum.`)
+			warn(`[{enumName}] is not a valid enum.`)
 			return
 		end
 
 		local item = (enum :: any):FromName(input)
 		if not item then
-			warn(`'{input}' is not a valid member of 'Enum.{datatype}'`)
+			warn(`'{input}' is not a valid member of 'Enum.{enumName}'`)
 			return
 		end
 
 		return item
 	elseif datatype == "num" then
+		checkType("number")
 		return tonumber(input)
 	elseif datatype == "bool" then
+		checkType("boolean")
 		return input == "true"
 	elseif datatype == "vec2" then
+		checkType("Vector2")
 		local values = string.split(input, ",")
 		return Vector2.new(
 			tonumber(values[1]),
 			tonumber(values[2])
 		)
 	elseif datatype == "udim2" then
+		checkType("UDim2")
 		local values = string.split(input, ",")
 		return UDim2.new(
 			tonumber(values[1]),
@@ -306,12 +325,14 @@ function UDF.from(input: string): any
 			tonumber(values[4])
 		)
 	elseif datatype == "udim" then
+		checkType("UDim")
 		local values = string.split(input, ",")
 		return UDim.new(
 			tonumber(values[1]),
 			tonumber(values[2])
 		)
 	elseif datatype == "vec3" then
+		checkType("Vector3")
 		local values = string.split(input, ",")
 		return vector.create(
 			tonumber(values[1]) :: number,
@@ -319,14 +340,18 @@ function UDF.from(input: string): any
 			tonumber(values[3]) :: number
 		)
 	elseif datatype == "expr" then
+		checkType("Expression")
 		return Style.var(input)
 	elseif datatype == "json" then
+		checkType("table")
 		return HttpService:JSONDecode(input)
 	elseif datatype == "selector" then
+		checkType("selector")
 		local value = Selector.parseSelectorMacro(input)
 		assert(value, `'{input}' is not a valid selector macro`)
 		return value
 	elseif datatype == "slctr" then
+		checkType("string")
 		local processed = input:gsub("(@[^(]+%b())", function(macro)
 			local expanded, kind = Selector.parseSelectorMacro(macro)
 			assert(expanded and kind ~= "none", `'{macro}' is not a valid selector macro`)
@@ -336,28 +361,34 @@ function UDF.from(input: string): any
 		assert(#processed > 0, `[slctr] value '{input}' produced an empty selector`)
 		return processed
 	elseif datatype == "font_asset" then
+		checkType("Font")
 		local values = string.split(input, " ")
 		if #values < 3 then
 			return Font.fromEnum(Enum.Font.SourceSans)
 		end
 		return Font.new(values[3], Enum.FontWeight:FromName(values[1]), Enum.FontStyle:FromName(values[2]))
 	elseif datatype == "font" then
+		checkType("Font")
 		local values = string.split(input, " ")
 		if #values < 3 then
 			return Font.fromEnum(Enum.Font.SourceSans)
 		end
 		return Font.fromName(values[3], Enum.FontWeight:FromName(values[1]), Enum.FontStyle:FromName(values[2]))
 	elseif datatype == "font_enum" then
+		checkType("Font")
 		return Font.fromEnum(
 			assert(Enum.Font:FromName(input))
 		)
 	elseif datatype == "content_asset" then
+		checkType("Content")
 		return Content.fromAssetId(
 			assert(tonumber(input))
 		)
 	elseif datatype == "content_uri" then
+		checkType("Content")
 		return Content.fromUri(input)
 	elseif datatype == "region3" then
+		checkType("Region3")
 		local values = string.split(input, ",")
 		local min = Vector3.new(
 			tonumber(values[1]),
@@ -371,6 +402,7 @@ function UDF.from(input: string): any
 		)
 		return Region3.new(min, max)
 	elseif datatype == "ray" then
+		checkType("Ray")
 		local values = string.split(input, ",")
 		local origin = Vector3.new(
 			tonumber(values[1]),
@@ -384,6 +416,7 @@ function UDF.from(input: string): any
 		)
 		return Ray.new(origin, direction)
 	elseif datatype == "inst" then
+		checkType("Instance")
 		local values = string.split(input, "/")
 		local current = game
 		for _, part in values do

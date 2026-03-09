@@ -46,6 +46,7 @@ local VersionControl = require("./Editors/VersionControl")
 local PropertyEditor = require("./Editors/PropertyEditor")
 local OrderEditor = require("./Editors/OrderEditor")
 local StateEditor = require("./Editors/StateEditor")
+local ExplorerFrameEditor = require("./Editors/ExplorerFrameEditor")
 local InstanceVisibilityEditor = require("./Editors/InstanceVisibilityEditor")
 local ContextMenuEditor = require("./Editors/ContextMenuEditor")
 local JextensionEditor = require("./Editors/JextensionEditor")
@@ -248,7 +249,7 @@ local function checkCombo(str: string, input: InputObject): (boolean, number?)
 			elseif key == "Alt" then
 				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Alt)
 			elseif key == "Control" then
-				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Alt)
+				isDown = input:IsModifierKeyDown(Enum.ModifierKey.Ctrl)
 			else
 				local en = assert(Enum.KeyCode:FromName(key), `Invalid KeyCode: '{key}'`)
 				isDown = Manager.isKeyDown(en)
@@ -1835,7 +1836,8 @@ function Manager.loadState(savedState)
 		end,
 		style = function()
 			local rules, tokens = {}, {}
-			local function deserialize_rules(source: any, destination: any)
+			local withTokensToUpdate = {}
+			local function deserialize_rules(source: {Types.SerializedStyleRule}, destination: any)
 				for _, r in source do
 					if table.find(r.tags, "Default") then continue end
 					local props = {}
@@ -1848,6 +1850,18 @@ function Manager.loadState(savedState)
 					local newrule = rule(r.display_name, r.selector, r.priority, props)
 					for _, tag in r.tags do
 						newrule:AddTag(tag)
+					end
+					local any = false
+					for name, info in r.tokens do
+						local token = Style.token(UDF.from(info.value))
+						for _, tag in info.tags do
+							token:AddTag(tag)
+						end
+						newrule:SetToken(name, token, false)
+						any = true
+					end
+					if any then
+						table.insert(withTokensToUpdate, newrule)
 					end
 					table.insert(destination, newrule)
 				end
@@ -1864,6 +1878,9 @@ function Manager.loadState(savedState)
 			local sheet = Style.fromRulesTokens(rules, tokens)
 			for _, token in sheet.Tokens do
 				token:AddTag(Constants.DefaultTokenTag)
+			end
+			for _, v in withTokensToUpdate do
+				v:UpdateTokens()
 			end
 			for k, v in savedState.style.tokens do
 				local value = UDF.from(v.value)
@@ -3666,6 +3683,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	
 	-->> Initialize connections
 	return {
+		jexplorerWidget:GetPropertyChangedSignal("Enabled"):Connect(function()
+			
+		end),
 		jexplorerUi:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 			VirtualScroller.update(Manager, false)
 		end),
@@ -4205,7 +4225,8 @@ function Manager.init(connections, jexplorerWidget)
 		IsDragging = false,
 		
 		InstanceTree = (instanceTree :: any).ScrollContainer,
-		TreeScroller = treeScroller
+		TreeScroller = treeScroller,
+		Enabled = false
 	}
 	
 	local state = Manager.WidgetState
@@ -4287,6 +4308,7 @@ function Manager.init(connections, jexplorerWidget)
 
 	ContextMenuEditor.init(Manager)
 	JextensionEditor.init(Manager)
+	ExplorerFrameEditor.init(Manager)
 	StateEditor.init(Manager)
 
 	Manager.AllTab = Manager.registerTab("All", "rbxassetid://13641691796", entities, false)
@@ -4306,7 +4328,8 @@ function Manager.init(connections, jexplorerWidget)
 		InstanceVisibilityEditor.Widget,
 		StateEditor.Widget,
 		PropertyEditor.Widget,
-		ContextMenuEditor.Widget
+		ContextMenuEditor.Widget,
+		ExplorerFrameEditor.Widget
 	}
 
 	instances:add_many({

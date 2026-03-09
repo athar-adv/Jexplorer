@@ -26,7 +26,9 @@ export type SerializedStyleRule = {
 	selector: string,
 	priority: number,
 	props: {[string]: UDFValue},
-	rules: {SerializedStyleRule}
+	rules: {SerializedStyleRule},
+	tokens: {[string]: SerializedStyleToken},
+	tags: {string}
 }
 export type SerializedStyleToken = {
 	value: UDFValue,
@@ -240,7 +242,8 @@ export type WidgetState = {
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
-	OverridePathBarText: string?
+	OverridePathBarText: string?,
+	Enabled: boolean
 }
 
 export type HierarchyState = {
@@ -574,6 +577,10 @@ export type JextensionEditor = Editor & {
 }
 
 export type StateEditor = Editor & {
+
+}
+
+export type ExplorerFrameEditor = Editor & {
 
 }
 

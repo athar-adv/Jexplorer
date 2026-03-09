@@ -54,7 +54,7 @@ function JextensionEditor.init(Manager)
 	local refreshDebounceThread: thread? = nil
 	local sourceChangedConn: RBXScriptConnection?
 	local function refresh(module: Instance)
-		assert(module:IsA("ModuleScript"), "Jextension must be a ModuleScript")
+		if not module:IsA("ModuleScript") then return end
 		
 		if currentlyUsedModule then
 			currentlyUsedModule:Destroy()
@@ -93,6 +93,8 @@ function JextensionEditor.init(Manager)
 	end
 	nameBox:OnChange(findConfigs)
 	game.DescendantAdded:Connect(function(inst)
+		local expectedName = nameBox:Get()
+		if expectedName == "" then return end
 		if inst.Name == nameBox:Get() then
 			refresh(inst)
 		end

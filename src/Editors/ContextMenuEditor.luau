@@ -122,7 +122,7 @@ function ContextMenuEditor.init(Manager)
 	local stored: {Instance} = {}
 	
 	local function refresh(module: Instance)
-		assert(module:IsA("ModuleScript"), "context menu configs must be a ModuleScript")
+		if not module:IsA("ModuleScript") then return end
 		state.InstanceContextMenus = defaultInstanceCtxMenus
 		Manager.PluginActions = defaultActions
 		

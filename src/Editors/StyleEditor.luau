@@ -50,25 +50,24 @@ function StyleEditor.init(Manager)
 	sheet:Link(widget)
 	
 	if not Constants.EditorsEnabled then return end
-	local function resolve(v: any): Color3
+	local function getTokensFromSheetTokens(sheetTokens: {[string]: Style.StyleToken})
+		local tokens = {}
+		for k, token in sheet.Tokens do
+			tokens[k] = token.RawValue
+		end
+		return tokens
+	end
+	local function resolve(tokens: {[string]: any}, v: any): Color3
 		if typeof(v) == "Color3" then
 			return v
 		elseif typeof(v) == "string" and v:sub(1, 1) == "$" then
-			local tokens = {}
-			for k, token in sheet.Tokens do
-				tokens[k] = token.RawValue
-			end
 			local value = Style.eval(v, tokens)
-			return resolve(value)
+			return resolve(tokens, value)
 		elseif typeof(v) == "table" and v.__styletoken then
-			return resolve(v.RawValue)
+			return resolve(tokens, v.RawValue)
 		elseif typeof(v) == "table" and v.__stylevar then
-			local tokens = {}
-			for k, token in sheet.Tokens do
-				tokens[k] = token.RawValue
-			end
 			local value = Style.eval(v.__expr, tokens)
-			return resolve(value)
+			return resolve(tokens, value)
 		else
 			error(`'{v}' cannot be converted into Color3`)
 		end
@@ -154,10 +153,10 @@ function StyleEditor.init(Manager)
 				box:Set(file:GetTemporaryId())
 				rule:SetProperty(k, box:Get())
 			end)
-		elseif k == "BackgroundColor3" or k == "TextColor3" or k == "ImageColor3" or k == "Color" or k == "PlaceholderTextColor3" then
+		elseif rule and (k == "BackgroundColor3" or k == "TextColor3" or k == "ImageColor3" or k == "Color" or k == "PlaceholderTextColor3") then
 			local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
 			chooseColorButton:AddTag("JEXP_Border")
-			chooseColorButton.BackgroundColor3 = resolve(defaultValue)
+			chooseColorButton.BackgroundColor3 = resolve(rule:GetTokens(), defaultValue)
 
 			local function colorChanged(newColor: Color3)
 				assert(rule)
@@ -178,7 +177,7 @@ function StyleEditor.init(Manager)
 				last = picker
 				
 				picker:Show()
-				local originalColor = resolve(rule:GetProperty(k))
+				local originalColor = resolve(rule:GetTokens(), rule:GetProperty(k))
 				picker:Set(originalColor)
 
 				picker:BindToChange(colorChanged)
@@ -196,7 +195,7 @@ function StyleEditor.init(Manager)
 			if rule then
 				conn2 = rule.AppliedPropertyChanged:Connect(function(name, v)
 					if name ~= k then return end
-					chooseColorButton.BackgroundColor3 = resolve(v)
+					chooseColorButton.BackgroundColor3 = resolve(rule:GetTokens(), v)
 				end)
 			end
 		end
@@ -517,13 +516,13 @@ function StyleEditor.init(Manager)
 		end
 		
 		local function iscolor(v: any): boolean
-			local success, result = pcall(resolve, v)
+			local success, result = pcall(resolve, getTokensFromSheetTokens(sheet.Tokens), v)
 			return success and typeof(result) == "Color3"
 		end
 		if iscolor(defaultValue) then
 			local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
 			chooseColorButton:AddTag("JEXP_Border")
-			chooseColorButton.BackgroundColor3 = resolve(defaultValue)
+			chooseColorButton.BackgroundColor3 = resolve(getTokensFromSheetTokens(sheet.Tokens), defaultValue)
 
 			local function colorChanged(newColor: Color3)
 				assert(rule)
@@ -544,7 +543,7 @@ function StyleEditor.init(Manager)
 				last = picker
 				
 				picker:Show()
-				local originalColor = resolve(sheet:GetToken(k))
+				local originalColor = resolve(getTokensFromSheetTokens(sheet.Tokens), sheet:GetToken(k))
 				picker:Set(originalColor)
 
 				picker:BindToChange(colorChanged)
@@ -561,7 +560,7 @@ function StyleEditor.init(Manager)
 			
 			conn2 = sheet.AppliedTokenChanged:Connect(function(name, v)
 				if name ~= k then return end
-				chooseColorButton.BackgroundColor3 = resolve(v)
+				chooseColorButton.BackgroundColor3 = resolve(getTokensFromSheetTokens(sheet.Tokens), v)
 			end)
 		end
 		

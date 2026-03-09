@@ -67,8 +67,22 @@ export type Rule = {
 	Sheet: Style,
 	ChildRules: {Rule},
 	ParentRule: Rule?,
+	GetTokens: (Rule) -> {[string]: any},
 	Tags: {[string]: boolean},
 	PropertyDependencies: {[string]: {string}},
+	
+	GetChild: (Rule, childName: string) -> Rule,
+
+	Tokens: {[string]: StyleToken},
+	AppliedTokens: {[string]: any},
+	TokenDependencies: {[string]: {string}},
+	TokenChanged: SimpleSignal.SimpleSignal<string, StyleToken>,
+	AppliedTokenChanged: SimpleSignal.SimpleSignal<string, any>,
+	SetToken: (Rule, name: string, value: (StyleToken | any)?, autoUpdate: boolean) -> (),
+	GetToken: (Rule, name: string) -> any,
+	GetRawToken: (Rule, name: string) -> StyleToken?,
+	UpdateTokens: (Rule) -> (),
+	UpdateToken: (Rule, name: string) -> (),
 
 	AddTag: (Rule, string) -> (),
 	HasTag: (Rule, string) -> boolean,
@@ -101,7 +115,6 @@ local Style = {
 	eval = eval
 }
 
--- Unwrap a StyleToken to its RawValue, passing through everything else.
 local function unwrapValue(v: any): any
 	if type(v) == "table" and v.__styletoken then
 		return (v :: StyleToken).RawValue
@@ -109,7 +122,6 @@ local function unwrapValue(v: any): any
 	return v
 end
 
--- Extract all $TOKEN references from an expression
 local function getDependencies(expr: string): {string}
 	local deps = {}
 	local seen = {}
@@ -122,7 +134,6 @@ local function getDependencies(expr: string): {string}
 	return deps
 end
 
--- Topological sort for token evaluation order
 local function topologicalSort(tokens: {[string]: any}, tokenDeps: {[string]: {string}}): {string}
 	local sorted = {}
 	local visited = {}
@@ -156,10 +167,60 @@ local function topologicalSort(tokens: {[string]: any}, tokenDeps: {[string]: {s
 	return sorted
 end
 
+local function buildRuleTokenContext(rule: Rule): {[string]: any}
+	local chain: {Rule} = {}
+	local cursor: Rule? = rule
+	while cursor do
+		table.insert(chain, 1, cursor)
+		cursor = cursor.ParentRule
+	end
+	local resolved: {[string]: any} = {}
+	if rule.Sheet then
+		for k, v in rule.Sheet.AppliedTokens do
+			resolved[k] = v
+		end
+	end
+	for _, r in chain do
+		for k, v in r.AppliedTokens do
+			resolved[k] = v
+		end
+	end
+	return resolved
+end
+
+local function evalProperty(inner: any, ctx: {[string]: any}): any
+	if type(inner) == "table" and inner.__stylevar then
+		return eval(inner.__expr, ctx)
+	elseif type(inner) == "string" and inner:sub(1, 1) == "$" then
+		return ctx[inner:sub(2)]
+	else
+		return inner
+	end
+end
+
+local function updateRulesRecursive(rules: {Rule})
+	for _, ruleTbl in rules do
+		local ctx = buildRuleTokenContext(ruleTbl)
+		for k, v in ruleTbl.RawProperties do
+			local inner = unwrapValue(v)
+			local evaluated = evalProperty(inner, ctx)
+			ruleTbl.Rule:SetProperty(k, evaluated)
+			ruleTbl.AppliedProperties[k] = evaluated
+			ruleTbl.AppliedPropertyChanged:Fire(k, evaluated)
+		end
+		if #ruleTbl.ChildRules > 0 then
+			updateRulesRecursive(ruleTbl.ChildRules)
+		end
+	end
+end
+
 -- StyleToken metatable -------------------------------------------------------
 
 local TokenMethods = {} :: StyleToken;
-(TokenMethods :: any).__index = TokenMethods
+(TokenMethods :: any).__index = TokenMethods;
+(TokenMethods :: any).__tostring = function(self: StyleToken)
+	return `StyleToken({tostring(self.RawValue)})`
+end
 
 function TokenMethods:AddTag(tag: string)
 	self.Tags[tag] = true
@@ -173,8 +234,6 @@ function TokenMethods:RemoveTag(tag: string)
 	self.Tags[tag] = nil
 end
 
--- Re-evaluate RawValue against the sheet's current AppliedTokens and flush
--- the result into AppliedTokens + the underlying StyleSheet attribute.
 function TokenMethods:evaluate()
 	local sheet = self.Sheet
 	assert(sheet, "StyleToken must be initialized before calling evaluate()")
@@ -193,7 +252,6 @@ function TokenMethods:evaluate()
 	pcall(sheet.Sheet.SetAttribute, sheet.Sheet, name, applied)
 end
 
--- Bind the token to a Style and give it a name; called by filterRules/SetToken.
 function TokenMethods:init(sheet: Style, name: string)
 	assert(not self.__initialized, `StyleToken '${name}' has already been initialized.`)
 	self.__initialized = true
@@ -213,9 +271,6 @@ end
 ------------------------------------------------------------------------------
 
 local function filterRules(style: Style, rules: {[string | number]: any}, tokens: {[string]: StyleToken})
-	local sheet = style.Sheet
-
-	-- Collect tokens; plain values are auto-wrapped so Tokens is always {[string]: StyleToken}
 	for k, v in rules do
 		if type(k) == "number" then continue end
 		local tok: StyleToken
@@ -228,7 +283,6 @@ local function filterRules(style: Style, rules: {[string | number]: any}, tokens
 		rules[k] = nil
 	end
 
-	-- Pre-populate dependency map so topologicalSort has complete info
 	for name, tok in tokens do
 		local raw = tok.RawValue
 		if type(raw) == "table" and raw.__stylevar then
@@ -238,7 +292,6 @@ local function filterRules(style: Style, rules: {[string | number]: any}, tokens
 		end
 	end
 
-	-- Init tokens in dependency order (each token evaluates itself on init)
 	local sortedTokens = topologicalSort(tokens, style.TokenDependencies)
 	for _, tokenName in sortedTokens do
 		local tok = tokens[tokenName]
@@ -247,43 +300,14 @@ local function filterRules(style: Style, rules: {[string | number]: any}, tokens
 		end
 	end
 
-	-- Evaluate rule properties against the now-populated AppliedTokens
-	for _, rule in rules do
-		for k, v in rule.RawProperties do
-			local inner = unwrapValue(v)
-			if type(inner) == "table" and inner.__stylevar then
-				rule.PropertyDependencies[k] = getDependencies(inner.__expr)
-				rule.AppliedProperties[k] = eval(inner.__expr, style.AppliedTokens)
-			elseif type(inner) == "string" and inner:sub(1, 1) == "$" then
-				rule.PropertyDependencies[k] = getDependencies(inner)
-				rule.AppliedProperties[k] = style.AppliedTokens[inner:sub(2)]
-			else
-				rule.PropertyDependencies[k] = {}
-				rule.AppliedProperties[k] = inner
-			end
-		end
-	end
-
 	for _, rule: Rule in rules do
 		if rule.__initialized then continue end
 		rule:init(style)
-
-		for _, v in rule.AppliedProperties do
-			if type(v) ~= "string" then continue end
-			if v:sub(1, 1) ~= "$" then continue end
-			local tokenName = v:sub(2)
-			if sheet:GetAttribute(tokenName) == nil then
-				error(`token '${tokenName}' not found (selector '{rule.Rule.Selector}')`)
-			end
-		end
 	end
 end
 
 local StyleMethods = {} :: Style
-(StyleMethods :: any).__index = StyleMethods;
-(StyleMethods :: any).__tostring = function()
-	return "Style"
-end
+(StyleMethods :: any).__index = StyleMethods
 
 function StyleMethods:Link(gui)
 	local sheet = self.Sheet
@@ -294,12 +318,10 @@ function StyleMethods:Link(gui)
 	return link
 end
 
--- Returns the evaluated (applied) value for a token by name.
 function StyleMethods:GetToken(name: string): any
 	return self.AppliedTokens[name]
 end
 
--- Returns the live StyleToken object (with tags intact) for a token by name.
 function StyleMethods:GetRawToken(name: string): StyleToken?
 	return self.Tokens[name]
 end
@@ -324,7 +346,6 @@ end
 function StyleMethods:UpdateToken(name: string)
 	local reverseDeps = buildReverseDeps(self.TokenDependencies)
 
-	-- BFS to collect the token and all transitive dependents
 	local toUpdate = {[name] = true}
 	local queue = {name}
 	local queueIdx = 1
@@ -342,7 +363,6 @@ function StyleMethods:UpdateToken(name: string)
 		end
 	end
 
-	-- Re-evaluate affected tokens in dependency order
 	local tokensToUpdate = {}
 	for tokenName in toUpdate do
 		tokensToUpdate[tokenName] = self.Tokens[tokenName]
@@ -353,37 +373,6 @@ function StyleMethods:UpdateToken(name: string)
 		self.AppliedTokenChanged:Fire(tokenName, tok.AppliedValue)
 	end
 
-	-- Re-evaluate rule properties that depend on any updated token
-	local function updateRulesRecursive(rules: {Rule})
-		for _, ruleTbl in rules do
-			for propName, deps in ruleTbl.PropertyDependencies do
-				local needsUpdate = false
-				for _, dep in deps do
-					if toUpdate[dep] then
-						needsUpdate = true
-						break
-					end
-				end
-				if needsUpdate then
-					local v = ruleTbl.RawProperties[propName]
-					local inner = unwrapValue(v)
-					if type(inner) == "table" and inner.__stylevar then
-						local evaluated = eval(inner.__expr, self.AppliedTokens)
-						ruleTbl.Rule:SetProperty(propName, evaluated)
-						ruleTbl.AppliedProperties[propName] = evaluated
-						ruleTbl.AppliedPropertyChanged:Fire(propName, evaluated)
-					else
-						ruleTbl.Rule:SetProperty(propName, inner)
-						ruleTbl.AppliedProperties[propName] = inner
-						ruleTbl.AppliedPropertyChanged:Fire(propName, inner)
-					end
-				end
-			end
-			if #ruleTbl.ChildRules > 0 then
-				updateRulesRecursive(ruleTbl.ChildRules)
-			end
-		end
-	end
 	updateRulesRecursive(self.Rules)
 end
 
@@ -391,13 +380,13 @@ function StyleMethods:SetToken(name: string, value: (StyleToken | any)?, autoUpd
 	if not value then
 		local tok: StyleToken = self.Tokens[name]
 		if not tok then return end
-		
+
 		self.Tokens[name] = nil
 		self.AppliedTokens[name] = nil
 		self.TokenDependencies[name] = nil
-		
+
 		pcall(self.Sheet.SetAttribute, self.Sheet, name, nil)
-		
+
 		tok.Sheet = nil
 		tok.Name = nil
 		tok.__initialized = false
@@ -405,7 +394,7 @@ function StyleMethods:SetToken(name: string, value: (StyleToken | any)?, autoUpd
 
 		return
 	end
-	-- Accept either a StyleToken or a plain value (auto-wrap)
+
 	local tok: StyleToken
 	if type(value) == "table" and (value :: any).__styletoken then
 		tok = value
@@ -413,7 +402,6 @@ function StyleMethods:SetToken(name: string, value: (StyleToken | any)?, autoUpd
 		tok = Style.token(value :: any)
 	end
 
-	-- Allow re-init so the token re-registers under the (possibly new) name/sheet
 	tok.__initialized = false
 	tok:init(self, name)
 	self.Tokens[name] = tok
@@ -431,26 +419,6 @@ function StyleMethods:UpdateTokens()
 		self.AppliedTokenChanged:Fire(tokenName, tok.AppliedValue)
 	end
 
-	local function updateRulesRecursive(rules: {Rule})
-		for _, ruleTbl in rules do
-			for k, v in ruleTbl.RawProperties do
-				local inner = unwrapValue(v)
-				if type(inner) == "table" and inner.__stylevar then
-					local evaluated = eval(inner.__expr, self.AppliedTokens)
-					ruleTbl.Rule:SetProperty(k, evaluated)
-					ruleTbl.AppliedProperties[k] = evaluated
-					ruleTbl.AppliedPropertyChanged:Fire(k, evaluated)
-				else
-					ruleTbl.Rule:SetProperty(k, inner)
-					ruleTbl.AppliedProperties[k] = inner
-					ruleTbl.AppliedPropertyChanged:Fire(k, inner)
-				end
-			end
-			if #ruleTbl.ChildRules > 0 then
-				updateRulesRecursive(ruleTbl.ChildRules)
-			end
-		end
-	end
 	updateRulesRecursive(self.Rules)
 end
 
@@ -525,6 +493,8 @@ function StyleMethods:GetWithoutTags(...: string): {Rule}
 	return result
 end
 
+-- Rule metatable -------------------------------------------------------------
+
 local RuleMethods = {} :: Rule
 (RuleMethods :: any).__index = RuleMethods
 
@@ -568,55 +538,134 @@ function RuleMethods:GetWithoutTags(...: string): {Rule}
 	return result
 end
 
+function RuleMethods:GetTokens(): {[string]: any}
+	return buildRuleTokenContext(self)
+end
+
+function RuleMethods:GetToken(name: string): any
+	return self.AppliedTokens[name]
+end
+
+function RuleMethods:GetRawToken(name: string): StyleToken?
+	return self.Tokens[name]
+end
+
+function RuleMethods:SetToken(name: string, value: (StyleToken | any)?, autoUpdate: boolean)
+	if not value then
+		local tok: StyleToken = self.Tokens[name]
+		if not tok then return end
+		self.Tokens[name] = nil
+		self.AppliedTokens[name] = nil
+		self.TokenDependencies[name] = nil
+		tok.Sheet = nil
+		tok.Name = nil
+		tok.__initialized = false
+		self.TokenChanged:Fire(name, nil)
+		return
+	end
+
+	local tok: StyleToken
+	if type(value) == "table" and (value :: any).__styletoken then
+		tok = value
+	else
+		tok = Style.token(value :: any)
+	end
+	
+	self.AppliedTokens = buildRuleTokenContext(self)
+	local fakeSheet = {
+		AppliedTokens = self.AppliedTokens,
+		TokenDependencies = self.TokenDependencies,
+		Sheet = { SetAttribute = function() end },
+	}
+	
+	tok.__initialized = false
+	tok:init(fakeSheet :: any, name)
+	self.Tokens[name] = tok
+	self.TokenChanged:Fire(name, tok)
+
+	if autoUpdate then
+		self:UpdateToken(name)
+	end
+end
+
+function RuleMethods:UpdateToken(name: string)
+	local reverseDeps = buildReverseDeps(self.TokenDependencies)
+	local toUpdate = {[name] = true}
+	local queue = {name}
+	local queueIdx = 1
+	while queueIdx <= #queue do
+		local current = queue[queueIdx]
+		queueIdx += 1
+		local dependents = reverseDeps[current]
+		if dependents then
+			for _, dependent in dependents do
+				if not toUpdate[dependent] then
+					toUpdate[dependent] = true
+					table.insert(queue, dependent)
+				end
+			end
+		end
+	end
+	
+	self.AppliedTokens = buildRuleTokenContext(self)
+	local fakeSheet = {
+		AppliedTokens = self.AppliedTokens,
+		TokenDependencies = self.TokenDependencies,
+		Sheet = { SetAttribute = function() end },
+	}
+	local tokensToUpdate = {}
+	for tokenName in toUpdate do
+		tokensToUpdate[tokenName] = self.Tokens[tokenName]
+	end
+	for _, tokenName in topologicalSort(tokensToUpdate, self.TokenDependencies) do
+		local tok = self.Tokens[tokenName]
+		tok.Sheet = fakeSheet :: any
+		tok:evaluate()
+		self.AppliedTokenChanged:Fire(tokenName, tok.AppliedValue)
+	end
+
+	updateRulesRecursive({self})
+end
+
+function RuleMethods:UpdateTokens()
+	local fakeSheet = {
+		AppliedTokens = self.AppliedTokens,
+		TokenDependencies = self.TokenDependencies,
+		Sheet = { SetAttribute = function() end },
+	}
+	for _, tokenName in topologicalSort(self.Tokens, self.TokenDependencies) do
+		local tok = self.Tokens[tokenName]
+		tok.Sheet = fakeSheet :: any
+		tok:evaluate()
+		self.AppliedTokenChanged:Fire(tokenName, tok.AppliedValue)
+	end
+
+	updateRulesRecursive({self})
+end
+
 function RuleMethods:SetProperty(k, v)
-	local realProps = self.AppliedProperties
-	local props = self.RawProperties
-	local style = self.Sheet
+	local ctx = buildRuleTokenContext(self)
 	local inner = unwrapValue(v)
+	local evaluated = evalProperty(inner, ctx)
 
 	if type(inner) == "table" and inner.__stylevar then
 		self.PropertyDependencies[k] = getDependencies(inner.__expr)
-		realProps[k] = eval(inner.__expr, style.AppliedTokens)
 	elseif type(inner) == "string" and inner:sub(1, 1) == "$" then
-		self.PropertyDependencies[k] = getDependencies(inner)
-		realProps[k] = style.AppliedTokens[inner:sub(2, -1)]
+		self.PropertyDependencies[k] = {inner:sub(2)}
 	else
 		self.PropertyDependencies[k] = {}
-		realProps[k] = inner
 	end
-	self.Rule:SetProperty(k, realProps[k])
-	props[k] = v
+
+	self.Rule:SetProperty(k, evaluated)
+	self.RawProperties[k] = v
+	self.AppliedProperties[k] = evaluated
 	self.PropertyChanged:Fire(k, v)
 end
 
 function RuleMethods:AddRules(rules)
 	local sheet = self.Sheet
 	for _, rule in rules do
-		for k, v in rule.RawProperties do
-			local inner = unwrapValue(v)
-			if type(inner) == "table" and inner.__stylevar then
-				rule.PropertyDependencies[k] = getDependencies(inner.__expr)
-				rule.AppliedProperties[k] = eval(inner.__expr, sheet.AppliedTokens)
-			elseif type(inner) == "string" and inner:sub(1, 1) == "$" then
-				rule.PropertyDependencies[k] = getDependencies(inner)
-				rule.AppliedProperties[k] = self.Sheet.AppliedTokens[inner:sub(2, -1)]
-			else
-				rule.PropertyDependencies[k] = {}
-				rule.AppliedProperties[k] = inner
-			end
-		end
-	end
-
-	for _, rule in rules do
 		rule:init(sheet)
-		for _, v in rule.AppliedProperties do
-			if type(v) ~= "string" then continue end
-			if v:sub(1, 1) ~= "$" then continue end
-			local tokenName = v:sub(2)
-			if sheet.Tokens[tokenName] == nil then
-				error(`token '${tokenName}' not found (selector '{rule.Rule.Selector}')`)
-			end
-		end
 	end
 	for _, v in rules do
 		v.ParentRule = self
@@ -636,6 +685,13 @@ end
 
 function RuleMethods:SetName(new)
 	self.Rule:SetAttribute("Name", new)
+end
+
+function RuleMethods:GetChild(name)
+	for _, v in self.ChildRules do
+		if v:GetName() == name then return v end
+	end
+	error(`Couldnt find child Rule '{name}' of Rule '{self:GetName()}'`)
 end
 
 function RuleMethods:Destroy()
@@ -668,6 +724,8 @@ function RuleMethods:Destroy()
 	self.AppliedPropertyChanged:Destroy()
 	self.RuleAdded:Destroy()
 	self.RuleRemoved:Destroy()
+	self.TokenChanged:Destroy()
+	self.AppliedTokenChanged:Destroy()
 end
 
 function RuleMethods:init(sheet)
@@ -678,8 +736,6 @@ function RuleMethods:init(sheet)
 	sheet.SlctrToRule[self.Rule.Selector] = self
 
 	local rule = self.Rule
-	local realProps = self.AppliedProperties
-	local props = self.RawProperties
 
 	if not self.ParentRule then
 		rule.Parent = sheet.Sheet
@@ -687,12 +743,19 @@ function RuleMethods:init(sheet)
 		rule.Parent = self.ParentRule.Rule
 	end
 
+	local ctx = buildRuleTokenContext(self)
+	local realProps = self.AppliedProperties
+	local props = self.RawProperties
 	for k, v in props do
 		local inner = unwrapValue(v)
+		local evaluated = evalProperty(inner, ctx)
+		realProps[k] = evaluated
 		if type(inner) == "table" and inner.__stylevar then
-			realProps[k] = eval(inner.__expr, sheet.AppliedTokens)
+			self.PropertyDependencies[k] = getDependencies(inner.__expr)
+		elseif type(inner) == "string" and inner:sub(1, 1) == "$" then
+			self.PropertyDependencies[k] = {inner:sub(2)}
 		else
-			realProps[k] = inner
+			self.PropertyDependencies[k] = {}
 		end
 	end
 	rule:SetProperties(realProps)
@@ -723,28 +786,11 @@ function RuleMethods:init(sheet)
 	end
 
 	for _, childRule in rulesToInit do
-		for k, v in childRule.RawProperties do
-			local inner = unwrapValue(v)
-			if type(inner) == "table" and inner.__stylevar then
-				childRule.AppliedProperties[k] = eval(inner.__expr, sheet.AppliedTokens)
-			else
-				childRule.AppliedProperties[k] = inner
-			end
-		end
-	end
-
-	for _, childRule in rulesToInit do
 		childRule:init(sheet)
-		for _, v in childRule.AppliedProperties do
-			if type(v) ~= "string" then continue end
-			if v:sub(1, 1) ~= "$" then continue end
-			local tokenName = v:sub(2)
-			if sheet.Tokens[tokenName] == nil then
-				error(`token '${tokenName}' not found (selector '{childRule.Rule.Selector}')`)
-			end
-		end
 	end
 end
+
+-- Style constructors ---------------------------------------------------------
 
 function Style.var(expr: string): Expression
 	return {
@@ -811,8 +857,13 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		Tags = {},
 		PropertyDependencies = {},
 
-		PropertyChanged = SimpleSignal.new(),
+		Tokens = {},
+		AppliedTokens = {},
+		TokenDependencies = {},
+		TokenChanged = SimpleSignal.new(),
+		AppliedTokenChanged = SimpleSignal.new(),
 		AppliedPropertyChanged = SimpleSignal.new(),
+		PropertyChanged = SimpleSignal.new(),
 		RuleAdded = SimpleSignal.new(),
 		RuleRemoved = SimpleSignal.new()
 	} :: Rule, RuleMethods) :: any

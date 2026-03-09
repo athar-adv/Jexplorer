@@ -10,6 +10,7 @@ local InstanceVisibilityEditor = require("../Editors/InstanceVisibilityEditor")
 local ContextMenuEditor = require("../Editors/ContextMenuEditor")
 local JextensionEditor = require("../Editors/JextensionEditor")
 local StateEditor = require("../Editors/StateEditor")
+local ExplorerFrameEditor = require("../Editors/ExplorerFrameEditor")
 
 local UniPlugin = require("../UniPlugin")(plugin)
 
@@ -120,6 +121,16 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 					topbarMenuDropdown:Hide()
 				end
 			)
+			PluginUI.createButtonWithIcon(
+				topbarMenuDropdown, 
+				"Open ExplorerFrame Editor",
+				`rbxasset://studio_svg_textures/Shared/InsertableObjects/{themeExtension}/Standard/Frame.png`,
+				Vector2.zero, Vector2.new(16, 16),
+				function()
+					ExplorerFrameEditor.Widget.Enabled = true
+					topbarMenuDropdown:Hide()
+				end
+			)
 
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButtonWithIcon(
@@ -140,6 +151,32 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 				Manager.VirtualScroller.update(Manager, false)
 			end)
 			PluginUI.createSeparator(topbarMenuDropdown)
+			PluginUI.createButton(topbarMenuDropdown, "Save State", function()
+				topbarMenuDropdown:Hide()
+				local saver = Manager.saveState()
+				saver.all()
+				saver.save()
+				
+				local PRINT_SAVEDSTATE_PREFIX = "SavedState: "
+				local function getPrintableTable(tbl): {[any]: any}
+					local newtbl = {}
+					for k, v in tbl do
+						if typeof(v) == "table" then
+							if #v > 10 then
+								v = "Array"
+							else
+								v = getPrintableTable(v)
+							end
+						end
+						newtbl[k] = v
+					end
+					return newtbl
+				end
+				local function onsaved()
+					print(PRINT_SAVEDSTATE_PREFIX, getPrintableTable(SavedState.load(Manager)))
+				end
+				onsaved()
+			end)
 			PluginUI.createButton(topbarMenuDropdown, "Kill Jexplorer", function()
 				UniPlugin:close()
 				plugin:Destroy()

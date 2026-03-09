@@ -254,6 +254,14 @@ end
 
 local aselFuncs = {} :: {[string]: (unpackArgs: (count: number) -> ...any) -> ...any}
 
+function aselFuncs.print(args)
+	return print(args(1))
+end
+
+function aselFuncs.error(args)
+	return error(args(1))
+end
+
 function aselFuncs.vec2(args)
 	return Vector2.new(args(3))
 end
@@ -489,6 +497,12 @@ function aselFuncs.brightness(args)
 	return getColorBrightness(args(1))
 end
 
+function aselFuncs.brightnessWithTransparency(args)
+	local color, transparency, backgroundColor = args(3)
+	local mixed = color:Lerp(backgroundColor, transparency)
+	return getColorBrightness(mixed)
+end
+
 local function callFunc(name, args)
 	local function unpackArgs(count)
 		if count == -1 then
@@ -539,6 +553,7 @@ local function evaluateExpression(expr: string, tokens: { [string]: any }): any
 	local function parseVariable()
 		pos += 1
 		local name = parseIdentifier()
+		if name == "__tokens" then return tokens end
 		local val = tokens[name]
 		while type(val) == "table" and val.__stylevar do
 			val = evaluateExpression(val.__expr, tokens)

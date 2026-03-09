@@ -80,7 +80,12 @@ migrations = {
 			end
 		end
 	end,
-	v23_to_v24 = reset_styles
+	v23_to_v24 = reset_styles,
+	v24_to_v25 = noop,
+	v25_to_v26 = function(self, state, manager)
+		reset_settings(self, state, manager, "Keybinds")
+	end,
+	v26_to_v27 = reset_styles
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

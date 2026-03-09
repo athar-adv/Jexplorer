@@ -47,7 +47,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["ScrollbarColor"] = var "brightness($BackgroundColor) > 0.5 ? $DarkerBackgroundColor - rgb(70, 70, 70) : $DarkerBackgroundColor - rgb(210, 210, 210)",
 		["QueryInputTextSize"] = 11,
 		["Theme"] = var "brightness($BackgroundColor) > 0.5 ? 'Light' : 'Dark'",
-		["DownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/DropdownArrow.png'",
+		
+		["LightArrowImage"] = "rbxasset://studio_svg_textures/Shared/Navigation/Dark/Standard/ArrowDown.png",
+		["DarkArrowImage"] = "rbxasset://studio_svg_textures/Shared/Navigation/Light/Standard/ArrowDown.png",
+		["InvertedArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$SelectedTheme]/Standard/ArrowDown.png'",
+		["ArrowImage"] = var "$LegacyDownArrowImage",
+		
 		["LegacyDownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/ArrowDown.png'",
 		["FadedColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)",
 		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
@@ -298,7 +303,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		),
 		rule("ArrowStyle",
 			getClassTagSlctr(".JEXP_Arrow", "ImageLabel", "ImageButton"), 1, {
-				Image = "$LegacyDownArrowImage",
+				Image = "$ArrowImage",
 				ImageColor3 = "$MonochromeColor",
 				Size = "$IconSizeOffset"
 			}
@@ -554,7 +559,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			}),
 			rule("ArrowStyle", "> #Main > #Arrow", 1, {
 				ImageColor3 = "$SelectedMonochromeColor",
-				Image = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$SelectedTheme]/Standard/ArrowDown.png'",
+				Image = "$InvertedArrowImage"
 			}),
 			rule("InsertButtonStyle", "> #Main > #Insert ImageButton", 10, {
 				ImageColor3 = "$SelectedMonochromeColor"
