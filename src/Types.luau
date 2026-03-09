@@ -162,9 +162,12 @@ export type FrameState = {
 	arrow: GuiButton,
 	hasPackageLink: boolean,
 	insertInstanceButton: GuiButton,
+	reclassButton: GuiButton,
 	currentFrameName: string?,
 	packageLinkIconVisible: boolean,
-	pendingChangesIconVisible: boolean
+	pendingChangesIconVisible: boolean,
+	reclassIconVisible: boolean,
+	currentNameBoundX: number
 }
 
 export type Components = {
@@ -305,6 +308,9 @@ export type ExplorerFrameLib = {
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
 	
+	updateRightEdgeIcons: (Manager, frame: ExplorerFrame, containerWidth: number?, frameX: number?, entity: ExplorerEntity?, frameState: FrameState?) -> {
+		reclassIconIsVisible: boolean
+	}?,
 	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3?) -> (),
 }
 
@@ -320,9 +326,9 @@ export type VirtualScroller = {
 	IsVirtualScrollerUpdating: boolean
 }
 
-export type InsertMenu = {
+export type ClassSelectionMenu = {
 	init: (Manager) -> (),
-	show: (Manager, buttonAbsolutePos: Vector2, buttonAbsoluteSize: Vector2) -> (),
+	show: (Manager, buttonAbsolutePos: Vector2, buttonAbsoluteSize: Vector2, onSelectClass: (class: string) -> ()) -> (),
 }
 
 export type DeferredTaskScheduler = {
@@ -352,7 +358,7 @@ export type Manager = {
 	ExplorerFrame: ExplorerFrameLib,
 	HierarchyState: HierarchyState,
 	VirtualScroller: VirtualScroller,
-	InsertMenu: InsertMenu,
+	ClassSelectionMenu: ClassSelectionMenu,
 	DeferredTaskScheduler: DeferredTaskScheduler,
 
 	PluginActions: {[string]: PluginAction},
@@ -381,6 +387,7 @@ export type Manager = {
 	TabFrameToTab: {[Instance]: Tab},
 	
 	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string) -> PluginAction,
+	takeContextTarget: () -> ExplorerEntity,
 
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
 	connectInputEnded: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
@@ -442,6 +449,9 @@ export type Manager = {
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
 	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
+	
+	convertEntitiesInto: (entities: {ExplorerEntity}, class: string) -> {ExplorerEntity},
+	insertClassInto: (entity: ExplorerEntity, class: string) -> Instance?,
 	
 	saveState: () -> {
 		save: () -> (),

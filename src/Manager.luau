@@ -52,9 +52,10 @@ local JextensionEditor = require("./Editors/JextensionEditor")
 local HierarchyState = require("./Shared/HierarchyState")
 local ExplorerFrame = require("./Shared/ExplorerFrame")
 local VirtualScroller = require("./Shared/VirtualScroller")
-local InsertMenu = require("./Shared/InsertMenu")
+local ClassSelectionMenu = require("./Shared/ClassSelectionMenu")
 local CreateOptionsDropdown = require("./Shared/CreateOptionsDropdown")
 local Constants = require("./Constants")
+local InsertInfo = require("./Shared/Info/InstanceInsertInfo")
 
 local rule = Style.rule
 local cleanup = ItemGroup.cleanup
@@ -62,6 +63,7 @@ local profilebegin, profileend = debug.profilebegin, debug.profileend
 local beginRecording, finishRecording = InstanceRecord.beginRecording, InstanceRecord.finishRecording
 local getId = PluginUI.getId
 local rawnewindex = RawInst.rawnewindex
+local rawindex = RawInst.rawindex
 
 local downKeys: {[Enum.KeyCode]: boolean?} = {}
 local activeInputs: {[Enum.UserInputType]: boolean?} = {}
@@ -150,7 +152,7 @@ local Manager = {
 	ExplorerFrame = ExplorerFrame,
 	HierarchyState = HierarchyState,
 	VirtualScroller = VirtualScroller,
-	InsertMenu = InsertMenu,
+	ClassSelectionMenu = ClassSelectionMenu,
 	DeferredTaskScheduler = {
 		HierarchyChildrenMapNeedsUpdate = false
 	},
@@ -187,7 +189,7 @@ end
 local function pasteCopiedInstances(world: World)
 	local state = Manager.WidgetState
 	local components = Manager.Components
-	local targetEntity = state.ContextTarget
+	local targetEntity = Manager.takeContextTarget()
 	if not targetEntity then return end
 	local targetInstance = world:get(targetEntity, components.Instance)
 	assert(targetInstance, "target instance not found")
@@ -600,6 +602,137 @@ local function createPluginAction(actionId: string, text: string, statusTip: str
 	action.Name = actionId
 	--action.Parent = Manager.Storage.pluginActions
 	return action
+end
+
+function Manager.convertEntitiesInto(entities, className: string)
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+	
+	local id = ChangeHistoryService:TryBeginRecording("ConvertInstTo", `Convert Instance To {className}`)
+
+	local toConvert: {{name: string, parent: Instance?, parentEntity: ExplorerEntity?, inst: Instance, entity: any, children: {ExplorerEntity}}} = {}
+	for _, entity in entities do
+		local inst = world:get(entity, components.Instance)
+		if not inst then continue end
+
+		local childInstances = {}
+		local tbl: {ExplorerEntity} = {}
+		local children = HierarchyState.getChildren(entity)
+		if children then
+			for _, v in children do
+				table.insert(tbl, v)
+			end
+		end
+
+		--world:add(entity, components.AncestryLocked)
+		table.insert(toConvert, {
+			name = inst.Name,
+			parent = inst.Parent,
+			parentEntity = world:parent(entity),
+			entity = entity,
+			children = tbl,
+			inst = inst,
+		})
+	end
+	
+	local newProps = getClassPropMap(className)
+
+	local modelEntities = {}
+	for _, info in toConvert do
+		if not info.parent then continue end
+		local model = Instance.new(className)
+		
+		-- Reassign props
+		local originalProps = getClassPropMap(info.inst.ClassName)
+		for k, oriProp in originalProps do
+			local newProp = newProps[k]
+			
+			if not newProp then continue end
+			local write = newProp.Permits.Write
+			if not write then continue end
+			if not SecurityCapabilities.fromCurrent():Contains(write) then continue end
+			if newProp.Type.ScriptType ~= oriProp.Type.ScriptType then continue end
+			rawnewindex(model, k, rawindex(info.inst, k))
+		end
+
+		for _, tag in info.inst:GetTags() do
+			model:AddTag(tag)
+		end
+		for k, v in info.inst:GetAttributes() do
+			model:SetAttribute(k, v)
+		end
+
+		local modelEnt = HierarchyState.createInstanceEntity(Manager, model, info.parentEntity)
+		assert(modelEnt)
+
+		local frame = world:get(info.entity, components.Frame)
+		if frame then
+			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+		end
+
+		world:add(modelEnt, components.AncestryLocked)
+		table.insert(modelEntities, modelEnt)
+
+		for _, childEntity in info.children do
+			world:add(childEntity, components.AncestryLocked)
+		end
+		local isExpanded = Manager.isExplorerEntityExpanded(info.entity)
+		for _, childEntity in info.children do
+			local childInst = world:get(childEntity, components.Instance)
+			if not childInst then continue end
+
+			local oldParentEntity = Manager.parentOf(childEntity)
+			Manager.updateParent(childEntity, modelEnt)
+
+			if oldParentEntity then
+				VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
+			end
+
+			childInst.Parent = model
+			HierarchyState.updateEntityOrder(Manager, childEntity)
+
+			--local dragFrame = world:get(childEntity, components.Frame)
+			--if dragFrame then
+			--	ExplorerFrame.queueForExplorerFrameReuse(Manager, dragFrame)
+			--end
+		end
+		HierarchyState.ChildrenMap[info.entity] = nil
+
+		ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+		if isExpanded then
+			world:add(modelEnt, components.Expanded)
+			HierarchyState.invalidateEntityStateCache(modelEnt)
+			ExplorerFrame.updateExpandedVisuals(Manager)
+		else
+			VirtualScroller.invalidateEntityHeightCache(Manager, modelEnt)
+		end
+
+		Manager.updateParent(info.entity, nil)
+		info.inst.Parent = nil
+		HierarchyState.cleanupEntity(Manager, info.entity)
+
+		model.Parent = info.parent
+		for _, childEntity in info.children do
+			world:remove(childEntity, components.AncestryLocked)
+		end
+	end
+
+	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+
+	for _, v in modelEntities do
+		world:remove(v, components.AncestryLocked)
+	end
+
+	if id then
+		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+	end
+
+	task.delay(0.1, function()
+		Manager.setExplorerEntitiesAsSelection(modelEntities, true)
+	end)
+	
+	return modelEntities
 end
 
 function Manager.triggerEscapeTarget()
@@ -1173,6 +1306,57 @@ function Manager.getEntityAt(x, y, filteredParent)
 	end
 	
 	return newParentFrame, entity
+end
+
+function Manager.insertClassInto(entity: ExplorerEntity, class: string)
+	local state = Manager.WidgetState
+	local world = state.World
+	local components = Manager.Components
+
+	local id = ChangeHistoryService:TryBeginRecording("CreateInstance", "Create Instance")
+
+	local entityInst = world:get(entity, components.Instance)
+	if not entityInst then
+		if id then
+			ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
+		end
+		return 
+	end
+
+	local success, inst = pcall(Instance.new, class)
+	if not success then warn(inst) return end
+
+	local infos = {}
+	for k, v in InsertInfo do
+		if inst:IsA(k) then table.insert(infos, v) end
+	end
+	inst.Name = class
+	for _, info in infos do
+		for k, v in info.Props do
+			pcall(rawnewindex, inst, k, v)
+		end
+		if info.SideEffect then
+			info.SideEffect(inst)
+		end
+	end
+
+	inst.Parent = entityInst
+	--if not Manager.isExplorerEntityExpanded(entity) then
+	--	--toggleExpand(world, entity, true, true)
+	--	world:add(entity, components.Expanded)
+	--	Manager.HierarchyState.invalidateEntityStateCache(entity)
+	--	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	--end
+
+	--local childEntity = assert(Manager.HierarchyState.createInstanceEntity(Manager, inst, entity))
+	--Manager.HierarchyState.queueForOnChildAdded(entity, childEntity)
+
+	game.Selection:Set({inst})
+
+	if id then
+		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
+	end
+	return inst
 end
 
 local function getColorBrightness(color)
@@ -1914,7 +2098,7 @@ local function initRegisterPluginMenusAndActions(
 			"Jexplorer_ContextMenu_InsertFromFile", "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
 		)
 		insertFromFileAction.Triggered:Connect(function()
-			local entity = state.ContextTarget
+			local entity = Manager.takeContextTarget()
 			if not entity then return end
 
 			local instance = world:get(entity, components.Instance)
@@ -1964,7 +2148,12 @@ local function initRegisterPluginMenusAndActions(
 		)
 		insertObjectAction.Triggered:Connect(function()
 			local mousePos = state.Widget:GetRelativeMousePosition()
-			InsertMenu.show(Manager, mousePos, Vector2.zero)
+			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
+				local entity = Manager.takeContextTarget()
+				if not entity then return end
+
+				Manager.insertClassInto(entity, class)
+			end)
 		end)
 	end
 
@@ -1997,7 +2186,7 @@ local function initRegisterPluginMenusAndActions(
 			"Jexplorer_ContextMenu_SaveToFile", "Save to File...", "Saves an Instance as a local file."
 		)
 		saveToFileAction.Triggered:Connect(function()
-			local target = state.ContextTarget
+			local target = Manager.takeContextTarget()
 			local name = "Instance"
 			if target then name = Manager.NameCache[target] end
 
@@ -2103,7 +2292,7 @@ local function initRegisterPluginMenusAndActions(
 			"Jexplorer_ContextMenu_OpenVersionHistory", "Open Version History", "Opens the version history viewer."
 		)
 		openVersionHistoryAction.Triggered:Connect(function()
-			local target = state.ContextTarget
+			local target = Manager.takeContextTarget()
 			if not target then return end
 
 			local inst = world:get(target, components.Instance)
@@ -2273,7 +2462,7 @@ local function initRegisterPluginMenusAndActions(
 			"Jexplorer_ContextMenu_Ungroup", "Ungroup", "Ungroups the selected Instances."
 		)
 		ungroupAction.Triggered:Connect(function()
-			local target = state.ContextTarget
+			local target = Manager.takeContextTarget()
 			if not target then return end
 
 			local entities = {}
@@ -2315,132 +2504,16 @@ local function initRegisterPluginMenusAndActions(
 			end
 		end)
 	end
-
-	local toFolderAction, toModelAction do
-		local function convertInstTo(className: string)
-			local id = ChangeHistoryService:TryBeginRecording("ConvertInstTo", `Convert Instance To {className}`)
-
-			local toConvert: {{name: string, parent: Instance?, parentEntity: ExplorerEntity?, inst: Instance, entity: any, children: {ExplorerEntity}}} = {}
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance)
-				if not inst then continue end
-
-				local childInstances = {}
-				local tbl: {ExplorerEntity} = {}
-				local children = HierarchyState.getChildren(entity)
-				if children then
-					for _, v in children do
-						table.insert(tbl, v)
-					end
-				end
-
-				--world:add(entity, components.AncestryLocked)
-				table.insert(toConvert, {
-					name = inst.Name,
-					parent = inst.Parent,
-					parentEntity = world:parent(entity),
-					entity = entity,
-					children = tbl,
-					inst = inst,
-				})
-			end
-
-			local modelEntities = {}
-			for _, info in toConvert do
-				if not info.parent then continue end
-				local model = Instance.new(className)
-				model.Name = info.name
-				
-				for _, tag in info.inst:GetTags() do
-					model:AddTag(tag)
-				end
-				for k, v in info.inst:GetAttributes() do
-					model:SetAttribute(k, v)
-				end
-
-				local modelEnt = HierarchyState.createInstanceEntity(Manager, model, info.parentEntity)
-				assert(modelEnt)
-
-				local frame = world:get(info.entity, components.Frame)
-				if frame then
-					ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
-				end
-
-				world:add(modelEnt, components.AncestryLocked)
-				table.insert(modelEntities, modelEnt)
-
-				for _, childEntity in info.children do
-					world:add(childEntity, components.AncestryLocked)
-				end
-				local isExpanded = Manager.isExplorerEntityExpanded(info.entity)
-				for _, childEntity in info.children do
-					local childInst = world:get(childEntity, components.Instance)
-					if not childInst then continue end
-
-					local oldParentEntity = Manager.parentOf(childEntity)
-					Manager.updateParent(childEntity, modelEnt)
-
-					if oldParentEntity then
-						VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
-					end
-
-					childInst.Parent = model
-					HierarchyState.updateEntityOrder(Manager, childEntity)
-
-					--local dragFrame = world:get(childEntity, components.Frame)
-					--if dragFrame then
-					--	ExplorerFrame.queueForExplorerFrameReuse(Manager, dragFrame)
-					--end
-				end
-				HierarchyState.ChildrenMap[info.entity] = nil
-
-				ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-				if isExpanded then
-					world:add(modelEnt, components.Expanded)
-					HierarchyState.invalidateEntityStateCache(modelEnt)
-					ExplorerFrame.updateExpandedVisuals(Manager)
-				else
-					VirtualScroller.invalidateEntityHeightCache(Manager, modelEnt)
-				end
-				
-				Manager.updateParent(info.entity, nil)
-				info.inst.Parent = nil
-				HierarchyState.cleanupEntity(Manager, info.entity)
-				
-				model.Parent = info.parent
-				for _, childEntity in info.children do
-					world:remove(childEntity, components.AncestryLocked)
-				end
-			end
-
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-
-			for _, v in modelEntities do
-				world:remove(v, components.AncestryLocked)
-			end
-
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-			end
-
-			task.delay(0.1, function()
-				Manager.setExplorerEntitiesAsSelection(modelEntities, true)
+	
+	local convertSelectionAction do
+		convertSelectionAction = createPluginAction(
+			"Jexplorer_ContextMenu_ConvertSelection", "Convert Selection", "Turns selected instances into specified class.."
+		)
+		convertSelectionAction.Triggered:Connect(function()
+			local mousePos = state.Widget:GetRelativeMousePosition()
+			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
+				Manager.convertEntitiesInto(state.CurrentSelection, class)
 			end)
-		end
-
-		toFolderAction = createPluginAction(
-			"IntoFolder", "Into Folder", "Turns selected instances into Folders.", 
-			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Folder.png"
-		)
-		toFolderAction.Triggered:Connect(function()
-			convertInstTo("Folder")
-		end)
-		toModelAction = createPluginAction(
-			"IntoModel", "Into Model", "Turns selected instances into Models.", 
-			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Model.png"
-		)
-		toModelAction.Triggered:Connect(function()
-			convertInstTo("Model")
 		end)
 	end
 
@@ -2449,7 +2522,7 @@ local function initRegisterPluginMenusAndActions(
 			"Help", "Open Documentation", "Opens the API wiki page for this Instance."
 		)
 		helpAction.Triggered:Connect(function()
-			local target = state.ContextTarget
+			local target = Manager.takeContextTarget()
 			if not target then return end
 
 			local inst = Manager.instanceOf(target)
@@ -2648,6 +2721,101 @@ local function initRegisterPluginMenusAndActions(
 			PluginManager:ExportSelection("Object")
 		end)
 	end
+	
+	local goToPartAction do
+		goToPartAction = createPluginAction(
+			"Jexplorer_ContextMenu_GoToPart",
+			"Go To Part",
+			"Teleports the Workspace.CurrentCamera to the selected Part."
+		)
+		
+		goToPartAction.Triggered:Connect(function()
+			local target = Manager.takeContextTarget()
+			local part = Manager.instanceOf(target)
+			if not part then return end
+			if not part:IsA("PVInstance") then return end
+
+			local camera = workspace.CurrentCamera
+			if not camera then return end
+
+			local partCf = part:GetPivot()
+			local partSize
+			if part:IsA("BasePart") then
+				partSize = part.Size
+			elseif part:IsA("Model") then
+				partSize = part:GetExtentsSize()
+			else
+				error("Options exhausted for getting part size")
+			end
+
+			local dist = partSize.Magnitude + 4
+			local camPos = partCf.Position + Vector3.new(dist * 0.6, dist * 0.4, dist * 0.6)
+
+			camera.CFrame = CFrame.lookAt(camPos, partCf.Position)
+			camera.Focus = partCf
+		end)
+	end
+	
+	local weldTogetherAction do
+		weldTogetherAction = createPluginAction(
+			"Jexplorer_ContextMenu_WeldTogetherPart",
+			"Weld Together",
+			"Prompts to weld all selected BaseParts to eachother."
+		)
+		
+		weldTogetherAction.Triggered:Connect(function()
+			local models = {}
+			local parts = {}
+
+			for _, entity in state.CurrentSelection do
+				local inst = world:get(entity, components.Instance)
+				if not inst then continue end
+
+				if inst:IsA("Model") then
+					table.insert(models, inst)
+				elseif inst:IsA("BasePart") then
+					table.insert(parts, inst)
+				end
+			end
+
+			local function weldTo(primary, targets)
+				for _, part in targets do
+					if part == primary then continue end
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0 = primary
+					weld.Part1 = part
+					weld.Parent = primary
+				end
+			end
+
+			local function getPrimaryPart(model: Model)
+				return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+			end
+
+			if #models == 1 and #parts > 0 then
+				-- 1 model + multiple baseparts: weld all parts to model's primary
+				local primary = getPrimaryPart(models[1])
+				if primary then
+					weldTo(primary, parts)
+				else
+					-- No primary, weld parts to each other
+					weldTo(parts[1], { table.unpack(parts, 2) })
+				end
+
+			elseif #models > 1 then
+				-- Multiple models: weld their primary parts to each other
+				local primaries = {}
+				for _, model in models do
+					table.insert(primaries, getPrimaryPart(model))
+				end
+				weldTo(primaries[1], { table.unpack(primaries, 2) })
+
+			elseif #parts > 1 then
+				-- Only baseparts: weld to each other
+				weldTo(parts[1], { table.unpack(parts, 2) })
+			end
+		end)
+	end
 
 	Manager.PluginActions = {
 		OpenVersionHistory = openVersionHistoryAction,
@@ -2682,11 +2850,13 @@ local function initRegisterPluginMenusAndActions(
 		GroupAsModel = groupAsModelAction,
 		GroupAsFolder = groupAsFolderAction,
 
-		IntoFolder = toFolderAction,
-		IntoModel = toModelAction,
+		ConvertInto = convertSelectionAction,
 
 		Ungroup = ungroupAction,
 		ChangeIconColor = changeIconColorAction,
+		
+		Part_WeldTogether = weldTogetherAction,
+		Part_GoToPart = goToPartAction,
 
 		Tab_EditName = tabEditName,
 		Tab_EditIcon = tabEditIcon,
@@ -2725,15 +2895,8 @@ local function initRegisterPluginMenusAndActions(
 				"GroupAsModel"
 			}
 		},
-		{
-			Id = "Menu.ConvertInto",
-			Title = "Convert Into",
-			{
-				"IntoModel",
-				"IntoFolder"
-			}
-		},
-
+		
+		"ConvertInto",
 		"HideClass",
 		"Ungroup",
 
@@ -2767,9 +2930,84 @@ local function initRegisterPluginMenusAndActions(
 
 		"Help"
 	}
+	
 	local instanceContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_InstanceContextMenu", true),
 		state.DefaultInstanceActionsArray
+	)
+	
+	local basePartContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_BasePartContextMenu", true),
+		{
+			{
+				Id = "Menu.VersionControl",
+				Title = "Version Control",
+				{
+					"OpenVersionHistory",
+					"Append",
+					"Commit",
+					"Discard"
+				}
+			},
+
+			"---",
+
+			"Copy",
+			"PasteInto",
+			"Delete",
+			"Duplicate",
+			"Rename",
+
+			"---",
+
+			{
+				Id = "Menu.GroupAs",
+				Title = "Group As",
+				{
+					"GroupAsFolder",
+					"GroupAsModel"
+				}
+			},
+
+			"ConvertInto",
+			"HideClass",
+			"Ungroup",
+
+			"---",
+
+			"SelectChildren",
+			"CollapseAll",
+
+			"---",
+			
+			"Part_WeldTogether",
+			"Part_GoToPart",
+			
+			"---",
+
+			"InsertFromFile",
+			"InsertObject",
+			"SaveToFile",
+			"SaveToRoblox",
+
+			{
+				Id = "Menu.ExportAs",
+				Title = "Export As",
+				{
+					"ExportAsObj"
+				}
+
+			},
+
+			"---",
+
+			"RemoveFromTab",
+			"ChangeIconColor",
+
+			"---",
+
+			"Help"
+		}
 	)
 
 	local serviceContextMenu = Manager.createContextMenu(
@@ -2841,6 +3079,15 @@ local function initRegisterPluginMenusAndActions(
 			end,
 			Priority = 1
 		},
+		BasePart = {
+			Menu = basePartContextMenu,
+			Condition = function(_, target)
+				local inst = world:get(target, components.Instance)
+				if not inst then return false end
+				return inst:IsA("BasePart")
+			end,
+			Priority = 2
+		}
 	}
 	state.MiscContextMenus = {
 		Tab = tabMenu,
@@ -3410,6 +3657,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	
 	-->> Initialize connections
 	return {
+		jexplorerUi:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			VirtualScroller.update(Manager, false)
+		end),
 		Manager.connectInputBegan(function(input)
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
 			downKeys[input.KeyCode] = true
@@ -3891,6 +4141,19 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 	}
 end
 
+function Manager.takeContextTarget()
+	local state = Manager.WidgetState
+	local target = state.ContextTarget
+	if target then
+		state.ContextTarget = nil
+		return target
+	else
+		local selection = state.CurrentSelection[1]
+		assert(selection, "Could not get ContextTarget: neither WidgetState.ContextTarget or CurrentSelection are occupied.")
+		return selection
+	end
+end
+
 function Manager.init(connections, jexplorerWidget)
 	local instances = connections:extend(cleanup.destroy)
 
@@ -4002,7 +4265,7 @@ function Manager.init(connections, jexplorerWidget)
 
 	initRegisterPluginMenusAndActions(state, components)
 		
-	InsertMenu.init(Manager)
+	ClassSelectionMenu.init(Manager)
 	
 	local tagAddedSignals, tagRemovedSignals, tagAdded, tagRemoved = initRegisterTagListeners(state, components)
 	local scrollTrackerConnection, scrollTrackerThread = initStartTrackScrolling(state)

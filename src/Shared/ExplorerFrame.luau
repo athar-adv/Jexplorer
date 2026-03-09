@@ -12,6 +12,7 @@ local ClassIcon = require("./Small/ClassIcon")
 local Style = require("./Style")
 local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
+local stickToRightEdge = require("./Small/StickToRightEdge")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -33,7 +34,11 @@ local GLOBAL_FRAME_CACHE_SIZE = 50  -- L2 cache: large, slower (parented to nil)
 local INSTANCE_ICON = ClassIcon.getIcon("Instance")
 assert(INSTANCE_ICON)
 
+local RECLASS_ICON_PADDING = 8
+
 local globalFramePool = {}
+
+local ExplorerFrame = {} :: Types.ExplorerFrameLib
 
 local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected: boolean)
 	local frameInst = assert(Manager.frameOf(frame))
@@ -251,25 +256,46 @@ local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Ty
 	end
 end
 
-local function onMouseEnter(Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, frame: Instance & any, instanceName: TextBox, insertInstanceButton: GuiButton)
+local function onMouseEnter(
+	Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState,
+	frame: Instance & any, instanceName: TextBox, insertInstanceButton: GuiButton, reclassButton: GuiButton, frameState: Types.FrameState
+)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
 	local bounds: Vector2 = rawindex(instanceName, "TextBounds")
 	local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-	insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-
-	insertInstanceButton.Visible = true
+	frameState.currentNameBoundX = x
+	
+	do
+		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+		insertInstanceButton.Visible = true
+	end
+	do
+		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
+		frameState.reclassIconVisible = true
+		local info = ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
+		if info and info.reclassIconIsVisible then
+			reclassButton.Visible = true
+		end
+	end
+	
 	if state.IsDragging then
 		frame:AddTag("JEXP_DropTarget")
 	end
 end
 
-local function onMouseLeave(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, frame: Instance & any, insertInstanceButton: GuiButton)
+local function onMouseLeave(
+	frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, frame: Instance & any,
+	insertInstanceButton: GuiButton, reclassButton: GuiButton, frameState: Types.FrameState
+)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
 	insertInstanceButton.Visible = false
+	reclassButton.Visible = false
+	frameState.reclassIconVisible = false
+	
 	if frame:HasTag("JEXP_DropTarget") then
 		frame:RemoveTag("JEXP_DropTarget")
 	end
@@ -280,18 +306,39 @@ local function onInsertActivated(Manager: Manager, frameWorld: Types.World, fram
 	if not entity then return end
 
 	state.ContextTarget = entity
-	Manager.InsertMenu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize)
+	Manager.ClassSelectionMenu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize, function(class)
+		local entity = Manager.WidgetState.ContextTarget
+		if not entity then return end
+		
+		Manager.insertClassInto(entity, class)
+	end)
 end
 
-local function onInstanceNameFocusedTyping(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, instanceName: TextBox, insertInstanceButton: GuiButton, frame: Instance & any, currentTypingConnRef: {conn: RBXScriptConnection?})
+local function onReclassActivated(Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, reclassButton: GuiButton)
+	local entity = frameWorld:get(frameEntity, components.Entity)
+	if not entity then return end
+
+	state.ContextTarget = entity
+	Manager.ClassSelectionMenu.show(Manager, reclassButton.AbsolutePosition, reclassButton.AbsoluteSize, function(class)
+		local entity = Manager.WidgetState.ContextTarget
+		if not entity then return end
+
+		Manager.convertEntitiesInto({entity}, class)
+	end)
+end
+
+local function onInstanceNameFocusedTyping(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, instanceName: TextBox,
+	insertInstanceButton: GuiButton, reclassButton: GuiButton, frame: Instance & any, currentTypingConnRef: {conn: RBXScriptConnection?}, frameState: Types.FrameState)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
 	currentTypingConnRef.conn = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function()
 		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
 		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		frameState.currentNameBoundX = x
+		
 		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-		frame.Main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
+		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
 	end)
 end
 
@@ -350,6 +397,7 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 
 	local overlayFrame = main.Overlay
 	local selectInstanceButton = overlayFrame.Select
+	local reclassButton = main.Reclass
 	local insertInstanceButton = main.Insert
 
 	local connections = state.Connections:extend(cleanup.disconnect)
@@ -371,7 +419,10 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		arrow = arrow,
 		insertInstanceButton = insertInstanceButton,
 		packageLinkIconVisible = false,
-		pendingChangesIconVisible = false
+		pendingChangesIconVisible = false,
+		reclassButton = reclassButton,
+		reclassIconVisible = false,
+		currentNameBoundX = 0
 	}
 	
 	local frameEntity = frameWorld:entity()
@@ -413,16 +464,16 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		onInputEnded(Manager, world, frameWorld, frameEntity, components, state, frameState, input)
 	end)
 	items[n+5] = selectInstanceButton.MouseEnter:Connect(function()
-		onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton)
+		onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
 	end)
 	items[n+6] = selectInstanceButton.MouseLeave:Connect(function()
-		onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton)
+		onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
 	end)
 	items[n+7] = insertInstanceButton.Activated:Connect(function()
 		onInsertActivated(Manager, frameWorld, frameEntity, components, state, insertInstanceButton)
 	end)
 	items[n+8] = instanceName.Focused:Connect(function()
-		onInstanceNameFocusedTyping(frameWorld, frameEntity, components, instanceName, insertInstanceButton, frame, currentTypingConnRef)
+		onInstanceNameFocusedTyping(frameWorld, frameEntity, components, instanceName, insertInstanceButton, reclassButton, frame, currentTypingConnRef, frameState)
 	end)
 	items[n+9] = instanceName.FocusLost:Connect(function()
 		onInstanceNameFocusLostTyping(currentTypingConnRef, instanceName)
@@ -430,10 +481,12 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	items[n+10] = arrow.Activated:Connect(function()
 		onArrowActivated(Manager, world, frameWorld, frameEntity, components)
 	end)
+	items[n+11] = reclassButton.Activated:Connect(function()
+		onReclassActivated(Manager, frameWorld, frameEntity, components, state, reclassButton)
+	end)
+	
 	return frameEntity
 end
-
-local ExplorerFrame = {} :: Types.ExplorerFrameLib
 
 function ExplorerFrame.fillGlobalPoolToLimit(Manager)
 	profilebegin("Jexplorer::fillInstanceFramePoolToLimit")
@@ -606,6 +659,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 			frameWorld:remove(frame, Manager.ChildOf(oldParent))
 		end
 		frameState.insertInstanceButton.Visible = false
+		frameState.reclassButton.Visible = false
 		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
 		
 		frameState.isAssigning = false
@@ -726,6 +780,101 @@ function ExplorerFrame.updateExpandedVisuals(Manager)
 	end
 	
 	profileend()
+end
+
+local padding = 4
+function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, frameX, entity, frameState)
+	local components = Manager.Components
+	local state = Manager.WidgetState
+	local world = state.World
+	
+	local frameInst = Manager.frameOf(frame)
+	assert(frameInst)
+	
+	local frameState = frameState or state.FrameWorld:get(frame, components.FrameState)
+	assert(frameState)
+	
+	local containerWidth = containerWidth or state.TreeScroller.AbsoluteSize.X
+	local frameX = frameX or frameInst.AbsolutePosition.X
+	local entity = entity or state.FrameWorld:get(frame, components.Entity)
+	assert(entity)
+	
+	local nameBoundX = frameState.currentNameBoundX + 18 + 16 + padding  -- padding
+	
+	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
+		if frameState.hasPackageLink then
+			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
+			if pos.X.Offset > nameBoundX then
+				frameInst.Position = pos
+			end
+		else
+			local pos = stickToRightEdge(containerWidth, frameX, 0)
+			if pos.X.Offset > nameBoundX then
+				frameInst.Position = pos
+			end
+		end
+	end
+	
+	local reclassIconIsVisible = true
+	local function updateReclassIcon(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState, hasPendingChanges: boolean, setPosition: boolean)
+		if frameState.hasPackageLink and hasPendingChanges then
+			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - frameState.pendingChanges.AbsoluteSize.X - padding)
+			if pos.X.Offset > nameBoundX then
+				if setPosition then
+					frameInst.Position = pos
+				end
+			else
+				reclassIconIsVisible = false
+			end
+		elseif frameState.hasPackageLink then
+			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
+			if pos.X.Offset > nameBoundX then
+				if setPosition then
+					frameInst.Position = pos
+				end
+			else
+				reclassIconIsVisible = false
+			end
+		else
+			local pos = stickToRightEdge(containerWidth, frameX, 0)
+			if pos.X.Offset > nameBoundX then
+				if setPosition then
+					frameInst.Position = pos
+				end
+			else
+				reclassIconIsVisible = false
+			end
+		end
+	end
+	
+	local hasPendingChanges = world:has(entity, components.PendingChanges)
+
+	if world:has(entity, components.HasPackageLink) then
+		local linkIcon = frameState.packageLinkIcon
+		local pos = stickToRightEdge(containerWidth, frameX, 0)
+		if pos.X.Offset > nameBoundX then
+			linkIcon.Position = pos
+		end
+		linkIcon.Visible = true
+		frameState.hasPackageLink = true
+	else
+		frameState.packageLinkIcon.Visible = false
+		frameState.hasPackageLink = false
+		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
+		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
+	end
+
+	if hasPendingChanges then
+		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
+		frameState.pendingChanges.Visible = true
+	else
+		frameState.pendingChanges.Visible = false
+		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
+	end
+
+	updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
+	
+	return {reclassIconIsVisible = reclassIconIsVisible}
 end
 
 function ExplorerFrame.updateCollapsedVisuals(Manager)
@@ -863,6 +1012,11 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		
 		local className = Manager.ClassNameCache[entity]
 		local name = Manager.NameCache[entity]
+		
+		local instanceName = frameState.instanceName
+		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		frameState.currentNameBoundX = x
 		
 		local newTags = {}
 		if typeof(inst) == "Instance" then

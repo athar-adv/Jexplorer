@@ -53,7 +53,8 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
 		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
 		["CornerRadius"] = UDim.new(0, 6),
-		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29)
+		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29),
+		["Icon16x16AspectRatio"] = 0.96
 	}
 	
 	--local rule = function(...)
@@ -401,13 +402,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		}),
 		rule("SelectedTabStyle", ".JEXP_TabFrame Frame.JEXP_SelectedColor", 10, {
 			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
-				TextColor3 = Color3.fromRGB(255, 255, 255),
+				TextColor3 = "$SelectedMonochromeColor"
 			}),
 		}),
 		rule("SelectingTabStyle", ".JEXP_TabFrame Frame.JEXP_SelectingRoots", 10, {
 			BackgroundColor3 = "$TabPickingRootsColor",
 			rule("NameBoxStyle", "> #NameBox TextBox", 10, {
-				TextColor3 = Color3.fromRGB(255, 255, 255),
+				TextColor3 = var "brightness($TabPickingRootsColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)"
 			}),
 		}),
 		rule("ExplorerFrameStyle", ".JEXP_ExplorerFrame Frame", 0, {
@@ -501,7 +502,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					ZIndex = 3,
 					
 					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
-						AspectRatio = 0.92
+						AspectRatio = "$Icon16x16AspectRatio"
 					})
 				}),
 				rule("PendingChangesIconStyle", "> #PendingChanges ImageLabel", 0, {
@@ -513,7 +514,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					ZIndex = 3,
 					
 					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
-						AspectRatio = 0.92
+						AspectRatio = "$Icon16x16AspectRatio"
 					})
 				}),
 				rule("InsertButtonStyle", "> #Insert ImageButton", 0, {
@@ -524,7 +525,18 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					Image = "rbxassetid://124663566816110",
 					
 					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
-						AspectRatio = 0.92
+						AspectRatio = "$Icon16x16AspectRatio"
+					})
+				}),
+				rule("ReclassButtonStyle", "> #Reclass ImageButton", 0, {
+					BackgroundTransparency = 1,
+					AnchorPoint = Vector2.new(1, 0.5),
+					Size = UDim2.new(0, 16, 0, 16),
+					ZIndex = 3,
+					Image = "rbxassetid://136962996761231",
+					
+					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
+						AspectRatio = "$Icon16x16AspectRatio"
 					})
 				})
 			})
@@ -543,6 +555,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			rule("ArrowStyle", "> #Main > #Arrow", 1, {
 				ImageColor3 = "$SelectedMonochromeColor",
 				Image = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$SelectedTheme]/Standard/ArrowDown.png'",
+			}),
+			rule("InsertButtonStyle", "> #Main > #Insert ImageButton", 10, {
+				ImageColor3 = "$SelectedMonochromeColor"
+			}),
+			rule("ReclassButtonStyle", "> #Main > #Reclass ImageButton", 10, {
+				ImageColor3 = "$SelectedMonochromeColor"
 			})
 		}),
 		rule("ExplorerFrameStyleDisabled",

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
-
 --[[
 	JExplorer
 	This plugin is distributed under the MIT license (2026). 
@@ -12,7 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "4.1.0"
+local VERSION = "4.2.0"
 
 local global = shared
 local shared = script.Shared

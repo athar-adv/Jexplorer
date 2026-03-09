@@ -144,6 +144,12 @@ return {
 				Visible = false,
 				
 				"JEXP_MonochromeImage"
+			},
+			template "ImageButton" {
+				Name = "Reclass",
+				Visible = false,
+
+				"JEXP_MonochromeImage"
 			}
 		}
 	},

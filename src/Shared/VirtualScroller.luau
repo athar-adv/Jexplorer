@@ -6,6 +6,7 @@ local Types = require("../Types")
 
 local RawInst = require("./Small/RawInst")
 local Constants = require("../Constants")
+local stickToRightEdge = require("./Small/StickToRightEdge")
 
 local rawnewindex = RawInst.rawnewindex
 local rawindex = RawInst.rawindex
@@ -264,28 +265,6 @@ function VirtualScroller.update(Manager, isScroller)
 	
 	lastCanvasPos = scrollPos
 	
-	local scrollingFrame = state.TreeScroller
-	local containerWidth = scrollingFrame.AbsoluteSize.X
-	local function stickToRightEdge(frameX: number, frameInst: GuiObject, toStick: GuiObject, offset: number)
-		local padding = 20
-
-		toStick.Position = UDim2.new(
-			0,
-			containerWidth - frameX - padding + offset,
-			0.5,
-			0
-		)
-	end
-	
-	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
-		local padding = 4
-		if frameState.hasPackageLink then
-			stickToRightEdge(frameX, frameInst, frameState.pendingChanges, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-		else
-			stickToRightEdge(frameX, frameInst, frameState.pendingChanges, 0)
-		end
-	end
-	
 	local frameInfo = {}
 	local ftamI = 1
 	for _, info in visible do
@@ -356,29 +335,18 @@ function VirtualScroller.update(Manager, isScroller)
 			end
 		end
 		profilebegin("PositionExplorerFrameIcons")
+		
+		local scrollingFrame = state.TreeScroller
+		local containerWidth = scrollingFrame.AbsoluteSize.X
 		for _, info in frameInfo do
 			local frameState = info.frameState
 			local entity = info.entity
 			local frameX = info.frameX
 			local frameInst = info.frameInst
 
-			if world:has(entity, components.HasPackageLink) then
-				local linkIcon = frameState.packageLinkIcon
-				stickToRightEdge(frameX, frameInst, linkIcon, 0)
-				linkIcon.Visible = true
-				frameState.hasPackageLink = true
-			else
-				frameState.packageLinkIcon.Visible = false
-				frameState.hasPackageLink = false
-				updatePendingChanges(frameX, frameState, frameInst, state)
-			end
-
-			if world:has(entity, components.PendingChanges) then
-				updatePendingChanges(frameX, frameState, frameInst, state)
-				frameState.pendingChanges.Visible = true
-			else
-				frameState.pendingChanges.Visible = false
-			end
+			ExplorerFrame.updateRightEdgeIcons(Manager,
+				info.frame, containerWidth, frameX, entity, frameState
+			)
 		end
 		profileend()
 		for _, info in frameInfo do

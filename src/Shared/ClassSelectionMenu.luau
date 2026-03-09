@@ -7,7 +7,6 @@ local Types = require("../Types")
 local ClassIcon = require("./Small/ClassIcon")
 local RawInst = require("./Small/RawInst")
 local Categories = require("./Info/InstanceCategories")
-local InsertInfo = require("./Info/InstanceInsertInfo")
 
 local getClampedXY = require("./Small/GetClampedXY")
 local rawnewindex = RawInst.rawnewindex
@@ -50,10 +49,22 @@ local function calculateMatchScore(text: string, search: string)
 	return 0
 end
 
-local menuInfo
-local InsertMenu = {} :: Types.InsertMenu
+type buttonItem = {
+	button: Frame,
+	className: string,
+	category: string
+}
+local menuInfo: {
+	currentOnSelectCallback: ((class: string) -> ())?,
+	currentInsertTarget: number,
+	classSelectList: PluginUI.ItemList,
+	currentVisibleButtons: {buttonItem},
+	searchbar: TextBox,
+	highlightFrame: Frame
+}
+local ClassSelectionMenu = {} :: Types.ClassSelectionMenu
 
-function InsertMenu.init(Manager)
+function ClassSelectionMenu.init(Manager)
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
@@ -61,17 +72,11 @@ function InsertMenu.init(Manager)
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
 	
-	local insertInstanceList do
-		insertInstanceList = PluginUI.createItemList {
-			Name = "InsertInstanceList"
+	local classSelectList do
+		classSelectList = PluginUI.createItemList {
+			Name = "classSelectList"
 		}
-		local allButtons: {
-			{
-				button: Frame,
-				className: string,
-				category: string
-			}
-		} = {}
+		local allButtons: {buttonItem} = {}
 		local categories: {[string]: Frame} = {}
 		local originalOrders: {
 			buttons: {[string]: number},
@@ -80,13 +85,7 @@ function InsertMenu.init(Manager)
 			buttons = {},
 			headers = {}
 		}
-		local currentVisibleButtons: {
-			{
-				button: Frame,
-				className: string,
-				category: string
-			}
-		} = {}
+		local currentVisibleButtons: {buttonItem} = {}
 
 		local topFrame = Instance.new("Frame")
 		topFrame:AddTag("JEXP_Border")
@@ -96,7 +95,7 @@ function InsertMenu.init(Manager)
 		topFrame.AnchorPoint = Vector2.new(0, 1)
 		topFrame.BorderSizePixel = 0
 		topFrame.Size = UDim2.new(1, 0, 0, 28)
-		topFrame.Parent = insertInstanceList.Backdrop
+		topFrame.Parent = classSelectList.Backdrop
 
 		local searchbar = Instance.new("TextBox")
 		searchbar:AddTag("JEXP_Border")
@@ -188,61 +187,10 @@ function InsertMenu.init(Manager)
 			end
 		end)
 
-		local function insert(class: string)
-			insertInstanceList:Hide()
-
-			local entity = state.ContextTarget
-			if not entity then return end
-
-			local id = ChangeHistoryService:TryBeginRecording("CreateInstance", "Create Instance")
-
-			local entityInst = world:get(entity, components.Instance)
-			if not entityInst then
-				if id then
-					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
-				end
-				return 
-			end
-
-			local success, inst = pcall(Instance.new, class)
-			if not success then warn(inst) return end
-
-			local infos = {}
-			for k, v in InsertInfo do
-				if inst:IsA(k) then table.insert(infos, v) end
-			end
-			inst.Name = class
-			for _, info in infos do
-				for k, v in info.Props do
-					pcall(rawnewindex, inst, k, v)
-				end
-				if info.SideEffect then
-					info.SideEffect(inst)
-				end
-			end
-
-			inst.Parent = entityInst
-			--if not Manager.isExplorerEntityExpanded(entity) then
-			--	--toggleExpand(world, entity, true, true)
-			--	world:add(entity, components.Expanded)
-			--	Manager.HierarchyState.invalidateEntityStateCache(entity)
-			--	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-			--end
-
-			--local childEntity = assert(Manager.HierarchyState.createInstanceEntity(Manager, inst, entity))
-			--Manager.HierarchyState.queueForOnChildAdded(entity, childEntity)
-			
-			game.Selection:Set({inst})
-
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-			end
-		end
-
 		local layoutOrder = 0
 		local buttons = {}
 		for category, tbl in Categories do
-			local header = PluginUI.createHeader(insertInstanceList, category)
+			local header = PluginUI.createHeader(classSelectList, category)
 			layoutOrder += 1
 			header.LayoutOrder = layoutOrder
 
@@ -256,7 +204,9 @@ function InsertMenu.init(Manager)
 				local buttonItem = PluginUI.createButtonWithIcon(
 					nil, class, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, 
 					function()
-						insert(class)
+						if menuInfo.currentOnSelectCallback then
+							menuInfo.currentOnSelectCallback(class)
+						end
 					end
 				)
 				table.insert(buttons, buttonItem.Instance)
@@ -275,7 +225,7 @@ function InsertMenu.init(Manager)
 				})
 			end
 		end
-		insertInstanceList:AddBulkItem(buttons)
+		classSelectList:AddBulkItem(buttons)
 		currentVisibleButtons = {}
 		for _, buttonData in allButtons do
 			table.insert(currentVisibleButtons, buttonData)
@@ -283,20 +233,21 @@ function InsertMenu.init(Manager)
 
 		--local currentInsertTarget: number
 		menuInfo = {
+			currentOnSelectCallback = nil,
 			currentInsertTarget = 1,
-			insertInstanceList = insertInstanceList,
+			classSelectList = classSelectList,
 			currentVisibleButtons = currentVisibleButtons,
 			searchbar = searchbar,
 			highlightFrame = highlightFrame
 		}
 
 		local function onInputBegan(input)
-			if not insertInstanceList.Backdrop.Visible then return end
+			if not classSelectList.Backdrop.Visible then return end
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
 			if input.KeyCode == Enum.KeyCode.Return then
-				insertInstanceList:Hide()
-				if menuInfo.currentInsertTarget > 0 and menuInfo.currentInsertTarget <= #currentVisibleButtons then
-					insert(currentVisibleButtons[menuInfo.currentInsertTarget].className)
+				classSelectList:Hide()
+				if menuInfo.currentOnSelectCallback and menuInfo.currentInsertTarget > 0 and menuInfo.currentInsertTarget <= #currentVisibleButtons then
+					menuInfo.currentOnSelectCallback(currentVisibleButtons[menuInfo.currentInsertTarget].className)
 				end
 			elseif input.KeyCode == Enum.KeyCode.Up then
 				if #currentVisibleButtons > 0 then
@@ -310,7 +261,7 @@ function InsertMenu.init(Manager)
 				end
 			end
 		end
-
+		
 		connections:add_many({
 			Manager.connectInputBegan(onInputBegan),
 			searchbar.FocusLost:Connect(function(_, input)
@@ -318,25 +269,27 @@ function InsertMenu.init(Manager)
 			end),
 			searchbar.InputBegan:Connect(onInputBegan)
 		})
-		insertInstanceList.Backdrop.Parent = jexplorerUi
+		classSelectList.Backdrop.Parent = jexplorerUi
 	end
 
 	Manager.ItemLists = {
-		InsertInstance = insertInstanceList
+		InsertInstance = classSelectList
 	}
 end
 
-function InsertMenu.show(Manager, pos, size)
-	assert(menuInfo, "InsertMenu not initialized yet")
+function ClassSelectionMenu.show(Manager, pos, size, fn)
+	assert(menuInfo, "ClassSelectionMenu not initialized yet")
 	
 	local state = Manager.WidgetState
 	local jexplorerUi = state.JExplorerUI
 	
-	local insertInstanceList = menuInfo.insertInstanceList
-	local frameSize = insertInstanceList.Backdrop.AbsoluteSize
+	local classSelectList = menuInfo.classSelectList
+	local frameSize = classSelectList.Backdrop.AbsoluteSize
 	local searchbar = menuInfo.searchbar
 	
-	insertInstanceList:SetAnchor(
+	menuInfo.currentOnSelectCallback = fn
+	
+	classSelectList:SetAnchor(
 		Vector2.new(0, 0), 
 		UDim2.fromOffset(
 			getClampedXY(
@@ -349,7 +302,7 @@ function InsertMenu.show(Manager, pos, size)
 		)
 	)
 
-	insertInstanceList:Show()
+	classSelectList:Show()
 	searchbar:CaptureFocus()
 	searchbar.Text = ""
 	menuInfo.currentInsertTarget = 1
@@ -359,4 +312,4 @@ function InsertMenu.show(Manager, pos, size)
 	end
 end
 
-return InsertMenu
+return ClassSelectionMenu
