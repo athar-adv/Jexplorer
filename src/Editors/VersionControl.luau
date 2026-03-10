@@ -1098,7 +1098,7 @@ function VersionControl.createRepoProxy(display_name, repo_id, root, register_in
 		end
 		task.wait(FINISH_TIME)
 		finishedFrame.Visible = false
-		Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+		Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	end)
 	local pollIntervalBox = PluginUI.createAttributeBox(repoDropdown, "Polling Interval", "10")
 	

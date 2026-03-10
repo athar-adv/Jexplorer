@@ -619,6 +619,7 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 			table.insert(withoutParents, {inst = frameInst, frame = frame})
 		end
 	end
+	if not any then return false end
 	
 	local PARENT = "Parent"
 	profilebegin("withoutParents")
@@ -633,7 +634,7 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	profileend()
 	profileend()
 	
-	return any
+	return true
 end
 
 function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, parentIsGame)
@@ -924,6 +925,7 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 			end
 		end
 		reuseChildren(entity)
+		Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 		
 		repeat
 			local success = ExplorerFrame.stepFlushFrameSetParentQueue(Manager)

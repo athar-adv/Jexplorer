@@ -28,7 +28,8 @@ export type SerializedStyleRule = {
 	props: {[string]: UDFValue},
 	rules: {SerializedStyleRule},
 	tokens: {[string]: SerializedStyleToken},
-	tags: {string}
+	tags: {string},
+	attributes: {[string]: UDFValue}
 }
 export type SerializedStyleToken = {
 	value: UDFValue,
@@ -335,7 +336,15 @@ export type ClassSelectionMenu = {
 }
 
 export type DeferredTaskScheduler = {
-	HierarchyChildrenMapNeedsUpdate: boolean,
+	ChildGraphDirty: boolean,
+	
+	FrameReuseQueuePending: boolean,
+	FrameTagAssignQueuePending: boolean,
+	EntityCleanupQueuePending: boolean,
+	EntityCreationQueuePending: boolean,
+	EntityChildAddedQueuePending: boolean,
+	EntityChildRemovedQueuePending: boolean,
+	EntityPropAssignQueuePending: boolean
 }
 
 export type Manager = {

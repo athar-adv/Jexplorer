@@ -17,7 +17,7 @@ local Migrations = require("@self/Migrations")
 export type SavedState = Types.SavedState
 
 local SavedState = {
-	data_version = 27
+	data_version = 28
 }
 
 function SavedState._migrate(state: any, manager: Types.Manager): SavedState
@@ -76,7 +76,12 @@ function SavedState._serialize_rules(source: {Style.Rule}, destination: any, exc
 				tags = tags
 			}
 		end
+		local attributes = {}
+		for name, value in rule.Attributes do
+			attributes[name] = UDF.to(value)
+		end
 		table.insert(destination, {
+			attributes = attributes,
 			tokens = tokens,
 			display_name = rule:GetName(),
 			selector = rule.Rule.Selector,

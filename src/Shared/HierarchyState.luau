@@ -126,6 +126,8 @@ function HierarchyState.cleanupEntity(Manager, ent)
 		end
 	end
 	addchildren(ent)
+	
+	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 end
 
 function HierarchyState.rebuildHierarchyCache(Manager)
@@ -306,6 +308,7 @@ function HierarchyState.flushEntityCreationQueue(Manager)
 	local query = Jecs.cached_query(world, components.CreationTicket)
 	
 	local any = false
+	local anyEntities = false
 	for parent, ticketData in query:iter() do
 		any = true
 		world:remove(parent, components.CreationTicket)
@@ -313,13 +316,16 @@ function HierarchyState.flushEntityCreationQueue(Manager)
 		for _, child in ticketData.children do
 			if Manager.isInstanceExcluded(child) then continue end
 			if Manager.InstanceToEntity[child] then continue end
+			anyEntities = true
 
 			HierarchyState.createInstanceEntity(Manager, child, parent)
 		end
 	end
 	if not any then return false end
 	
-	HierarchyState.flushEntityPropAssignQueue(Manager)
+	if anyEntities then
+		Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+	end
 	
 	return true
 end
@@ -390,6 +396,9 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		profileend()
 	end
 	if not any then profileend() return false end
+	
+	-- If there wasn't any loops then theres no frames queued, now that we're here it means theres no gaurantee theres no frames queued so need to let scheduler know
+	Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 
 	profilebegin("Jexplorer::cleanupEntity::processDeferredCleaningTasks")
 		profilebegin("freeGroups")
@@ -411,6 +420,7 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 			--world:delete(entity)
 			HierarchyState.queueForEntityDeletion(Manager, entity)
 		end
+		--Manager.DeferredTaskScheduler.EntityDeletionQueuePending = true
 		profileend()
 	profileend()
 	
@@ -672,6 +682,7 @@ local function onChildAdded(Manager: Manager, ent: ExplorerEntity, child: Instan
 	end
 
 	HierarchyState.queueForOnChildAdded(Manager, ent, child)
+	Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 end
 
 local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Instance)
@@ -694,6 +705,7 @@ local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Inst
 	end
 
 	HierarchyState.queueForOnChildRemoved(Manager, ent, child)
+	Manager.DeferredTaskScheduler.EntityChildRemovedQueuePending = true
 end
 
 local function onParentChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance)

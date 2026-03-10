@@ -155,7 +155,7 @@ local Manager = {
 	VirtualScroller = VirtualScroller,
 	ClassSelectionMenu = ClassSelectionMenu,
 	DeferredTaskScheduler = {
-		HierarchyChildrenMapNeedsUpdate = false
+		ChildGraphDirty = false
 	},
 	
 	InstanceToEntity = {},
@@ -217,7 +217,7 @@ local function pasteCopiedInstances(world: World)
 		end
 	end
 
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	if id then
 		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 	end
@@ -648,13 +648,15 @@ function Manager.convertEntitiesInto(entities, className: string)
 	
 	local newProps = getClassPropMap(className)
 
-	local modelEntities = {}
+	local convertedEntities = {}
 	for _, info in toConvert do
 		if not info.parent then continue end
-		local model = Instance.new(className)
+		local converted: Instance = Instance.new(className)
 		
 		-- Reassign props
-		local originalProps = getClassPropMap(info.inst.ClassName)
+		local oldInst = info.inst
+		local newClass = className
+		local originalProps = getClassPropMap(oldInst.ClassName)
 		for k, oriProp in originalProps do
 			local newProp = newProps[k]
 			
@@ -663,26 +665,31 @@ function Manager.convertEntitiesInto(entities, className: string)
 			if not write then continue end
 			if not SecurityCapabilities.fromCurrent():Contains(write) then continue end
 			if newProp.Type.ScriptType ~= oriProp.Type.ScriptType then continue end
-			rawnewindex(model, k, rawindex(info.inst, k))
+			rawnewindex(converted, k, rawindex(info.inst, k))
 		end
-
+		if oldInst:IsA("LuaSourceContainer") and converted:IsA("LuaSourceContainer") then
+			(converted :: any).Source = (oldInst :: any).Source
+		elseif oldInst:IsA("Decal") and converted:IsA("ImageLabel") then
+			converted.Image = oldInst.ColorMap
+		end
+		
 		for _, tag in info.inst:GetTags() do
-			model:AddTag(tag)
+			converted:AddTag(tag)
 		end
 		for k, v in info.inst:GetAttributes() do
-			model:SetAttribute(k, v)
+			converted:SetAttribute(k, v)
 		end
 
-		local modelEnt = HierarchyState.createInstanceEntity(Manager, model, info.parentEntity)
-		assert(modelEnt)
+		local convertedEnt = HierarchyState.createInstanceEntity(Manager, converted, info.parentEntity)
+		assert(convertedEnt)
 
 		local frame = world:get(info.entity, components.Frame)
 		if frame then
 			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 		end
 
-		world:add(modelEnt, components.AncestryLocked)
-		table.insert(modelEntities, modelEnt)
+		world:add(convertedEnt, components.AncestryLocked)
+		table.insert(convertedEntities, convertedEnt)
 
 		for _, childEntity in info.children do
 			world:add(childEntity, components.AncestryLocked)
@@ -693,13 +700,13 @@ function Manager.convertEntitiesInto(entities, className: string)
 			if not childInst then continue end
 
 			local oldParentEntity = Manager.parentOf(childEntity)
-			Manager.updateParent(childEntity, modelEnt)
+			Manager.updateParent(childEntity, convertedEnt)
 
 			if oldParentEntity then
 				VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
 			end
 
-			childInst.Parent = model
+			childInst.Parent = converted
 			HierarchyState.updateEntityOrder(Manager, childEntity)
 
 			--local dragFrame = world:get(childEntity, components.Frame)
@@ -708,29 +715,31 @@ function Manager.convertEntitiesInto(entities, className: string)
 			--end
 		end
 		HierarchyState.ChildrenMap[info.entity] = nil
-
+		
 		ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		if isExpanded then
-			world:add(modelEnt, components.Expanded)
-			HierarchyState.invalidateEntityStateCache(modelEnt)
+			world:add(convertedEnt, components.Expanded)
+			HierarchyState.invalidateEntityStateCache(convertedEnt)
 			ExplorerFrame.updateExpandedVisuals(Manager)
 		else
-			VirtualScroller.invalidateEntityHeightCache(Manager, modelEnt)
+			VirtualScroller.invalidateEntityHeightCache(Manager, convertedEnt)
 		end
 
 		Manager.updateParent(info.entity, nil)
 		info.inst.Parent = nil
 		HierarchyState.cleanupEntity(Manager, info.entity)
 
-		model.Parent = info.parent
+		converted.Parent = info.parent
 		for _, childEntity in info.children do
 			world:remove(childEntity, components.AncestryLocked)
 		end
 	end
+	
+	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+	Manager.DeferredTaskScheduler.ChildGraphDirty = true
+	Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-
-	for _, v in modelEntities do
+	for _, v in convertedEntities do
 		world:remove(v, components.AncestryLocked)
 	end
 
@@ -739,10 +748,10 @@ function Manager.convertEntitiesInto(entities, className: string)
 	end
 
 	task.delay(0.1, function()
-		Manager.setExplorerEntitiesAsSelection(modelEntities, true)
+		Manager.setExplorerEntitiesAsSelection(convertedEntities, true)
 	end)
 	
-	return modelEntities
+	return convertedEntities
 end
 
 function Manager.triggerEscapeTarget()
@@ -796,7 +805,7 @@ function Manager.triggerDeleteTarget()
 	end
 	
 	HierarchyState.flushEntityCleanupQueue(Manager)
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 
 	for _, entity in selection do
 		world:remove(entity, components.AncestryLocked)
@@ -835,8 +844,10 @@ function Manager.triggerDuplicateTarget()
 
 		world:remove(parent, components.AncestryLocked)
 	end
-
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true	
+	
+	Manager.DeferredTaskScheduler.ChildGraphDirty = true
+	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+	
 	if id then
 		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 	end
@@ -913,8 +924,9 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 		VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
 		world:remove(parent, components.AncestryLocked)
 	end
-
-	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	
+	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	if id then
 		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
 	end
@@ -1355,7 +1367,7 @@ function Manager.insertClassInto(entity: ExplorerEntity, class: string)
 	--	--toggleExpand(world, entity, true, true)
 	--	world:add(entity, components.Expanded)
 	--	Manager.HierarchyState.invalidateEntityStateCache(entity)
-	--	Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+	--	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	--end
 
 	--local childEntity = assert(Manager.HierarchyState.createInstanceEntity(Manager, inst, entity))
@@ -1520,6 +1532,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 
 				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 			end
+			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 		end
 		tabFrame:AddTag("JEXP_SelectedColor")
 		
@@ -1860,6 +1873,9 @@ function Manager.loadState(savedState)
 						newrule:SetToken(name, token, false)
 						any = true
 					end
+					for name, value in r.attributes do
+						newrule:SetAttribute(name, UDF.from(value))
+					end
 					if any then
 						table.insert(withTokensToUpdate, newrule)
 					end
@@ -2159,8 +2175,7 @@ local function initRegisterPluginMenusAndActions(
 				end
 				HierarchyState.queueForOnChildAdded(Manager, entity, v)
 			end
-			
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+			Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 			
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
@@ -2395,8 +2410,9 @@ local function initRegisterPluginMenusAndActions(
 
 				--updateEntityOrder(world, ent, world:parent(ent))
 			end
-
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+			
+			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+			Manager.DeferredTaskScheduler.ChildGraphDirty = true
 		end)
 	end
 
@@ -2451,14 +2467,16 @@ local function initRegisterPluginMenusAndActions(
 					ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 				end
 			end
-
+			
 			for _, ent in entities do
 				world:remove(ent, components.AncestryLocked)
 			end
 
 			world:remove(containerEntity, components.AncestryLocked)
-
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+			
+			Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+			Manager.DeferredTaskScheduler.ChildGraphDirty = true
 
 			if id then
 				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
@@ -3301,15 +3319,8 @@ local function initCreateEntities(state: Types.WidgetState, components: typeof(M
 		local entity = HierarchyState.createInstanceEntity(Manager, service)
 		table.insert(entities, entity)
 	end
-	HierarchyState.flushEntityPropAssignQueue(Manager)
 	
-	for _, entity in entities do
-		local frame = ExplorerFrame.getExplorerFrame(Manager)
-		ExplorerFrame.assignExplorerFrame(Manager, frame, entity, nil, true)
-	end
-	
-	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-	VirtualScroller.rebuildAndUpdate(Manager, false)
+	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 	
 	profileend()
 end
@@ -4369,69 +4380,62 @@ function Manager.init(connections, jexplorerWidget)
 		end,
 	})
 	
-	local function flushCycle()
-		local suc1 = HierarchyState.flushOnChildAddedQueue(Manager)
-		local suc2 = HierarchyState.flushOnChildRemovedQueue(Manager)
-		local suc3 = HierarchyState.flushEntityCleanupQueue(Manager)
-		task.defer(task.defer, function()
-			ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-			if not VirtualScroller.IsScrolling and not VirtualScroller.IsVirtualScrollerUpdating then
-				ExplorerFrame.flushFrameReuseQueue(Manager)
-			end
-			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-		end)
-		
-		if suc1 or suc2 or suc3 then
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
-		end
-	end
-	
-	local function reuseCycle()
-		if Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate then
-			Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = false
-			VirtualScroller.rebuildAndUpdate(Manager, false)
-		end
-	end
-	
-	local function cycleInterval(t: number)
-		if t == 0 then
-			task.wait()
-		else
-			task.wait(t)
-		end
-	end
-	
 	local threads = connections:extend(task.cancel, {
 		scrollTrackerThread,
 		task.spawn(function()
 			while true do
-				cycleInterval(Manager.getSetting("FlushCycleInterval"))
-				flushCycle()
-			end
-		end),
-		task.spawn(function()
-			while true do
-				cycleInterval(Manager.getSetting("FrameReuseCycleInterval"))
-				reuseCycle()
-			end
-		end),
-		task.spawn(function()
-			while true do
-				cycleInterval(Manager.getSetting("EntityCleanupCycleInterval"))
-				HierarchyState.stepFlushEntityDeletionQueue(Manager)
-			end
-		end),
-		task.spawn(function()
-			while true do
-				cycleInterval(Manager.getSetting("EntityCreationCycleInterval"))
-				local changed = HierarchyState.flushEntityCreationQueue(Manager)
-				if changed then
-					Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+				local scheduler = Manager.DeferredTaskScheduler
+				
+				if scheduler.FrameReuseQueuePending and not VirtualScroller.IsScrolling and not VirtualScroller.IsVirtualScrollerUpdating then
+					scheduler.FrameReuseQueuePending = false
+					local suc = ExplorerFrame.flushFrameReuseQueue(Manager)
+					if suc then
+						ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+					end
+				elseif scheduler.FrameTagAssignQueuePending then
+					scheduler.FrameTagAssignQueuePending = false
+					ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+				elseif scheduler.EntityCleanupQueuePending then
+					scheduler.EntityCleanupQueuePending = false
+					local suc = HierarchyState.flushEntityCleanupQueue(Manager)
+					if suc then scheduler.ChildGraphDirty = true end
+				elseif scheduler.EntityChildAddedQueuePending then
+					scheduler.EntityChildAddedQueuePending = false
+					local suc = HierarchyState.flushOnChildAddedQueue(Manager)
+					if suc then
+						scheduler.ChildGraphDirty = true
+						scheduler.EntityCreationQueuePending = true
+					end
+				elseif scheduler.EntityChildRemovedQueuePending then
+					scheduler.EntityChildRemovedQueuePending = false
+					local suc = HierarchyState.flushOnChildRemovedQueue(Manager)
+					if suc then
+						scheduler.ChildGraphDirty = true
+						scheduler.EntityCleanupQueuePending = true
+					end
+				elseif scheduler.EntityCreationQueuePending then
+					scheduler.EntityCreationQueuePending = false
+					local suc = HierarchyState.flushEntityCreationQueue(Manager)
+					if suc then
+						scheduler.EntityPropAssignQueuePending = true
+						scheduler.ChildGraphDirty = true
+					end
+				elseif scheduler.EntityPropAssignQueuePending then
+					scheduler.EntityPropAssignQueuePending = false
+					HierarchyState.flushEntityPropAssignQueue(Manager)
+				elseif scheduler.ChildGraphDirty then
+					scheduler.ChildGraphDirty = false
+					VirtualScroller.rebuildAndUpdate(Manager, false)
+				else
+					-- Stepped tasks here because they need to run at all times
+					HierarchyState.stepFlushEntityDeletionQueue(Manager)
+					ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+					task.wait()
 				end
 			end
 		end),
 	})
-
+	
 	jexplorerUi.Parent = jexplorerWidget
 	sheet:UpdateTokens()
 	Manager.InstTreeAbsoluteSizeY = treeScroller.AbsoluteSize.Y

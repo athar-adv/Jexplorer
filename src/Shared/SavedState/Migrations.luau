@@ -85,7 +85,8 @@ migrations = {
 	v25_to_v26 = function(self, state, manager)
 		reset_settings(self, state, manager, "Keybinds")
 	end,
-	v26_to_v27 = reset_styles
+	v26_to_v27 = reset_styles,
+	v27_to_v28 = reset_styles
 }
 :: {[string]: (any, Types.SavedState, Types.Manager) -> Types.SavedState?}
 

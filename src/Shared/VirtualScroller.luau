@@ -398,6 +398,7 @@ function VirtualScroller.update(Manager, isScroller)
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
+	Manager.DeferredTaskScheduler.FrameTagAssignQueuePending = true
 	
 	local size = UDim2.new(5, 0, 0, (flatCount + 3) * height)
 	state.TreeScroller.CanvasSize = size

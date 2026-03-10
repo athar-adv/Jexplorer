@@ -93,7 +93,7 @@ function StateEditor.init(Manager)
 		OrderEditor.ClassPriorities = DefaultOrder(Manager)
 		OrderEditor.DefaultPriority = 999
 
-		Manager.DeferredTaskScheduler.HierarchyChildrenMapNeedsUpdate = true
+		Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	end
 	local function resetVersions()
 		VersionControl.Versions = {}

@@ -66,38 +66,6 @@ return {
 			Default = "Control & Y"
 		},
 	},
-	Internal = {
-		FlushCycleInterval = {
-			Type = "number",
-			Display = "Queue Flush Cycle Interval",
-			Default = 1/30
-		},
-		FrameReuseCycleInterval = {
-			Type = "number",
-			Display = "HierarchyCache Rebuild Cycle Interval",
-			Default = 1/30
-		},
-		EntityCleanupCycleInterval = {
-			Type = "number",
-			Display = "ExplorerEntity Cleanup Cycle Interval",
-			Default = 0.25
-		},
-		EntityCreationCycleInterval = {
-			Type = "number",
-			Display = "ExplorerEntity Creation Cycle Interval",
-			Default = 1/30
-		},
-		EntityDeletionFlushStep = {
-			Type = "number",
-			Display = "ExplorerEntity Deletion Cycle Step",
-			Default = 30
-		},
-		FrameSetParentFlushStep = {
-			Type = "number",
-			Display = "ExplorerFrame Set Parent Flush Step",
-			Default = 40,
-		},
-	},
 	Expand = {
 		AutoExpandOnSelect = {
 			Type = "boolean",

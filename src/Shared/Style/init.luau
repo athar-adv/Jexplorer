@@ -70,8 +70,12 @@ export type Rule = {
 	GetTokens: (Rule) -> {[string]: any},
 	Tags: {[string]: boolean},
 	PropertyDependencies: {[string]: {string}},
+	Attributes: {[string]: any},
 	
 	GetChild: (Rule, childName: string) -> Rule,
+	
+	SetAttribute: (Rule, name: string, value: any) -> (),
+	GetAttribute: (Rule, name: string) -> any?,
 
 	Tokens: {[string]: StyleToken},
 	AppliedTokens: {[string]: any},
@@ -694,6 +698,14 @@ function RuleMethods:GetChild(name)
 	error(`Couldnt find child Rule '{name}' of Rule '{self:GetName()}'`)
 end
 
+function RuleMethods:GetAttribute(name)
+	return self.Attributes[name]
+end
+
+function RuleMethods:SetAttribute(name, value)
+	self.Attributes[name] = value
+end
+
 function RuleMethods:Destroy()
 	self.Sheet.RuleRemoved:Fire(self)
 	if self.ParentRule then
@@ -856,6 +868,7 @@ function Style.rule(name: string, selector: string, priority: number, props: {[a
 		ChildRules = childrenRules,
 		Tags = {},
 		PropertyDependencies = {},
+		Attributes = {},
 
 		Tokens = {},
 		AppliedTokens = {},
