@@ -187,21 +187,21 @@ export type Components = {
 	Deleted: Jecs.Component,
 	DisplayTopLevel: Jecs.Component,
 	HasPackageLink: Jecs.Component,
-	
+
 	CleanupTicket: Jecs.Component<{}>,
 	DeletionTicket: Jecs.Component<{}>,
 	ChildAddedTicket: Jecs.Component<{children: {Instance}}>,
 	ChildMovedTicket: Jecs.Component<{children: {Instance}}>,
 	CreationTicket: Jecs.Component<{children: {Instance}}>,
 	PropAssignTicket: Jecs.Component<{ty: "virtual" | "instance"}>,
-	
+
 	FrameReuseTicket: Jecs.Component<{frame: ExplorerFrame}>,
 	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
-	
+
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
 	FRAMEWORLD_Main: typeof(main.__legacy.UI.InstanceFrame.Main),
 	QUERYWORLD_ComponentHash: Jecs.Component<string>,
-	
+
 	Instance: Jecs.Component<Instance>,
 	Frame: Jecs.Component<ExplorerFrame>,
 	Entity: Jecs.Component<ExplorerEntity>,
@@ -307,11 +307,11 @@ export type ExplorerFrameLib = {
 	queueForExplorerFrameReuse: (Manager, ExplorerFrame) -> (),
 	flushFrameReuseQueue: (Manager) -> boolean,
 	stepFlushFrameSetParentQueue: (Manager) -> boolean,
-	
+
 	updateSelectionVisuals: (Manager, updateSelection: boolean) -> (),
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
-	
+
 	updateRightEdgeIcons: (Manager, frame: ExplorerFrame, containerWidth: number?, frameX: number?, entity: ExplorerEntity?, frameState: FrameState?) -> {
 		reclassIconIsVisible: boolean
 	}?,
@@ -325,19 +325,35 @@ export type VirtualScroller = {
 	update: (Manager, isScroller: boolean) -> (),
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
 	trackScrolling: (Manager) -> (RBXScriptConnection, thread),
-	
+
 	IsScrolling: boolean,
 	IsVirtualScrollerUpdating: boolean
 }
 
+export type buttonItem = {
+	button: Frame,
+	className: string,
+	category: string
+}
+export type ClassSelectionMenuInfo = {
+	currentOnSelectCallback: ((class: string) -> ())?,
+	currentInsertTarget: number,
+	classSelectList: PluginUI.ItemList,
+	currentVisibleButtons: {buttonItem},
+	searchbar: TextBox,
+	highlightFrame: Frame,
+	setScope: (scope: string) -> (),
+	setScopeInfo: (scope: string, frequentClasses: {string}) -> ()
+}
 export type ClassSelectionMenu = {
 	init: (Manager) -> (),
 	show: (Manager, buttonAbsolutePos: Vector2, buttonAbsoluteSize: Vector2, onSelectClass: (class: string) -> ()) -> (),
+	menuInfo: ClassSelectionMenuInfo
 }
 
 export type DeferredTaskScheduler = {
 	ChildGraphDirty: boolean,
-	
+
 	FrameReuseQueuePending: boolean,
 	FrameTagAssignQueuePending: boolean,
 	EntityCleanupQueuePending: boolean,
@@ -359,12 +375,12 @@ export type Manager = {
 	},
 
 	InstTreeAbsoluteSizeY: number,
-	
+
 	QueryTagMap: {[string]: Jecs.Id},
 	QueryCtMap: {[string]: Jecs.Id},
 	QueryAttrMap: {[string]: Jecs.Id},
 	AttributeUsageAmounts: {[string]: number},
-	
+
 	Script: Instance,
 
 	ExplorerFrame: ExplorerFrameLib,
@@ -388,16 +404,16 @@ export type Manager = {
 	ChildAmountCache: {[ExplorerEntity]: number},
 	ClassNameCache: {[ExplorerEntity]: string},
 	NameCache: {[ExplorerEntity]: string},
-	
+
 	IdToInstance: {[InstanceId]: Instance},
 	InstanceToId: {[Instance]: InstanceId},
 	IdToObjectValue: {[InstanceId]: ObjectValue},
-	
+
 	TempIdToInstance: {[TempId]: Instance},
 	InstanceToTempId: {[Instance]: TempId},
-	
+
 	TabFrameToTab: {[Instance]: Tab},
-	
+
 	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string) -> PluginAction,
 	takeContextTarget: () -> ExplorerEntity,
 
@@ -426,7 +442,7 @@ export type Manager = {
 	getOrCreateInstId: (instance: Instance) -> string,
 	getInstId: (instance: Instance) -> string?,
 	getInstFromId: (id: string) -> Instance?,
-	
+
 	getTempId: (instance: Instance) -> string,
 	getInstFromTempId: (id: string) -> Instance,
 
@@ -438,7 +454,7 @@ export type Manager = {
 	isExplorerEntityExpanded: (entity: ExplorerEntity) -> boolean,
 
 	getPropertyComponentsForClass: (World, class: string) -> {Jecs.Id},
-	
+
 	isInstanceExcluded: (inst: Instance) -> boolean,
 
 	getSetPropertyDragInfo: (instances: {Instance}, propName: string) -> any,
@@ -447,7 +463,7 @@ export type Manager = {
 
 	addExplorerEntitiesToSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 	setExplorerEntitiesAsSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
-	
+
 	refreshQueryTags: (entity: ExplorerEntity, tagEnt: Jecs.Id?) -> (),
 	refreshQueryAttributes: (entity: ExplorerEntity, attrEnt: Jecs.Id?) -> (),
 
@@ -461,10 +477,10 @@ export type Manager = {
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
 	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
-	
+
 	convertEntitiesInto: (entities: {ExplorerEntity}, class: string) -> {ExplorerEntity},
 	insertClassInto: (entity: ExplorerEntity, class: string) -> Instance?,
-	
+
 	saveState: () -> {
 		save: () -> (),
 		all: () -> (),

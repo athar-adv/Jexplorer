@@ -49,19 +49,8 @@ local function calculateMatchScore(text: string, search: string)
 	return 0
 end
 
-type buttonItem = {
-	button: Frame,
-	className: string,
-	category: string
-}
-local menuInfo: {
-	currentOnSelectCallback: ((class: string) -> ())?,
-	currentInsertTarget: number,
-	classSelectList: PluginUI.ItemList,
-	currentVisibleButtons: {buttonItem},
-	searchbar: TextBox,
-	highlightFrame: Frame
-}
+type buttonItem = Types.buttonItem
+local menuInfo: Types.ClassSelectionMenuInfo
 local ClassSelectionMenu = {} :: Types.ClassSelectionMenu
 
 function ClassSelectionMenu.init(Manager)
@@ -71,7 +60,12 @@ function ClassSelectionMenu.init(Manager)
 	local connections = state.Connections
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
-	
+
+	-- Frequently used classes per scope: { [scopeName]: { className, ... } }
+	local frequentByScope: { [string]: { string } } = {}
+	local currentScope: string = "Default"
+	local FREQUENT_CATEGORY = "Suggested"
+
 	local classSelectList do
 		classSelectList = PluginUI.createItemList {
 			Name = "classSelectList"
@@ -86,6 +80,9 @@ function ClassSelectionMenu.init(Manager)
 			headers = {}
 		}
 		local currentVisibleButtons: {buttonItem} = {}
+
+		-- Holds instances created for the Frequently Used section so we can destroy on rebuild
+		local frequentInstances: { Instance } = {}
 
 		local topFrame = Instance.new("Frame")
 		topFrame:AddTag("JEXP_Border")
@@ -119,6 +116,80 @@ function ClassSelectionMenu.init(Manager)
 		highlightFrame.BackgroundColor3 = Color3.new(100, 100, 100)
 		highlightFrame.BackgroundTransparency = 0.8
 
+		local function rebuildFrequentSection()
+			highlightFrame.Parent = nil
+
+			-- Destroy all previously created Frequently Used UI instances
+			for _, inst in frequentInstances do
+				inst:Destroy()
+			end
+			table.clear(frequentInstances)
+
+			-- Remove stale allButtons entries for Frequently Used
+			for i = #allButtons, 1, -1 do
+				if allButtons[i].category == FREQUENT_CATEGORY then
+					table.remove(allButtons, i)
+				end
+			end
+
+			categories[FREQUENT_CATEGORY] = nil
+			originalOrders.headers[FREQUENT_CATEGORY] = nil
+
+			local scopeList = frequentByScope[currentScope]
+			if not scopeList or #scopeList == 0 then return end
+
+			-- Header at LayoutOrder 0, always sits above real categories (base 10000+)
+			local header = PluginUI.createHeader(nil, FREQUENT_CATEGORY)
+			header.LayoutOrder = 0
+			header.Size = UDim2.new(1, 0, 0, header.Size.Y.Offset)
+			header.Parent = classSelectList.Container
+			table.insert(classSelectList.Items, header)
+
+			categories[FREQUENT_CATEGORY] = header
+			originalOrders.headers[FREQUENT_CATEGORY] = 0
+			table.insert(frequentInstances, header)
+
+			-- No limit — use the full list as provided by setScopeInfo
+			for order, className in scopeList do
+				local icon = ClassIcon.getIcon(className)
+				if not icon then continue end
+
+				local capturedClass = className
+				local buttonItem = PluginUI.createButtonWithIcon(
+					nil,
+					capturedClass,
+					icon.Image,
+					icon.ImageRectOffset,
+					icon.ImageRectSize,
+					function()
+						classSelectList:Hide()
+						if menuInfo.currentOnSelectCallback then
+							menuInfo.currentOnSelectCallback(capturedClass)
+						end
+					end
+				)
+
+				local button = buttonItem.Instance
+				-- LayoutOrder 1..N, all below the real category base of 10000
+				button.LayoutOrder = order
+				button:RemoveTag("JEXP_DarkBackground")
+				button:AddTag("JEXP_Background")
+
+				button.Size = UDim2.new(1, 0, 0, button.Size.Y.Offset)
+				button.Parent = classSelectList.Container
+				table.insert(classSelectList.Items, button)
+
+				local key = FREQUENT_CATEGORY .. "_" .. capturedClass
+				originalOrders.buttons[key] = order
+				table.insert(allButtons, {
+					button = button,
+					className = capturedClass,
+					category = FREQUENT_CATEGORY
+				})
+				table.insert(frequentInstances, button)
+			end
+		end
+
 		searchbar:GetPropertyChangedSignal("Text"):Connect(function()
 			local searchText = searchbar.Text
 			local matches = {}
@@ -144,21 +215,26 @@ function ClassSelectionMenu.init(Manager)
 				header.Visible = false
 			end
 			if searchText == "" then
-				-- Reset to show all buttons
 				currentVisibleButtons = {}
 				for _, buttonData in allButtons do
 					buttonData.button.Visible = true
-					buttonData.button.LayoutOrder = originalOrders.buttons[buttonData.className]
+					local key = buttonData.category == FREQUENT_CATEGORY
+						and (FREQUENT_CATEGORY .. "_" .. buttonData.className)
+						or buttonData.className
+					buttonData.button.LayoutOrder = originalOrders.buttons[key]
 					table.insert(currentVisibleButtons, buttonData)
 				end
+				table.sort(currentVisibleButtons, function(a, b)
+					return a.button.LayoutOrder < b.button.LayoutOrder
+				end)
 				for category, header in categories do
 					header.Visible = true
 					header.LayoutOrder = originalOrders.headers[category]
 				end
+				menuInfo.currentVisibleButtons = currentVisibleButtons
 				return
 			end
 
-			-- Clear and rebuild visible buttons list
 			currentVisibleButtons = {}
 			local layoutOrder = 1
 			local visibleCategories = {}
@@ -180,14 +256,15 @@ function ClassSelectionMenu.init(Manager)
 						match.button.Visible = true
 						match.button.LayoutOrder = layoutOrder
 						layoutOrder = layoutOrder + 1
-						-- Add to visible buttons in display order
 						table.insert(currentVisibleButtons, match)
 					end
 				end
 			end
+			menuInfo.currentVisibleButtons = currentVisibleButtons
 		end)
-
-		local layoutOrder = 0
+		
+		local REAL_CATEGORY_BASE = 10000
+		local layoutOrder = REAL_CATEGORY_BASE
 		local buttons = {}
 		for category, tbl in Categories do
 			local header = PluginUI.createHeader(classSelectList, category)
@@ -200,12 +277,14 @@ function ClassSelectionMenu.init(Manager)
 			for _, class in tbl do
 				local icon = ClassIcon.getIcon(class)
 				if not icon then continue end
-				
+
+				local capturedClass = class
 				local buttonItem = PluginUI.createButtonWithIcon(
-					nil, class, icon.Image, icon.ImageRectOffset, icon.ImageRectSize, 
+					nil, capturedClass, icon.Image, icon.ImageRectOffset, icon.ImageRectSize,
 					function()
+						classSelectList:Hide()
 						if menuInfo.currentOnSelectCallback then
-							menuInfo.currentOnSelectCallback(class)
+							menuInfo.currentOnSelectCallback(capturedClass)
 						end
 					end
 				)
@@ -214,13 +293,12 @@ function ClassSelectionMenu.init(Manager)
 
 				local button = buttonItem.Instance
 				button.LayoutOrder = layoutOrder
-
 				button:RemoveTag("JEXP_DarkBackground")
 				button:AddTag("JEXP_Background")
-				originalOrders.buttons[class] = layoutOrder
+				originalOrders.buttons[capturedClass] = layoutOrder
 				table.insert(allButtons, {
 					button = button,
-					className = class,
+					className = capturedClass,
 					category = category
 				})
 			end
@@ -231,37 +309,67 @@ function ClassSelectionMenu.init(Manager)
 			table.insert(currentVisibleButtons, buttonData)
 		end
 
-		--local currentInsertTarget: number
 		menuInfo = {
 			currentOnSelectCallback = nil,
 			currentInsertTarget = 1,
 			classSelectList = classSelectList,
 			currentVisibleButtons = currentVisibleButtons,
 			searchbar = searchbar,
-			highlightFrame = highlightFrame
-		}
+			highlightFrame = highlightFrame,
+			setScopeInfo = function(scopeName: string, frequentClasses: {string})
+				frequentByScope[scopeName or "Default"] = frequentClasses
+			end,
+			setScope = function(scopeName: string)
+				currentScope = scopeName or "Default"
+				rebuildFrequentSection()
 
+				currentVisibleButtons = {}
+				for _, buttonData in allButtons do
+					buttonData.button.Visible = true
+					local key = buttonData.category == FREQUENT_CATEGORY
+						and (FREQUENT_CATEGORY .. "_" .. buttonData.className)
+						or buttonData.className
+					buttonData.button.LayoutOrder = originalOrders.buttons[key]
+					table.insert(currentVisibleButtons, buttonData)
+				end
+				table.sort(currentVisibleButtons, function(a, b)
+					return a.button.LayoutOrder < b.button.LayoutOrder
+				end)
+
+				menuInfo.currentVisibleButtons = currentVisibleButtons
+				menuInfo.currentInsertTarget = 1
+				if #currentVisibleButtons > 0 then
+					highlightFrame.Parent = currentVisibleButtons[1].button
+				end
+
+				searchbar.Text = ""
+			end
+		}
+		ClassSelectionMenu.menuInfo = menuInfo
+		
 		local function onInputBegan(input)
 			if not classSelectList.Backdrop.Visible then return end
 			if input.UserInputState ~= Enum.UserInputState.Begin then return end
+			local visible = menuInfo.currentVisibleButtons
 			if input.KeyCode == Enum.KeyCode.Return then
 				classSelectList:Hide()
-				if menuInfo.currentOnSelectCallback and menuInfo.currentInsertTarget > 0 and menuInfo.currentInsertTarget <= #currentVisibleButtons then
-					menuInfo.currentOnSelectCallback(currentVisibleButtons[menuInfo.currentInsertTarget].className)
+				if menuInfo.currentOnSelectCallback and menuInfo.currentInsertTarget > 0 and menuInfo.currentInsertTarget <= #visible then
+					local selected = visible[menuInfo.currentInsertTarget]
+					menuInfo.currentOnSelectCallback(selected.className)
 				end
 			elseif input.KeyCode == Enum.KeyCode.Up then
-				if #currentVisibleButtons > 0 then
+				if #visible > 0 then
 					menuInfo.currentInsertTarget = math.max(1, menuInfo.currentInsertTarget - 1)
-					highlightFrame.Parent = currentVisibleButtons[menuInfo.currentInsertTarget].button
+					highlightFrame.Parent = visible[menuInfo.currentInsertTarget].button
 				end
 			elseif input.KeyCode == Enum.KeyCode.Down then
-				if #currentVisibleButtons > 0 then
-					menuInfo.currentInsertTarget = math.min(#currentVisibleButtons, menuInfo.currentInsertTarget + 1)
-					highlightFrame.Parent = currentVisibleButtons[menuInfo.currentInsertTarget].button
+				if #visible > 0 then
+					menuInfo.currentInsertTarget = math.min(#visible, menuInfo.currentInsertTarget + 1)
+					highlightFrame.Parent = visible[menuInfo.currentInsertTarget].button
 				end
 			end
 		end
-		
+
 		connections:add_many({
 			Manager.connectInputBegan(onInputBegan),
 			searchbar.FocusLost:Connect(function(_, input)
@@ -279,34 +387,33 @@ end
 
 function ClassSelectionMenu.show(Manager, pos, size, fn)
 	assert(menuInfo, "ClassSelectionMenu not initialized yet")
-	
+
 	local state = Manager.WidgetState
 	local jexplorerUi = state.JExplorerUI
-	
+
 	local classSelectList = menuInfo.classSelectList
 	local frameSize = classSelectList.Backdrop.AbsoluteSize
 	local searchbar = menuInfo.searchbar
-	
+
 	menuInfo.currentOnSelectCallback = fn
-	
+
 	classSelectList:SetAnchor(
-		Vector2.new(0, 0), 
+		Vector2.new(0, 0),
 		UDim2.fromOffset(
 			getClampedXY(
 				frameSize,
-				pos, 
+				pos,
 				size,
 				jexplorerUi.AbsolutePosition,
 				jexplorerUi.AbsoluteSize
 			)
 		)
 	)
-
+	
 	classSelectList:Show()
 	searchbar:CaptureFocus()
 	searchbar.Text = ""
 	menuInfo.currentInsertTarget = 1
-	-- Set initial highlight
 	if #menuInfo.currentVisibleButtons > 0 then
 		menuInfo.highlightFrame.Parent = menuInfo.currentVisibleButtons[1].button
 	end

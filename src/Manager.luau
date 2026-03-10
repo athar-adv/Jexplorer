@@ -57,6 +57,7 @@ local ClassSelectionMenu = require("./Shared/ClassSelectionMenu")
 local CreateOptionsDropdown = require("./Shared/CreateOptionsDropdown")
 local Constants = require("./Constants")
 local InsertInfo = require("./Shared/Info/InstanceInsertInfo")
+local InsertSuggested = require("./Shared/Info/InsertSuggestedClasses")
 
 local rule = Style.rule
 local cleanup = ItemGroup.cleanup
@@ -93,6 +94,31 @@ local PLACE_ID = tostring(game.PlaceId)
 local IS_EDIT = game:GetService("RunService"):IsEdit()
 local ID_ATTR = "JexId"
 local ID_FORMAT = "JexId(%s)"
+
+type AsymmetricProp = { from: string, to: string }
+
+type SpecialCaseGroup = {
+	classes: { string },
+	asymmetric: { [string]: AsymmetricProp }?, -- [className]: { from, to }
+}
+
+local SPECIAL_CASE_GROUPS: { SpecialCaseGroup } = {
+	{
+		classes = { "Script", "LocalScript", "ModuleScript" },
+	},
+	{
+		classes = { "Decal", "ImageLabel", "ImageButton" },
+		asymmetric = {
+			Decal = { from = "ColorMap", to = "Image" },
+		},
+	},
+	{
+		classes = { "Decal", "Texture" },
+		asymmetric = {
+			Decal = { from = "ColorMap", to = "Texture" },
+		},
+	},
+}
 
 local components: Types.Components do
 	local comp = Jecs.component
@@ -167,7 +193,9 @@ local Manager = {
 	IdToInstance = {},
 	InstanceToId = {},
 	IdToObjectValue = {},
-	TabFrameToTab = {}
+	TabFrameToTab = {},
+	InstanceToTempId = {},
+	TempIdToInstance = {}
 } :: Types.Manager
 
 local function copySelection(world: World)
@@ -194,11 +222,14 @@ local function pasteCopiedInstances(world: World)
 	if not targetEntity then return end
 	local targetInstance = world:get(targetEntity, components.Instance)
 	assert(targetInstance, "target instance not found")
-
+	
+	local copiedInstances = plugin:GetSetting("CopiedInstances")
+	if not copiedInstances then return end
+	
 	local success, instances = pcall(
 		SerializationService.DeserializeInstancesAsync, SerializationService, 
 		HttpService:JSONDecode(
-			plugin:GetSetting("CopiedInstances")
+			copiedInstances
 		)
 	)
 
@@ -536,7 +567,7 @@ local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, c
 			table.insert(entities, 1, current)
 			current = current.Parent
 		end
-
+		
 		local cumulativeText = ""
 		local absSize = Vector2.new(math.huge, pathButton.AbsoluteSize.Y)
 		for i, part in pathParts do
@@ -544,13 +575,13 @@ local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, c
 				cumulativeText = cumulativeText .. " / "
 			end
 			cumulativeText = cumulativeText .. part
-
+			
 			local textSize = game:GetService("TextService"):GetTextSize(cumulativeText, size, font, absSize)
 			table.insert(segmentBounds, {bound = textSize.X, entity = entities[i]})
 		end
-
+		
 		pathClickConnection = pathButton.Activated:Connect(function(input: InputObject)
-			local relativeX = input.Position.X - pathButton.AbsolutePosition.X
+			local relativeX = input.Position.X - pathButton.AbsolutePosition.X + pathSegments.CanvasPosition.X
 			for _, item in segmentBounds do
 				if relativeX <= item.bound then
 					game.Selection:Set {item.entity}
@@ -614,6 +645,23 @@ local function createPluginAction(actionId: string, text: string, statusTip: str
 	return action
 end
 
+local function getAsymmetricProp(group: SpecialCaseGroup, fromClass: string): AsymmetricProp?
+	if not group.asymmetric then return nil end
+	return group.asymmetric[fromClass]
+end
+
+local function getSpecialGroup(fromClass: string, toClass: string): SpecialCaseGroup?
+	for _, group in SPECIAL_CASE_GROUPS do
+		local hasFrom, hasTo = false, false
+		for _, c in group.classes do
+			if c == fromClass then hasFrom = true end
+			if c == toClass then hasTo = true end
+		end
+		if hasFrom and hasTo then return group end
+	end
+	return nil
+end
+
 function Manager.convertEntitiesInto(entities, className: string)
 	local state = Manager.WidgetState
 	local world = state.World
@@ -659,7 +707,7 @@ function Manager.convertEntitiesInto(entities, className: string)
 		local originalProps = getClassPropMap(oldInst.ClassName)
 		for k, oriProp in originalProps do
 			local newProp = newProps[k]
-			
+
 			if not newProp then continue end
 			local write = newProp.Permits.Write
 			if not write then continue end
@@ -667,10 +715,16 @@ function Manager.convertEntitiesInto(entities, className: string)
 			if newProp.Type.ScriptType ~= oriProp.Type.ScriptType then continue end
 			rawnewindex(converted, k, rawindex(info.inst, k))
 		end
-		if oldInst:IsA("LuaSourceContainer") and converted:IsA("LuaSourceContainer") then
+		if converted:IsA("LuaSourceContainer") and oldInst:IsA("LuaSourceContainer") then
 			(converted :: any).Source = (oldInst :: any).Source
-		elseif oldInst:IsA("Decal") and converted:IsA("ImageLabel") then
-			converted.Image = oldInst.ColorMap
+		end
+		
+		local group = getSpecialGroup(oldInst.ClassName, className)
+		if group then
+			local asymmetric = getAsymmetricProp(group, oldInst.ClassName)
+			if asymmetric then
+				(converted :: any)[asymmetric.to] = (oldInst :: any)[asymmetric.from]
+			end
 		end
 		
 		for _, tag in info.inst:GetTags() do
@@ -1062,7 +1116,7 @@ end
 function Manager.getTempId(inst)
 	local id = Manager.InstanceToTempId[inst]
 	if id then return id end
-	
+
 	local id = inst:GetDebugId()
 	Manager.InstanceToTempId[inst] = id
 	Manager.TempIdToInstance[id] = inst
@@ -1077,7 +1131,9 @@ end
 function Manager.getSetPropertyDragInfo(instances, propName)
 	local ids = {}
 	for _, v in instances do
-		table.insert(ids, Manager.getTempId(v))
+		local id = Manager.getTempId(v)
+		if not id then continue end
+		table.insert(ids, id)
 	end
 	return {
 		Sender = "setproperty",
@@ -2188,11 +2244,22 @@ local function initRegisterPluginMenusAndActions(
 			"Jexplorer_ContextMenu_InsertObject", "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
 		)
 		insertObjectAction.Triggered:Connect(function()
+			local entity = Manager.takeContextTarget()
+			if not entity then return end
 			local mousePos = state.Widget:GetRelativeMousePosition()
+			
+			local inst = Manager.instanceOf(entity)
+			if inst then
+				local current = inst
+				while current.Parent ~= game and current.Parent do
+					current = current.Parent
+				end
+				ClassSelectionMenu.menuInfo.setScope(
+					Constants.InsertScopeFormat:format(current.ClassName)
+				)
+			end
+			
 			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
-				local entity = Manager.takeContextTarget()
-				if not entity then return end
-
 				Manager.insertClassInto(entity, class)
 			end)
 		end)
@@ -2555,6 +2622,7 @@ local function initRegisterPluginMenusAndActions(
 		)
 		convertSelectionAction.Triggered:Connect(function()
 			local mousePos = state.Widget:GetRelativeMousePosition()
+			ClassSelectionMenu.menuInfo.setScope("Default")
 			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
 				Manager.convertEntitiesInto(state.CurrentSelection, class)
 			end)
@@ -3573,16 +3641,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 			do
 				local atExprStart = currentToken == ""
+					or currentToken == "*"
 					or currentToken == "#"
-					or currentToken == "#?"
-					or currentToken == "$"
-					or currentToken == "."
-					or currentToken == "@"
-					or currentToken == "*<"
-					or currentToken == "*>"
-					or currentToken == "<"
-					or currentToken == ">"
-
+				
 				if atExprStart and not inValueContext then
 					local prefixSymbols = {
 						{ label = "#name",   insert = "#",  priority = 6 },
@@ -3965,9 +4026,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		queryInput.Focused:Connect(triggerQueryAutocompleteSuggestions),
 		-- Search bar functionality
 		queryInput.FocusLost:Connect(function(enterPressed)
-			if autocompleteGroup then
-				autocompleteGroup:free()
-			end
+			task.delay(0.1, function()
+				if autocompleteGroup then
+					autocompleteGroup:free()
+				end
+			end)
 			if not enterPressed then return end
 			
 			local queryText = queryInput.Text
@@ -4305,8 +4368,14 @@ function Manager.init(connections, jexplorerWidget)
 	local topbarMenuDropdown = CreateOptionsDropdown(Manager, components, topbar)
 
 	initRegisterPluginMenusAndActions(state, components)
-		
+	
 	ClassSelectionMenu.init(Manager)
+	
+	for scope, classes in InsertSuggested do
+		ClassSelectionMenu.menuInfo.setScopeInfo(
+			Constants.InsertScopeFormat:format(scope), classes
+		)
+	end
 	
 	local tagAddedSignals, tagRemovedSignals, tagAdded, tagRemoved = initRegisterTagListeners(state, components)
 	local scrollTrackerConnection, scrollTrackerThread = initStartTrackScrolling(state)
@@ -4386,6 +4455,7 @@ function Manager.init(connections, jexplorerWidget)
 			while true do
 				local scheduler = Manager.DeferredTaskScheduler
 				
+				-- Scheduler branch A that depends on branches B and C should be placed above the elseif branch of those cases
 				if scheduler.FrameReuseQueuePending and not VirtualScroller.IsScrolling and not VirtualScroller.IsVirtualScrollerUpdating then
 					scheduler.FrameReuseQueuePending = false
 					local suc = ExplorerFrame.flushFrameReuseQueue(Manager)

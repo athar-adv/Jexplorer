@@ -11,7 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "4.4.0"
+local VERSION = "4.5.0"
 
 local global = shared
 local shared = script.Shared

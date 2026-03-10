@@ -6,5 +6,6 @@ return {
 	ExplorerFrameNameFormat = "f_%s",
 	ExplorerFrameScriptClassNameFormat = "s_%s",
 	UnsavedTokenTag = "DontSaveToken",
-	DefaultTokenTag = "Default"
+	DefaultTokenTag = "Default",
+	InsertScopeFormat = "Insert:%s"
 }

@@ -315,7 +315,19 @@ local function onInsertActivated(Manager: Manager, frameWorld: Types.World, fram
 	if not entity then return end
 
 	state.ContextTarget = entity
-	Manager.ClassSelectionMenu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize, function(class)
+	local menu = Manager.ClassSelectionMenu
+	
+	local inst = Manager.instanceOf(entity)
+	if inst then
+		local current = inst
+		while current.Parent ~= game and current.Parent do
+			current = current.Parent
+		end
+		menu.menuInfo.setScope(
+			Constants.InsertScopeFormat:format(current.ClassName)
+		)
+	end
+	menu.show(Manager, insertInstanceButton.AbsolutePosition, insertInstanceButton.AbsoluteSize, function(class)
 		local entity = Manager.WidgetState.ContextTarget
 		if not entity then return end
 		
@@ -328,7 +340,10 @@ local function onReclassActivated(Manager: Manager, frameWorld: Types.World, fra
 	if not entity then return end
 
 	state.ContextTarget = entity
-	Manager.ClassSelectionMenu.show(Manager, reclassButton.AbsolutePosition, reclassButton.AbsoluteSize, function(class)
+	local menu = Manager.ClassSelectionMenu
+	
+	menu.menuInfo.setScope("Default")
+	menu.show(Manager, reclassButton.AbsolutePosition, reclassButton.AbsoluteSize, function(class)
 		local entity = Manager.WidgetState.ContextTarget
 		if not entity then return end
 
