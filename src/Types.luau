@@ -16,7 +16,7 @@ local Jecs = require(main.Jecs)
 
 -- UI definitions
 
-export type TYPE_UI_JExplorerUi = Frame & {
+export type UITEMPLATE_JExplorerUi = Frame & {
 	InstanceTree: Frame & {
 		TreeScroller: ScrollingFrame,
 		ScrollContainer: Frame,
@@ -46,7 +46,7 @@ export type TYPE_UI_JExplorerUi = Frame & {
 	}
 }
 
-type TYPE_UI_InstanceFrame_Main = Frame & {
+type UITEMPLATE_InstanceFrame_Main = Frame & {
 	Overlay: Frame & {
 		Select: ImageButton,
 	},
@@ -60,13 +60,13 @@ type TYPE_UI_InstanceFrame_Main = Frame & {
 	Reclass: ImageButton
 }
 
-export type TYPE_UI_InstanceFrame = Frame & {
+export type UITEMPLATE_InstanceFrame = Frame & {
 	Buffer: Frame,
 	Ruler: Frame,
-	Main: TYPE_UI_InstanceFrame_Main,
+	Main: UITEMPLATE_InstanceFrame_Main,
 }
 
-export type TYPE_UI_EditorFrame = Frame & {
+export type UITEMPLATE_EditorFrame = Frame & {
 	Items: ScrollingFrame & {
 		Content: Frame & {
 			UIListLayout: UIListLayout,
@@ -77,7 +77,7 @@ export type TYPE_UI_EditorFrame = Frame & {
 	ScrollBackgroundVertical: Frame,
 }
 
-export type TYPE_UI_TabFrame = Frame & {
+export type UITEMPLATE_TabFrame = Frame & {
 	NameBox: TextButton,
 	Button: TextButton,
 	Icon: ImageLabel,
@@ -269,7 +269,7 @@ export type Components = {
 	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
 
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
-	FRAMEWORLD_Main: Jecs.Component<TYPE_UI_InstanceFrame_Main>,
+	FRAMEWORLD_Main: Jecs.Component<UITEMPLATE_InstanceFrame_Main>,
 	FRAMEWORLD_CurrentParent: Jecs.Component<Instance>,
 	QUERYWORLD_ComponentHash: Jecs.Component<string>,
 
@@ -310,7 +310,7 @@ export type WidgetState = {
 	CurrentlyInserting: {Instance}?,
 	IsDragging: boolean,
 
-	JExplorerUI: TYPE_UI_JExplorerUi,
+	JExplorerUI: UITEMPLATE_JExplorerUi,
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
@@ -542,7 +542,7 @@ export type Manager = {
 
 	init: (connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
 
-	frameOf: (frame: ExplorerFrame) -> TYPE_UI_InstanceFrame?,
+	frameOf: (frame: ExplorerFrame) -> UITEMPLATE_InstanceFrame?,
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
 	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
@@ -613,7 +613,7 @@ export type VersionControl = Editor & {
 	VersionViewerUIList: PluginUI.ItemList,
 
 	SourceViewerWidget: DockWidgetPluginGui,
-	SourceViewerMainframe: TYPE_UI_EditorFrame,
+	SourceViewerMainframe: UITEMPLATE_EditorFrame,
 
 	Token: GitAPI.LuaSecret?,
 	RepoId: string,

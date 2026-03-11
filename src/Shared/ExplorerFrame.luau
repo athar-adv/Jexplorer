@@ -386,7 +386,7 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 end
 
 local set
-local function createExplorerFrame(Manager: Manager, frame: Types.TYPE_UI_InstanceFrame)
+local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_InstanceFrame)
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
 	local ExplorerFrame = Manager.ExplorerFrame

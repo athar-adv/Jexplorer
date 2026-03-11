@@ -1051,7 +1051,7 @@ function Manager.instanceOf(ent: ExplorerEntity): Instance?
 	return world:get(ent, components.Instance)
 end
 
-function Manager.frameOf(ent: ExplorerEntity): Types.TYPE_UI_InstanceFrame?
+function Manager.frameOf(ent: ExplorerEntity): Types.UITEMPLATE_InstanceFrame?
 	local world = Manager.WidgetState.FrameWorld
 	local components = Manager.Components
 	return world:get(ent, components.Instance) :: any
