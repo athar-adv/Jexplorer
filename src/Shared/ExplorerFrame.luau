@@ -64,12 +64,6 @@ local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected
 	profileend()
 end
 
-local function onCleanupFrameState(frameState: Types.FrameState, currentTypingConn: RBXScriptConnection?)
-	if currentTypingConn then
-		currentTypingConn:Disconnect()
-	end
-end
-
 local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlHeld: boolean, isShiftHeld: boolean)
 	profilebegin("Jexplorer::toggleSelection")
 	local VirtualScroller = Manager.VirtualScroller
@@ -355,7 +349,7 @@ local function onReclassActivated(Manager: Manager, frameWorld: Types.World, fra
 	end)
 end
 
-local function onInstanceNameFocusLostTyping(currentTypingConnRef: {conn: RBXScriptConnection?}, instanceName: TextBox)
+local function onInstanceNameFocusLostTyping(instanceName: TextBox)
 	instanceName.TextEditable = false
 	instanceName.Interactable = false
 end
@@ -446,15 +440,6 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 	Manager.FrameToInstanceFrame[frame] = frameEntity
 	overlayFrame:AddTag("JEXP_Hover")
 
-	-- Use a ref table so the typing conn can be mutated from static functions
-	local currentTypingConnRef: {conn: RBXScriptConnection?} = { conn = nil }
-
-	connections:extend(cleanup.call, {
-		function()
-			onCleanupFrameState(frameState, currentTypingConnRef.conn)
-		end
-	})
-
 	local items = connections.items
 	local n = #items
 
@@ -499,7 +484,7 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 		rawnewindex(insertInstanceButton, "Position", UDim2.new(0, x + 10, 0.5))
 	end)
 	items[n+8] = instanceName.FocusLost:Connect(function()
-		onInstanceNameFocusLostTyping(currentTypingConnRef, instanceName)
+		onInstanceNameFocusLostTyping(instanceName)
 	end)
 	items[n+9] = arrow.Activated:Connect(function()
 		onArrowActivated(Manager, world, frameWorld, frameEntity, components)
