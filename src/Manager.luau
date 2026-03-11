@@ -1050,10 +1050,10 @@ function Manager.instanceOf(ent: ExplorerEntity): Instance?
 	return world:get(ent, components.Instance)
 end
 
-function Manager.frameOf(ent: ExplorerEntity): typeof(script.Parent.__legacy.UI.InstanceFrame)?
+function Manager.frameOf(ent: ExplorerEntity): Types.TYPE_UI_InstanceFrame?
 	local world = Manager.WidgetState.FrameWorld
 	local components = Manager.Components
-	return world:get(ent, components.Instance)
+	return world:get(ent, components.Instance) :: any
 end
 
 function Manager.getSetting(name)
@@ -4205,7 +4205,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				n += 1
 			end
 			
-			topbar.QueryInputFrame.QueryCount.Text = n
+			topbar.QueryInputFrame.QueryCount.Text = tostring(n)
 
 			VirtualScroller.clearHeightCache(Manager)
 			ExplorerFrame.updateExpandedVisuals(Manager)

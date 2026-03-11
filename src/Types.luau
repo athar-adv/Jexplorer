@@ -3,7 +3,6 @@
 local main = script.Parent
 
 local shared = main.Shared
-local ui = main.__legacy.UI
 
 local PluginUI = require(shared.PluginUI)
 local Style = require(shared.Style)
@@ -14,6 +13,75 @@ local SimpleSignal = require(shared.Vendor.SimpleSignal)
 local ColorPicker = require(shared.Vendor.PluginColorPicker)
 
 local Jecs = require(main.Jecs)
+
+-- UI definitions
+
+export type TYPE_UI_JExplorerUi = Frame & {
+	InstanceTree: Frame & {
+		TreeScroller: ScrollingFrame,
+		ScrollContainer: Frame,
+
+		ScrollBackgroundHorizontal: Frame,
+		ScrollBackgroundVertical: Frame,
+	},
+
+	Topbar: Frame & {
+		UIStroke: UIStroke,
+		PathBar: Frame & {
+			Segments: ScrollingFrame & {
+				PathSegment: TextButton,
+			}
+		},
+		TabBar: Frame & {
+			Tabs: ScrollingFrame,
+		},
+		Options: ImageButton,
+		QueryInputFrame: Frame & {
+			Scroll: ScrollingFrame & {
+				QueryInput: TextBox,
+			},
+			SelectQueried: TextButton,
+			QueryCount: TextLabel,
+		}
+	}
+}
+
+type TYPE_UI_InstanceFrame_Main = Frame & {
+	Overlay: Frame & {
+		Select: ImageButton,
+	},
+	ClassIcon: ImageLabel,
+	InstanceName: TextBox,
+	Arrow: ImageButton,
+	Insert: ImageButton,
+
+	PackageLinkIcon: ImageLabel,
+	PendingChanges: ImageLabel,
+	Reclass: ImageButton
+}
+
+export type TYPE_UI_InstanceFrame = Frame & {
+	Buffer: Frame,
+	Ruler: Frame,
+	Main: TYPE_UI_InstanceFrame_Main,
+}
+
+export type TYPE_UI_EditorFrame = Frame & {
+	Items: ScrollingFrame & {
+		Content: Frame & {
+			UIListLayout: UIListLayout,
+		},
+		Overlay: Frame,
+	},
+	ScrollBackgroundHorizontal: Frame,
+	ScrollBackgroundVertical: Frame,
+}
+
+export type TYPE_UI_TabFrame = Frame & {
+	NameBox: TextButton,
+	Button: TextButton,
+	Icon: ImageLabel,
+}
 
 type Array<T> = {T}
 export type InstanceId = string
@@ -201,7 +269,7 @@ export type Components = {
 	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
 
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
-	FRAMEWORLD_Main: typeof(main.__legacy.UI.InstanceFrame.Main),
+	FRAMEWORLD_Main: Jecs.Component<TYPE_UI_InstanceFrame_Main>,
 	FRAMEWORLD_CurrentParent: Jecs.Component<Instance>,
 	QUERYWORLD_ComponentHash: Jecs.Component<string>,
 
@@ -242,7 +310,7 @@ export type WidgetState = {
 	CurrentlyInserting: {Instance}?,
 	IsDragging: boolean,
 
-	JExplorerUI: typeof(ui.JExplorerUi),
+	JExplorerUI: TYPE_UI_JExplorerUi,
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
@@ -474,7 +542,7 @@ export type Manager = {
 
 	init: (connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
 
-	frameOf: (frame: ExplorerFrame) -> typeof(main.__legacy.UI.InstanceFrame)?,
+	frameOf: (frame: ExplorerFrame) -> TYPE_UI_InstanceFrame?,
 	parentOf: (entity: ExplorerEntity) -> ExplorerEntity?,
 	instanceOf: (entity: ExplorerEntity) -> Instance?,
 	updateParent: (entity: ExplorerEntity, newParent: ExplorerEntity?) -> (),
@@ -545,7 +613,7 @@ export type VersionControl = Editor & {
 	VersionViewerUIList: PluginUI.ItemList,
 
 	SourceViewerWidget: DockWidgetPluginGui,
-	SourceViewerMainframe: typeof(ui.EditorFrame),
+	SourceViewerMainframe: TYPE_UI_EditorFrame,
 
 	Token: GitAPI.LuaSecret?,
 	RepoId: string,
