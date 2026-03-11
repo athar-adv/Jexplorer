@@ -87,7 +87,7 @@ function StateEditor.init(Manager)
 			end
 		end
 
-		Manager.VirtualScroller.update(Manager, false)
+		Manager.VirtualScroller.update(Manager, false, true)
 	end
 	local function resetOrder()
 		OrderEditor.ClassPriorities = DefaultOrder(Manager)

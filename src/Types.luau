@@ -188,6 +188,7 @@ export type Components = {
 	Deleted: Jecs.Component,
 	DisplayTopLevel: Jecs.Component,
 	HasPackageLink: Jecs.Component,
+	HasSideIcons: Jecs.Component,
 
 	CleanupTicket: Jecs.Component<{}>,
 	DeletionTicket: Jecs.Component<{}>,
@@ -314,9 +315,7 @@ export type ExplorerFrameLib = {
 	updateExpandedVisuals: (Manager) -> (),
 	updateCollapsedVisuals: (Manager) -> (),
 
-	updateRightEdgeIcons: (Manager, frame: ExplorerFrame, containerWidth: number?, frameX: number?, entity: ExplorerEntity?, frameState: FrameState?) -> {
-		reclassIconIsVisible: boolean
-	}?,
+	updateRightEdgeIcons: (Manager, frame: ExplorerFrame, containerWidth: number?, frameX: number?, entity: ExplorerEntity?, frameState: FrameState?) -> (),
 	setExplorerFrameIconColor: (Manager, frame: ExplorerFrame, iconColor: Color3?) -> (),
 }
 
@@ -324,7 +323,7 @@ export type VirtualScroller = {
 	clearHeightCache: (Manager) -> (),
 	invalidateEntityHeightCache: (Manager, ExplorerEntity) -> (),
 
-	update: (Manager, isScroller: boolean) -> (),
+	update: (Manager, isScroller: boolean, forceUpdateIcons: boolean?) -> (),
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
 	trackScrolling: (Manager) -> (RBXScriptConnection, thread),
 

@@ -1,1 +1,6 @@
-book
+.vscode
+book.toml
+*.toml
+
+sourcemap.json
+

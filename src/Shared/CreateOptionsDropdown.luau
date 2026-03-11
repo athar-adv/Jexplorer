@@ -148,7 +148,7 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 					Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 				end
 				task.wait(1/30)
-				Manager.VirtualScroller.update(Manager, false)
+				Manager.VirtualScroller.update(Manager, false, true)
 			end)
 			PluginUI.createSeparator(topbarMenuDropdown)
 			PluginUI.createButton(topbarMenuDropdown, "Save State", function()

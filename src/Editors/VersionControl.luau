@@ -404,7 +404,7 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 
 	world:add(entity, components.PendingChanges)
 
-	Manager.VirtualScroller.update(Manager, false)
+	Manager.ExplorerFrame.updateRightEdgeIcons(Manager, world:get(entity, components.Frame) :: any, nil, nil, entity)
 	Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 end
 
@@ -415,8 +415,8 @@ local function removePendingChangseState(inst: Instance)
 		local components = Manager.Components
 
 		world:remove(entity, components.PendingChanges)
-
-		Manager.VirtualScroller.update(Manager, false)
+		
+		Manager.ExplorerFrame.updateRightEdgeIcons(Manager, world:get(entity, components.Frame) :: any, nil, nil, entity)
 		Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	end
 end

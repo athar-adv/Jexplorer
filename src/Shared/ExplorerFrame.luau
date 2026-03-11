@@ -109,7 +109,7 @@ local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlH
 	end
 
 	ExplorerFrame.updateSelectionVisuals(Manager, true)
-	VirtualScroller.update(Manager, false)
+	VirtualScroller.update(Manager, false, true)
 	profileend()
 end
 
@@ -267,7 +267,7 @@ local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Ty
 			state.LastSelectedEntity = entity
 
 			ExplorerFrame.updateSelectionVisuals(Manager, true)
-			VirtualScroller.update(Manager, false)
+			VirtualScroller.update(Manager, false, true)
 		end
 	end
 end
@@ -294,16 +294,10 @@ local function onMouseEnter(
 		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
 		insertInstanceButton.Visible = true
 	end
-	do
-		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
-		frameState.reclassIconVisible = true
-		-- Can't reclass services
-		if inst.Parent ~= game then
-			local info = ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
-			if info and info.reclassIconIsVisible then
-				reclassButton.Visible = true
-			end
-		end
+	
+	frameState.reclassIconVisible = inst.Parent ~= game
+	if frameState.reclassIconVisible then
+		ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
 	end
 end
 
@@ -410,7 +404,7 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 		ExplorerFrame.updateExpandedVisuals(Manager)
 	end
 
-	VirtualScroller.update(Manager, false)
+	VirtualScroller.update(Manager, false, true)
 end
 
 local set
@@ -819,7 +813,76 @@ function ExplorerFrame.updateExpandedVisuals(Manager)
 end
 
 local padding = 4
-function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, frameX, entity, frameState)
+local frameIconOrderUpdaters = {
+	-- package,
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+		profilebegin("updatePackageLink")
+		
+		frameState.hasPackageLink = Manager.WidgetState.World:has(entity, Manager.Components.HasPackageLink)
+		
+		if frameState.hasPackageLink then
+			local linkIcon = frameState.packageLinkIcon
+			local pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			
+			local canShow = pos.X.Offset > nameBoundX
+			linkIcon.Visible = canShow
+			
+			if canShow then 
+				linkIcon.Position = pos 
+				return linkIcon.AbsoluteSize.X
+			end
+			
+			frameState.hasPackageLink = true
+		else
+			frameState.packageLinkIcon.Visible = false
+			frameState.hasPackageLink = false
+		end
+		
+		return nil
+	end,
+	-- pending changes,
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+		profilebegin("updatePendingChanges")
+		local pendingchangeicon = frameState.pendingChanges
+		local canShow, pos = false, nil 
+		
+		if Manager.WidgetState.World:has(entity, Manager.Components.PendingChanges) then
+			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			canShow = pos.X.Offset > nameBoundX
+		end
+		
+		pendingchangeicon.Visible = canShow
+
+		if canShow then 
+			pendingchangeicon.Position = pos 
+			return pendingchangeicon.AbsoluteSize.X
+		end
+		
+		return nil
+	end,
+	-- reclass
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+		profilebegin("updateReclassIcon")
+		
+		local reclassicon = frameState.reclassButton
+		local canShow, pos = false, nil 
+
+		if frameState.reclassIconVisible then
+			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			canShow = pos.X.Offset > nameBoundX
+		end
+		
+		reclassicon.Visible = canShow
+
+		if canShow then
+			reclassicon.Position = pos
+			return reclassicon.AbsoluteSize.X
+		end
+		
+		return nil
+	end,
+}
+function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWidth, frameX, entity, frameState)
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
@@ -841,84 +904,21 @@ function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, fram
 	
 	local nameBoundX = frameState.currentNameBoundX + 18 + 16 + padding  -- padding
 	
-	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
-		profilebegin("updatePendingChanges")
-		if frameState.hasPackageLink then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			--if pos.X.Offset > nameBoundX then
-			--	frameInst.Position = pos
-			--end
-			frameInst.Position = pos
-		else
-			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			frameInst.Position = pos
-		end
+	local currentoffset = 0
+	for _, updater in frameIconOrderUpdaters do 
+		local addoffset = updater(Manager, entity, frameX, frameState, state, containerWidth, nameBoundX, currentoffset)
 		profileend()
-	end
-	
-	local reclassIconIsVisible = true
-	local function updateReclassIcon(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState, hasPendingChanges: boolean, setPosition: boolean)
-		profilebegin("updateReclassIcon")
-		if frameState.hasPackageLink and hasPendingChanges then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - frameState.pendingChanges.AbsoluteSize.X - padding)
-			--if pos.X.Offset > nameBoundX then
-			--	if setPosition then
-			--		frameInst.Position = pos
-			--	end
-			--else
-			--	reclassIconIsVisible = false
-			--end
-			if setPosition then
-				frameInst.Position = pos
-			end
-		elseif hasPendingChanges then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.pendingChanges.AbsoluteSize.X - padding)
-			if setPosition then
-				frameInst.Position = pos
-			end
-		elseif frameState.hasPackageLink then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			if setPosition then
-				frameInst.Position = pos
-			end
-		else
-			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			if setPosition then
-				frameInst.Position = pos
-			end
+		
+		if addoffset then
+			currentoffset -= (addoffset + padding)
 		end
-		profileend()
 	end
 	
-	local hasPendingChanges = world:has(entity, components.PendingChanges)
-	
-	if world:has(entity, components.HasPackageLink) then
-		local linkIcon = frameState.packageLinkIcon
-		local pos = stickToRightEdge(containerWidth, frameX, 0)
-		--if pos.X.Offset > nameBoundX then
-		--	linkIcon.Position = pos
-		--end
-		linkIcon.Position = pos
-		linkIcon.Visible = true
-		frameState.hasPackageLink = true
-	else
-		frameState.packageLinkIcon.Visible = false
-		frameState.hasPackageLink = false
-		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
-		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
+	if currentoffset ~= 0 then
+		world:add(entity, components.HasSideIcons)
+	else 
+		world:remove(entity, components.HasSideIcons)
 	end
-
-	if hasPendingChanges then
-		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
-		frameState.pendingChanges.Visible = true
-	else
-		frameState.pendingChanges.Visible = false
-		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
-	end
-
-	updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
-	
-	return {reclassIconIsVisible = reclassIconIsVisible}
 end
 
 function ExplorerFrame.updateCollapsedVisuals(Manager)
