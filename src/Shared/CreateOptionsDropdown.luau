@@ -139,7 +139,7 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 				"rbxassetid://13825976376",
 				Vector2.zero, Vector2.zero,
 				function()
-					Manager.DeferredTaskScheduler.ChildGraphDirty = true
+					Manager.VirtualScroller.rebuildAndUpdate(Manager, false)
 				end
 			)
 			PluginUI.createButton(topbarMenuDropdown, "Reassign ExplorerFrames", function()

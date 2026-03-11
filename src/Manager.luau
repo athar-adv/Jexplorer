@@ -148,6 +148,7 @@ local components: Types.Components do
 		
 		FRAMEWORLD_FrameSetParentTicket = comp(),
 		FRAMEWORLD_Main = comp(),
+		FRAMEWORLD_CurrentParent = comp(),
 		QUERYWORLD_ComponentHash = comp(),
 
 		Instance = comp(),
@@ -1017,12 +1018,16 @@ function Manager.updateParent(entity: ExplorerEntity, new_parent: ExplorerEntity
 		world:remove(entity, ChildOf(old_parent))
 		if childAmountCache[old_parent] then
 			childAmountCache[old_parent] -= 1
+		else
+			childAmountCache[old_parent] = 0
 		end
 	end
 	if new_parent then
 		world:add(entity, ChildOf(new_parent))
 		if childAmountCache[new_parent] then
 			childAmountCache[new_parent] += 1
+		else
+			childAmountCache[new_parent] = 1
 		end
 	end
 end
@@ -4467,19 +4472,15 @@ function Manager.init(connections, jexplorerWidget)
 					HierarchyState.flushEntityPropAssignQueue(Manager)
 				elseif scheduler.FrameReuseQueuePending then
 					scheduler.FrameReuseQueuePending = false
-
+					
 					local suc = ExplorerFrame.flushFrameReuseQueue(Manager)
-					if suc then
-						ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-					end
 				elseif scheduler.ChildGraphDirty then
 					scheduler.ChildGraphDirty = false
 					
 					VirtualScroller.rebuildAndUpdate(Manager, false)
 				else
-					-- Stepped tasks here because they need to run at all times
+					ExplorerFrame.flushFrameSetParentQueue(Manager)
 					HierarchyState.stepFlushEntityDeletionQueue(Manager)
-					ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 					task.wait()
 				end
 			end

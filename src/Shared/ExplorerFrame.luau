@@ -459,7 +459,8 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 		pendingChangesIconVisible = false,
 		reclassButton = reclassButton,
 		reclassIconVisible = false,
-		currentNameBoundX = 0
+		currentNameBoundX = 0,
+		lastFrameX = math.huge
 	}
 	
 	local frameEntity = frameWorld:entity()
@@ -557,18 +558,11 @@ function ExplorerFrame.getExplorerFrame(Manager): ExplorerFrame
 		end
 	end
 	local reused = table.remove(globalFramePool)::any
-	--local frameInst = Manager.frameOf(reused)
-	--if frameInst then
-	--	frameWorld:set(reused, components.FRAMEWORLD_FrameSetParentTicket, {newParent = state.JExplorerUI.InstanceTree})
-	--end
 	profileend()
 	return reused
 end
 
-local alreadyFlushing = false
 function ExplorerFrame.flushFrameReuseQueue(Manager)
-	if alreadyFlushing then return false end
-	alreadyFlushing = true
 	profilebegin("Jexplorer::flushFrameReuseQueue")
 	
 	local state = Manager.WidgetState
@@ -578,32 +572,27 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 	local tounassign = {}
 	local tomutate: {ExplorerEntity} = {}
 	
-	local query = Jecs.cached_query(frameWorld, components.FrameReuseTicket)
+	local query = Jecs.cached_query(world, components.FrameReuseTicket)
 	
 	local touI = 1
 	local tomuI = 1
 	local fpI = #globalFramePool + 1
-	local move = table.move
 	
 	local any = false
-	for frame, ticketData in query:iter() do
+	for entity, ticketData in query:iter() do
 		any = true
-		frameWorld:remove(frame, components.FrameReuseTicket)
-		
+		world:remove(entity, components.FrameReuseTicket)
+		local frame = ticketData.frame
+		 
 		tounassign[touI] = frame
 		globalFramePool[fpI] = frame
+		tomutate[tomuI] = entity
 		
-		local entity = ticketData.entity
-		if entity then
-			tomutate[tomuI] = entity
-		end
-		
+		tomuI += 1
 		fpI += 1
 		touI += 1
-		tomuI += 1
 	end
 	if not any then
-		alreadyFlushing = false
 		profileend()
 		return false
 	end
@@ -612,38 +601,43 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 		world:remove(entity, components.Frame)
 	end
 	for _, frame in tounassign do
-		ExplorerFrame.assignExplorerFrame(Manager, frame, nil, nil, false)
+		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
+		ExplorerFrame.assignExplorerFrame(Manager, frame, nil, nil, false, false)
 	end
 	
-	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+	Manager.DeferredTaskScheduler.FrameTagAssignQueuePending = true
 	
-	alreadyFlushing = false
 	profileend()
 	return true
 end
 
-function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+local frameSetParentQuery
+function ExplorerFrame.flushFrameSetParentQueue(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
 	local frameWorld = state.FrameWorld
 	
 	local any = false
-	local query = Jecs.cached_query(frameWorld, components.Instance, components.FRAMEWORLD_FrameSetParentTicket):iter()
-	if not query() then return false end
+	local query
+	if frameSetParentQuery then
+		query = frameSetParentQuery
+	else
+		frameSetParentQuery = frameWorld:query(components.Instance, components.FRAMEWORLD_FrameSetParentTicket)
+			:cached()
+		query = frameSetParentQuery
+	end
+	if not query:iter()() then return false end
 	
 	profilebegin("Jexplorer::stepFlushFrameSetParentQueue")
-	
 	local withoutParents: {{inst: Instance, frame: ExplorerFrame}} = {}
 	local withParents: {{inst: Instance, parent: Instance, frame: ExplorerFrame}} = {}
-	local n = 0
 	
-	local stepSize = Manager.getSetting("FrameSetParentFlushStep")
-	for frame: ExplorerFrame, frameInst, ticketData in query do
-		if n >= stepSize then break end
+	local iter = query:iter()
+	for frame: ExplorerFrame, frameInst, ticketData in iter do
 		any = true
-		n += 1
 		frameWorld:remove(frame, components.FRAMEWORLD_FrameSetParentTicket)
+		
 		if ticketData.newParent then
 			table.insert(withParents, {inst = frameInst, parent = ticketData.newParent, frame = frame})
 		else
@@ -655,12 +649,18 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	local PARENT = "Parent"
 	profilebegin("withoutParents")
 	for _, v in withoutParents do
-		rawnewindex(v.inst, PARENT, nil)
+		if frameWorld:get(v.frame, components.FRAMEWORLD_CurrentParent) ~= nil then
+			rawnewindex(v.inst, PARENT, nil)
+			frameWorld:remove(v.frame, components.FRAMEWORLD_CurrentParent)
+		end
 	end
 	profileend()
 	profilebegin("withParents")
 	for _, v in withParents do
-		rawnewindex(v.inst, PARENT, v.parent)
+		if frameWorld:get(v.frame, components.FRAMEWORLD_CurrentParent) ~= v.parent then
+			rawnewindex(v.inst, PARENT, v.parent)
+			frameWorld:set(v.frame, components.FRAMEWORLD_CurrentParent, v.parent)
+		end
 	end
 	profileend()
 	profileend()
@@ -668,7 +668,7 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	return true
 end
 
-function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, parentIsGame)
+function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, parentIsGame, assignSetParentTicket)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
@@ -701,17 +701,24 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		end
 		frameState.insertInstanceButton.Visible = false
 		frameState.reclassButton.Visible = false
-		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
-		
 		frameState.isAssigning = false
+		
+		if assignSetParentTicket then
+			frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
+		end
+		
 		profileend()
 		return
 	end
 	
+	if assignSetParentTicket then
+		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = state.InstanceTree})
+	end
+	
 	local name = Manager.NameCache[entity]
 	world:set(entity, components.Frame, frame)
-	
 	frameWorld:set(frame, components.Entity, entity)
+	
 	if parentFrame then
 		frameWorld:add(frame, Manager.ChildOf(parentFrame))
 	end
@@ -729,14 +736,19 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	frameState.isAssigning = false
 end
 
-function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
 	local state = Manager.WidgetState
 	local frameWorld = state.FrameWorld
+	local world = state.World
 	local components = Manager.Components
-	local entity = frameWorld:get(frame, components.Entity)
+	local entity = entity or frameWorld:get(frame, components.Entity)
 	
 	frameWorld:remove(frame, components.Entity)
-	frameWorld:set(frame, components.FrameReuseTicket, {entity = entity})
+	if entity then
+		world:set(entity, components.FrameReuseTicket, {frame = frame})
+	else
+		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
+	end
 end
 
 function ExplorerFrame.initializeFrameCaches(Manager)
@@ -819,75 +831,74 @@ function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, fram
 	assert(frameState)
 	
 	local containerWidth = containerWidth or state.TreeScroller.AbsoluteSize.X
+	if frameX == frameState.lastFrameX then return end
+	
 	local frameX = frameX or frameInst.AbsolutePosition.X
+	frameState.lastFrameX = frameX
+	
 	local entity = entity or state.FrameWorld:get(frame, components.Entity)
 	assert(entity)
 	
 	local nameBoundX = frameState.currentNameBoundX + 18 + 16 + padding  -- padding
 	
 	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
+		profilebegin("updatePendingChanges")
 		if frameState.hasPackageLink then
 			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			if pos.X.Offset > nameBoundX then
-				frameInst.Position = pos
-			end
+			--if pos.X.Offset > nameBoundX then
+			--	frameInst.Position = pos
+			--end
+			frameInst.Position = pos
 		else
 			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			if pos.X.Offset > nameBoundX then
-				frameInst.Position = pos
-			end
+			frameInst.Position = pos
 		end
+		profileend()
 	end
 	
 	local reclassIconIsVisible = true
 	local function updateReclassIcon(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState, hasPendingChanges: boolean, setPosition: boolean)
+		profilebegin("updateReclassIcon")
 		if frameState.hasPackageLink and hasPendingChanges then
 			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - frameState.pendingChanges.AbsoluteSize.X - padding)
-			if pos.X.Offset > nameBoundX then
-				if setPosition then
-					frameInst.Position = pos
-				end
-			else
-				reclassIconIsVisible = false
+			--if pos.X.Offset > nameBoundX then
+			--	if setPosition then
+			--		frameInst.Position = pos
+			--	end
+			--else
+			--	reclassIconIsVisible = false
+			--end
+			if setPosition then
+				frameInst.Position = pos
 			end
 		elseif hasPendingChanges then
 			local pos = stickToRightEdge(containerWidth, frameX, -frameState.pendingChanges.AbsoluteSize.X - padding)
-			if pos.X.Offset > nameBoundX then
-				if setPosition then
-					frameInst.Position = pos
-				end
-			else
-				reclassIconIsVisible = false
+			if setPosition then
+				frameInst.Position = pos
 			end
 		elseif frameState.hasPackageLink then
 			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			if pos.X.Offset > nameBoundX then
-				if setPosition then
-					frameInst.Position = pos
-				end
-			else
-				reclassIconIsVisible = false
+			if setPosition then
+				frameInst.Position = pos
 			end
 		else
 			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			if pos.X.Offset > nameBoundX then
-				if setPosition then
-					frameInst.Position = pos
-				end
-			else
-				reclassIconIsVisible = false
+			if setPosition then
+				frameInst.Position = pos
 			end
 		end
+		profileend()
 	end
 	
 	local hasPendingChanges = world:has(entity, components.PendingChanges)
-
+	
 	if world:has(entity, components.HasPackageLink) then
 		local linkIcon = frameState.packageLinkIcon
 		local pos = stickToRightEdge(containerWidth, frameX, 0)
-		if pos.X.Offset > nameBoundX then
-			linkIcon.Position = pos
-		end
+		--if pos.X.Offset > nameBoundX then
+		--	linkIcon.Position = pos
+		--end
+		linkIcon.Position = pos
 		linkIcon.Visible = true
 		frameState.hasPackageLink = true
 	else
@@ -933,7 +944,6 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 		local function reuseChildren(entity: ExplorerEntity)
 			for child, frame, _ in world:query(components.Frame, Manager.ChildOf(entity)):iter() do
 				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
-				state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
 				if not Manager.isExplorerEntityExpanded(child) then continue end
 				reuseChildren(child)
 			end
@@ -941,9 +951,7 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 		reuseChildren(entity)
 		Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 		
-		repeat
-			local success = ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-		until not success
+		ExplorerFrame.flushFrameSetParentQueue(Manager)
 		
 		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 	end
@@ -1048,9 +1056,9 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local name = Manager.NameCache[entity]
 		
 		local instanceName = frameState.instanceName
-		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-		frameState.currentNameBoundX = x
+		--local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+		--local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		--frameState.currentNameBoundX = x
 		
 		local newTags = {}
 		if typeof(inst) == "Instance" then

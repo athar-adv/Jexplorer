@@ -216,6 +216,7 @@ function VirtualScroller.update(Manager, isScroller)
 	local components = Manager.Components
 
 	local jexplorerUi = state.JExplorerUI
+	local frameWorld = state.FrameWorld
 	local world = state.World
 
 	local ExplorerFrame = Manager.ExplorerFrame
@@ -239,7 +240,7 @@ function VirtualScroller.update(Manager, isScroller)
 	for _, entity in invisible do
 		local frame = world:get(entity, components.Frame)
 		if frame then
-			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
 			any = true
 		end
 	end
@@ -252,12 +253,12 @@ function VirtualScroller.update(Manager, isScroller)
 	local assign = ExplorerFrame.assignExplorerFrame
 	local reuse = ExplorerFrame.queueForExplorerFrameReuse
 	local allocateFrame = ExplorerFrame.getExplorerFrame
-
-	local childrenMap = HierarchyState.ChildrenMap
+	
 	local isEntityInvisible = Manager.isExplorerEntityInvisible
 	local childAmountCache = Manager.ChildAmountCache
 	local stateCache = HierarchyState.StateCache
 	local scrollContainer = state.InstanceTree
+	local childrenMap = HierarchyState.ChildrenMap
 	
 	local scrollPos = Vector2.new(rawPos.X, top)
 	local smoothed = lastCanvasPos:Lerp(scrollPos, 0.8)
@@ -287,10 +288,14 @@ function VirtualScroller.update(Manager, isScroller)
 		
 		local frameState = state.FrameWorld:get(frame, components.FrameState)
 		if not frameState then continue end
-
-		local children = childrenMap[entity]
-		if not isScroller and children then
-			childAmountCache[entity] = #children
+		
+		if not isScroller then
+			local children = childrenMap[entity]
+			if children then
+				childAmountCache[entity] = #children
+			else
+				childAmountCache[entity] = 0
+			end
 		end
 		
 		local frameX = -smoothed.X + info.indentoffset
@@ -298,27 +303,14 @@ function VirtualScroller.update(Manager, isScroller)
 		
 		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState, frame = frame}
 		ftamI += 1
-		
-		state.FrameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = scrollContainer})
 	end
 	
 	local classNameCache = Manager.ClassNameCache
 	local nameCache = Manager.NameCache
-	local childAmountCache = Manager.ChildAmountCache
 	
 	if not isModifyingInstances then
 		isModifyingInstances = true
 		
-		for _, info in frameInfo do
-			local entity = info.entity
-			local frame = info.frame
-			local instance = info.inst
-			
-			local entityState = stateCache[entity]
-			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
-			
-			assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel)
-		end
 		for _, info in frameInfo do
 			info.frameInst.Position = UDim2.fromOffset(info.frameX, info.frameY)
 		end
@@ -390,6 +382,16 @@ function VirtualScroller.update(Manager, isScroller)
 		end
 		for _, info in frameInfo do
 			rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
+		end
+		for _, info in frameInfo do
+			local entity = info.entity
+			local frame = info.frame
+			local instance = info.inst
+
+			local entityState = stateCache[entity]
+			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
+
+			assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
 		end
 		
 		isModifyingInstances = false

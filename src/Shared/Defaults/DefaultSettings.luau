@@ -6,11 +6,6 @@ local var = Style.var
 
 return {
 	Internal = {
-		FrameSetParentFlushStep = {
-			Type = "number",
-			Display = "Frame Set Parent Flush Step",
-			Default = 40
-		},
 		EntityDeletionFlushStep = {
 			Type = "number",
 			Display = "Entity Deletion Flush Step",

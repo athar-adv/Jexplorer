@@ -116,9 +116,6 @@ function HierarchyState.cleanupEntity(Manager, ent)
 
 	HierarchyState.queueForEntityCleanup(Manager, ent)
 	
-	local idx = table.find(state.Entities, ent)
-	if idx then table.remove(state.Entities, idx) end
-	
 	local function addchildren(entity: ExplorerEntity)
 		for _, v in HierarchyState.getChildren(entity) do
 			HierarchyState.cleanupEntity(Manager, v)
@@ -355,7 +352,6 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 	local entitiesWithTicket = {}
 	
 	local query = Jecs.cached_query(world, components.CleanupTicket)
-
 	for entity, ticketData in query:iter() do
 		world:remove(entity, components.CleanupTicket)
 		-- Prevent double cleanups
@@ -366,8 +362,7 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		any = true
 
 		table.insert(entitiesWithTicket, entity)
-
-		--cascadeUpdateExpandedHeights(world, entity)
+		
 		profilebegin("Jexplorer::processImmediateCleaningTasks")
 		local inst = world:get(entity, components.Instance)
 		if inst then
@@ -381,13 +376,17 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 
 		local frame = world:get(entity, components.Frame)
 		if frame then
-			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
 		end
 		
 		world:add(entity, components.Deleted)
 
 		Manager.VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 		Manager.updateParent(entity, nil)
+		
+		local idx = table.find(state.Entities, entity)
+		if idx then table.remove(state.Entities, idx) end
+		
 		profileend()
 	end
 	if not any then profileend() return false end
@@ -412,7 +411,6 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 			--world:delete(entity)
 			HierarchyState.queueForEntityDeletion(Manager, entity)
 		end
-		--Manager.DeferredTaskScheduler.EntityDeletionQueuePending = true
 		profileend()
 	profileend()
 	
@@ -502,7 +500,7 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 	local seen = {}
 	
 	local query = Jecs.cached_query(world, components.ChildMovedTicket)
-
+	
 	for oldParent, ticketData in query:iter() do
 		world:remove(oldParent, components.ChildMovedTicket)
 		
@@ -527,8 +525,8 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 			-- Handle the child entity if it was reparented (not deleted)
 			if childInst.Parent then
 				local newParent = Manager.InstanceToEntity[childInst.Parent]
+				local childEntity = Manager.InstanceToEntity[childInst]
 				if newParent then
-					local childEntity = Manager.InstanceToEntity[childInst]
 					if childEntity then
 						if Manager.isExplorerEntityExpanded(newParent) then
 							Manager.VirtualScroller.invalidateEntityHeightCache(Manager, childEntity)
@@ -536,12 +534,10 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 						Manager.updateParent(childEntity, newParent)
 
 						HierarchyState.updateEntityOrder(Manager, childEntity)
-						--local childFrame = world:get(childEntity, components.Frame)
-						--if childFrame then
-						--	Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, childFrame)
-						--end
 						anyChanged = true
 					end
+				else
+					HierarchyState.cleanupEntity(Manager, childEntity)
 				end
 			end
 		end
@@ -575,6 +571,7 @@ function HierarchyState.queueForOnChildRemoved(Manager, oldParent, childEntity)
 	table.insert(ticket.children, childEntity)
 end
 
+local entityDeletionQuery
 function HierarchyState.stepFlushEntityDeletionQueue(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -584,11 +581,18 @@ function HierarchyState.stepFlushEntityDeletionQueue(Manager)
 	local n = 0
 	local any = false
 	
-	local query = Jecs.cached_query(world, components.DeletionTicket):iter()
-	if not query() then return false end
+	local query
+	if entityDeletionQuery then
+		query = entityDeletionQuery
+	else
+		entityDeletionQuery = world:query(components.DeletionTicket)
+			:cached()
+		query = entityDeletionQuery
+	end
+	if not query:iter()() then return false end
 	
 	local stepSize = Manager.getSetting("EntityDeletionFlushStep")
-	for entity, ticketData in query do
+	for entity, ticketData in query:iter() do
 		if n >= stepSize then break end
 		any = true
 		n += 1

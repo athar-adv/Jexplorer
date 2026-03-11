@@ -170,7 +170,8 @@ export type FrameState = {
 	packageLinkIconVisible: boolean,
 	pendingChangesIconVisible: boolean,
 	reclassIconVisible: boolean,
-	currentNameBoundX: number
+	currentNameBoundX: number,
+	lastFrameX: number
 }
 
 export type Components = {
@@ -195,11 +196,12 @@ export type Components = {
 	CreationTicket: Jecs.Component<{children: {Instance}}>,
 	PropAssignTicket: Jecs.Component<{ty: "virtual" | "instance"}>,
 
-	FrameReuseTicket: Jecs.Component<{entity: ExplorerEntity?}>,
+	FrameReuseTicket: Jecs.Component<{frame: ExplorerFrame}>,
 	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
 
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
 	FRAMEWORLD_Main: typeof(main.__legacy.UI.InstanceFrame.Main),
+	FRAMEWORLD_CurrentParent: Jecs.Component<Instance>,
 	QUERYWORLD_ComponentHash: Jecs.Component<string>,
 
 	Instance: Jecs.Component<Instance>,
@@ -301,12 +303,12 @@ export type ExplorerFrameLib = {
 	initializeFrameCaches: (Manager) -> (),
 
 	getExplorerFrame: (Manager) -> ExplorerFrame,
-	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean) -> (),
+	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean, assignSetParentTicket: boolean) -> (),
 	flushExplorerFrameTagAssignQueue: (Manager) -> boolean,
 
-	queueForExplorerFrameReuse: (Manager, ExplorerFrame) -> (),
+	queueForExplorerFrameReuse: (Manager, ExplorerFrame, ExplorerEntity?) -> (),
 	flushFrameReuseQueue: (Manager) -> boolean,
-	stepFlushFrameSetParentQueue: (Manager) -> boolean,
+	flushFrameSetParentQueue: (Manager) -> boolean,
 
 	updateSelectionVisuals: (Manager, updateSelection: boolean) -> (),
 	updateExpandedVisuals: (Manager) -> (),
@@ -360,7 +362,7 @@ export type DeferredTaskScheduler = {
 	EntityCreationQueuePending: boolean,
 	EntityChildAddedQueuePending: boolean,
 	EntityChildRemovedQueuePending: boolean,
-	EntityPropAssignQueuePending: boolean
+	EntityPropAssignQueuePending: boolean,
 }
 
 export type Manager = {
