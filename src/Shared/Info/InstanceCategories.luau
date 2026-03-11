@@ -256,14 +256,13 @@ return {
 		"BuoyancySensor"
 	},
 	
-	Scriptable = {
-		"TeleportOptions",
-		"DataStoreOptions",
-		"DataStoreGetOptions",
-		"DataStoreSetOptions",
-		"DataStoreIncrementOptions",
-		"ExperienceInviteOptions",
-		"GetTextBoundsParams",
-		"AudioSearchParams",
-	}
+	--Scriptable = {
+	--	"TeleportOptions",
+	--	"DataStoreOptions",
+	--	"DataStoreGetOptions",
+	--	"DataStoreSetOptions",
+	--	"DataStoreIncrementOptions",
+	--	"ExperienceInviteOptions",
+	--	"AudioSearchParams",
+	--}
 } :: {[string]: {string}}

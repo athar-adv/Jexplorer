@@ -5,6 +5,18 @@ local Style = require(script.Parent.Parent.Style)
 local var = Style.var
 
 return {
+	Internal = {
+		FrameSetParentFlushStep = {
+			Type = "number",
+			Display = "Frame Set Parent Flush Step",
+			Default = 40
+		},
+		EntityDeletionFlushStep = {
+			Type = "number",
+			Display = "Entity Deletion Flush Step",
+			Default = 30
+		}
+	},
 	Query = {
 		QueryAutocompleteEnabled = {
 			Type = "boolean",

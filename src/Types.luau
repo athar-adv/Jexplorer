@@ -195,7 +195,7 @@ export type Components = {
 	CreationTicket: Jecs.Component<{children: {Instance}}>,
 	PropAssignTicket: Jecs.Component<{ty: "virtual" | "instance"}>,
 
-	FrameReuseTicket: Jecs.Component<{frame: ExplorerFrame}>,
+	FrameReuseTicket: Jecs.Component<{entity: ExplorerEntity?}>,
 	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
 
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,

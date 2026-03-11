@@ -6,11 +6,12 @@ return function(className: string): {[string]: ReflectedProperty}
 	local cached = propMapCache[className]
 	if cached then return cached end
 	
-	local props = ReflectionService:GetPropertiesOfClass(className, {
-		Security = SecurityCapabilities.fromCurrent()
-	})
-	
-	if not props then
+	local success, props = pcall(function()
+		return ReflectionService:GetPropertiesOfClass(className, {
+			Security = SecurityCapabilities.fromCurrent()
+		})
+	end)
+	if not success or not props then
 		local propMap = {
 			["ClassName"] = {},
 			["Name"] = {}

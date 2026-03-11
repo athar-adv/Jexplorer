@@ -13,6 +13,7 @@ local Style = require("./Style")
 local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 local stickToRightEdge = require("./Small/StickToRightEdge")
+local recordChanges = require("./Small/RecordChanges")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -41,13 +42,23 @@ local globalFramePool = {}
 local ExplorerFrame = {} :: Types.ExplorerFrameLib
 
 local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected: boolean)
+	local state = Manager.WidgetState
+	local frameWorld = state.FrameWorld
+	local components = Manager.Components
+	
 	local frameInst = assert(Manager.frameOf(frame))
 	
 	profilebegin("ExplorerFrame::ToggleSelection")
 	if selected then
-		frameInst:AddTag("JEXP_Selected")
+		if not frameWorld:has(frame, components.Selected) then
+			frameWorld:add(frame, components.Selected)
+			frameInst:AddTag("JEXP_Selected")
+		end
 	else
-		frameInst:RemoveTag("JEXP_Selected")
+		if frameWorld:has(frame, components.Selected) then
+			frameWorld:remove(frame, components.Selected)
+			frameInst:RemoveTag("JEXP_Selected")
+		end
 	end
 	profileend()
 end
@@ -212,7 +223,9 @@ local function onInstanceNameFocusLost(frameWorld: Types.World, frameEntity: Exp
 
 	state.CurrentlyRenaming = nil
 	instanceName.BackgroundTransparency = 1
-	instance.Name = instanceName.Text
+	recordChanges("Set Name", function()
+		instance.Name = instanceName.Text
+	end)
 end
 
 local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, frameState: Types.FrameState, input: InputObject)
@@ -552,16 +565,20 @@ function ExplorerFrame.getExplorerFrame(Manager): ExplorerFrame
 	return reused
 end
 
+local alreadyFlushing = false
 function ExplorerFrame.flushFrameReuseQueue(Manager)
+	if alreadyFlushing then return false end
+	alreadyFlushing = true
 	profilebegin("Jexplorer::flushFrameReuseQueue")
 	
 	local state = Manager.WidgetState
+	local frameWorld = state.FrameWorld
 	local world = state.World
 	local components = Manager.Components
 	local tounassign = {}
-	local tomutate = {}
+	local tomutate: {ExplorerEntity} = {}
 	
-	local query = Jecs.cached_query(world, components.FrameReuseTicket)
+	local query = Jecs.cached_query(frameWorld, components.FrameReuseTicket)
 	
 	local touI = 1
 	local tomuI = 1
@@ -569,33 +586,30 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 	local move = table.move
 	
 	local any = false
-	for entity, ticketData in query:iter() do
+	for frame, ticketData in query:iter() do
 		any = true
-		
-		local frame = ticketData.frame
-		world:remove(entity, components.FrameReuseTicket)
+		frameWorld:remove(frame, components.FrameReuseTicket)
 		
 		tounassign[touI] = frame
 		globalFramePool[fpI] = frame
-		tomutate[tomuI] = entity
+		
+		local entity = ticketData.entity
+		if entity then
+			tomutate[tomuI] = entity
+		end
 		
 		fpI += 1
 		touI += 1
 		tomuI += 1
 	end
-	if not any then profileend() return false end
+	if not any then
+		alreadyFlushing = false
+		profileend()
+		return false
+	end
 	
 	for _, entity in tomutate do
 		world:remove(entity, components.Frame)
-		--local entityChildren = Manager.HierarchyState.getChildren(entity)
-		--if entityChildren then
-		--	for _, v in entityChildren do
-		--		local frame = world:get(v, components.Frame)
-		--		if not frame then continue end
-				
-		--		world:set(v, components.FrameReuseTicket, {frame = frame})
-		--	end
-		--end
 	end
 	for _, frame in tounassign do
 		ExplorerFrame.assignExplorerFrame(Manager, frame, nil, nil, false)
@@ -603,6 +617,7 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 	
 	ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 	
+	alreadyFlushing = false
 	profileend()
 	return true
 end
@@ -614,7 +629,8 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	local frameWorld = state.FrameWorld
 	
 	local any = false
-	local query = Jecs.cached_query(frameWorld, components.Instance, components.FRAMEWORLD_FrameSetParentTicket)
+	local query = Jecs.cached_query(frameWorld, components.Instance, components.FRAMEWORLD_FrameSetParentTicket):iter()
+	if not query() then return false end
 	
 	profilebegin("Jexplorer::stepFlushFrameSetParentQueue")
 	
@@ -623,7 +639,7 @@ function ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
 	local n = 0
 	
 	local stepSize = Manager.getSetting("FrameSetParentFlushStep")
-	for frame: ExplorerFrame, frameInst, ticketData in query:iter() do
+	for frame: ExplorerFrame, frameInst, ticketData in query do
 		if n >= stepSize then break end
 		any = true
 		n += 1
@@ -716,28 +732,11 @@ end
 function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	local state = Manager.WidgetState
 	local frameWorld = state.FrameWorld
-	local world = state.World
 	local components = Manager.Components
+	local entity = frameWorld:get(frame, components.Entity)
 	
-	local currentEntity, frameInst: any = frameWorld:get(frame, components.Entity, components.Instance)
 	frameWorld:remove(frame, components.Entity)
-	
-	if not currentEntity and frameInst then
-		return
-	end
-	if not currentEntity and not frameInst then return end
-	
-	profilebegin("ExplorerFrame::Reuse");
-	if currentEntity and not world:has(currentEntity, components.FrameReuseTicket) then
-		--frameInst.Visible = false
-		--local frameState = frameWorld:get(frame, components.FrameState)
-		--if frameState then
-		--	frameState.isVisible = false
-		--end
-		world:set(currentEntity, components.FrameReuseTicket, {frame = frame})
-	end
-
-	profileend()
+	frameWorld:set(frame, components.FrameReuseTicket, {entity = entity})
 end
 
 function ExplorerFrame.initializeFrameCaches(Manager)

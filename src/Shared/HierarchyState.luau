@@ -379,11 +379,6 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 			table.insert(groupsToFree, entityConnections)
 		end
 
-		--local idx = table.find(entities, entity)
-		--if idx then
-		--	table.insert(entityIndexesToRemove, idx)
-		--end
-
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			Manager.ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
@@ -396,9 +391,6 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		profileend()
 	end
 	if not any then profileend() return false end
-	
-	-- If there wasn't any loops then theres no frames queued, now that we're here it means theres no gaurantee theres no frames queued so need to let scheduler know
-	Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 
 	profilebegin("Jexplorer::cleanupEntity::processDeferredCleaningTasks")
 		profilebegin("freeGroups")
@@ -453,7 +445,8 @@ function HierarchyState.flushOnChildAddedQueue(Manager)
 		for _, childInst in ticketData.children do
 			if seen[childInst] then continue end
 			seen[childInst] = true  -- ADD THIS LINE!
-
+			
+			if not childInst:IsDescendantOf(game) then continue end
 			local childEntity = HierarchyState.getOrCreateInstanceEntity(Manager, childInst, newParent)
 
 			local frame = world:get(newParent, components.Frame)
@@ -591,8 +584,11 @@ function HierarchyState.stepFlushEntityDeletionQueue(Manager)
 	local n = 0
 	local any = false
 	
+	local query = Jecs.cached_query(world, components.DeletionTicket):iter()
+	if not query() then return false end
+	
 	local stepSize = Manager.getSetting("EntityDeletionFlushStep")
-	for entity, ticketData in world:query(components.DeletionTicket):iter() do
+	for entity, ticketData in query do
 		if n >= stepSize then break end
 		any = true
 		n += 1
@@ -711,6 +707,7 @@ end
 local function onParentChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance)
 	if rawindex(instance, "Parent") == nil then
 		HierarchyState.cleanupEntity(Manager, ent)
+		Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 	end
 end
 

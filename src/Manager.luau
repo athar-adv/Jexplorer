@@ -6,7 +6,6 @@ local plugin = script:FindFirstAncestorOfClass("Plugin")
 
 local HttpService = game:GetService("HttpService")
 local ReflectionService = game:GetService("ReflectionService")
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local StudioService = game:GetService("StudioService")
 local SerializationService = game:GetService("SerializationService")
 local CollectionService = game:GetService("CollectionService")
@@ -32,7 +31,7 @@ local SavedState = require("./Shared/SavedState")
 local UITemplates = require("./Shared/UITemplates")
 local ClassIcon = require("./Shared/Small/ClassIcon")
 local RawInst = require("./Shared/Small/RawInst")
-local InstanceRecord = require("./Shared/Small/InstanceRecord")
+local recordChanges = require("./Shared/Small/RecordChanges")
 local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
 local getClassPropMap = require("./Shared/Small/GetClassPropMap")
@@ -62,7 +61,6 @@ local InsertSuggested = require("./Shared/Info/InsertSuggestedClasses")
 local rule = Style.rule
 local cleanup = ItemGroup.cleanup
 local profilebegin, profileend = debug.profilebegin, debug.profileend
-local beginRecording, finishRecording = InstanceRecord.beginRecording, InstanceRecord.finishRecording
 local getId = PluginUI.getId
 local rawnewindex = RawInst.rawnewindex
 local rawindex = RawInst.rawindex
@@ -233,25 +231,21 @@ local function pasteCopiedInstances(world: World)
 		)
 	)
 
-	if not success then return end
-	local id = ChangeHistoryService:TryBeginRecording("Paste", "Paste")
+	recordChanges("Paste Copied Instances", function(cancel)
+		if not success then return end
 
-	for _, v in instances do
-		local success = pcall(function()
-			v.Parent = targetInstance
-		end)
-		if not success then
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
+		for _, v in instances do
+			local success = pcall(function()
+				v.Parent = targetInstance
+			end)
+			if not success then
+				cancel()
+				return
 			end
-			return
 		end
-	end
 
-	Manager.DeferredTaskScheduler.ChildGraphDirty = true
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
+		Manager.DeferredTaskScheduler.ChildGraphDirty = true
+	end)
 end
 
 local function checkCombo(str: string, input: InputObject): (boolean, number?)
@@ -667,8 +661,6 @@ function Manager.convertEntitiesInto(entities, className: string)
 	local world = state.World
 	local components = Manager.Components
 	
-	local id = ChangeHistoryService:TryBeginRecording("ConvertInstTo", `Convert Instance To {className}`)
-
 	local toConvert: {{name: string, parent: Instance?, parentEntity: ExplorerEntity?, inst: Instance, entity: any, children: {ExplorerEntity}}} = {}
 	for _, entity in entities do
 		local inst = world:get(entity, components.Instance)
@@ -697,112 +689,119 @@ function Manager.convertEntitiesInto(entities, className: string)
 	local newProps = getClassPropMap(className)
 
 	local convertedEntities = {}
-	for _, info in toConvert do
-		if not info.parent then continue end
-		local converted: Instance = Instance.new(className)
-		
-		-- Reassign props
-		local oldInst = info.inst
-		local newClass = className
-		local originalProps = getClassPropMap(oldInst.ClassName)
-		for k, oriProp in originalProps do
-			local newProp = newProps[k]
+	recordChanges("Convert Entities Into", function(cancel)
+		for _, info in toConvert do
+			if not info.parent then continue end
+			local converted: Instance = Instance.new(className)
 
-			if not newProp then continue end
-			local write = newProp.Permits.Write
-			if not write then continue end
-			if not SecurityCapabilities.fromCurrent():Contains(write) then continue end
-			if newProp.Type.ScriptType ~= oriProp.Type.ScriptType then continue end
-			rawnewindex(converted, k, rawindex(info.inst, k))
-		end
-		if converted:IsA("LuaSourceContainer") and oldInst:IsA("LuaSourceContainer") then
-			(converted :: any).Source = (oldInst :: any).Source
-		end
-		
-		local group = getSpecialGroup(oldInst.ClassName, className)
-		if group then
-			local asymmetric = getAsymmetricProp(group, oldInst.ClassName)
-			if asymmetric then
-				(converted :: any)[asymmetric.to] = (oldInst :: any)[asymmetric.from]
+			-- Reassign props
+			local oldInst = info.inst
+			local newClass = className
+			local originalProps = getClassPropMap(oldInst.ClassName)
+			for k, oriProp in originalProps do
+				local newProp = newProps[k]
+
+				if not newProp then continue end
+				local write = newProp.Permits.Write
+				if not write then continue end
+				if not SecurityCapabilities.fromCurrent():Contains(write) then continue end
+				if newProp.Type.ScriptType ~= oriProp.Type.ScriptType then continue end
+				rawnewindex(converted, k, rawindex(info.inst, k))
+			end
+			if converted:IsA("LuaSourceContainer") and oldInst:IsA("LuaSourceContainer") then
+				(converted :: any).Source = (oldInst :: any).Source
+			end
+
+			local group = getSpecialGroup(oldInst.ClassName, className)
+			if group then
+				local asymmetric = getAsymmetricProp(group, oldInst.ClassName)
+				if asymmetric then
+					(converted :: any)[asymmetric.to] = (oldInst :: any)[asymmetric.from]
+				end
+			end
+
+			for _, tag in info.inst:GetTags() do
+				converted:AddTag(tag)
+			end
+			for k, v in info.inst:GetAttributes() do
+				converted:SetAttribute(k, v)
+			end
+
+			local convertedEnt = HierarchyState.createInstanceEntity(Manager, converted, info.parentEntity)
+			assert(convertedEnt)
+
+			local frame = world:get(info.entity, components.Frame)
+			if frame then
+				ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+			end
+
+			world:add(convertedEnt, components.AncestryLocked)
+			table.insert(convertedEntities, convertedEnt)
+
+			for _, childEntity in info.children do
+				world:add(childEntity, components.AncestryLocked)
+			end
+			local isExpanded = Manager.isExplorerEntityExpanded(info.entity)
+			for _, childEntity in info.children do
+				local childInst = world:get(childEntity, components.Instance)
+				if not childInst then continue end
+
+				local oldParentEntity = Manager.parentOf(childEntity)
+				Manager.updateParent(childEntity, convertedEnt)
+				
+				if oldParentEntity then
+					VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
+				end
+
+				local suc = pcall(function()
+					childInst.Parent = converted
+				end)
+				if not suc then
+					cancel()
+					return
+				end
+				HierarchyState.updateEntityOrder(Manager, childEntity)
+			end
+			
+			local suc, err = pcall(function()
+				info.inst.Parent = nil
+			end)
+			if not suc then
+				warn(`Could not reclass '{oldInst.Name}' into '{className}' with error: '{err}'`)
+				cancel()
+				return
+			end
+			HierarchyState.ChildrenMap[info.entity] = nil
+
+			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+			if isExpanded then
+				world:add(convertedEnt, components.Expanded)
+				HierarchyState.invalidateEntityStateCache(convertedEnt)
+				ExplorerFrame.updateExpandedVisuals(Manager)
+			else
+				VirtualScroller.invalidateEntityHeightCache(Manager, convertedEnt)
+			end
+
+			Manager.updateParent(info.entity, nil)
+			HierarchyState.cleanupEntity(Manager, info.entity)
+
+			converted.Parent = info.parent
+			for _, childEntity in info.children do
+				world:remove(childEntity, components.AncestryLocked)
 			end
 		end
 		
-		for _, tag in info.inst:GetTags() do
-			converted:AddTag(tag)
-		end
-		for k, v in info.inst:GetAttributes() do
-			converted:SetAttribute(k, v)
-		end
+		Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+		Manager.DeferredTaskScheduler.ChildGraphDirty = true
+		Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
 
-		local convertedEnt = HierarchyState.createInstanceEntity(Manager, converted, info.parentEntity)
-		assert(convertedEnt)
-
-		local frame = world:get(info.entity, components.Frame)
-		if frame then
-			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+		for _, v in convertedEntities do
+			world:remove(v, components.AncestryLocked)
 		end
 
-		world:add(convertedEnt, components.AncestryLocked)
-		table.insert(convertedEntities, convertedEnt)
-
-		for _, childEntity in info.children do
-			world:add(childEntity, components.AncestryLocked)
-		end
-		local isExpanded = Manager.isExplorerEntityExpanded(info.entity)
-		for _, childEntity in info.children do
-			local childInst = world:get(childEntity, components.Instance)
-			if not childInst then continue end
-
-			local oldParentEntity = Manager.parentOf(childEntity)
-			Manager.updateParent(childEntity, convertedEnt)
-
-			if oldParentEntity then
-				VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
-			end
-
-			childInst.Parent = converted
-			HierarchyState.updateEntityOrder(Manager, childEntity)
-
-			--local dragFrame = world:get(childEntity, components.Frame)
-			--if dragFrame then
-			--	ExplorerFrame.queueForExplorerFrameReuse(Manager, dragFrame)
-			--end
-		end
-		HierarchyState.ChildrenMap[info.entity] = nil
-		
-		ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-		if isExpanded then
-			world:add(convertedEnt, components.Expanded)
-			HierarchyState.invalidateEntityStateCache(convertedEnt)
-			ExplorerFrame.updateExpandedVisuals(Manager)
-		else
-			VirtualScroller.invalidateEntityHeightCache(Manager, convertedEnt)
-		end
-
-		Manager.updateParent(info.entity, nil)
-		info.inst.Parent = nil
-		HierarchyState.cleanupEntity(Manager, info.entity)
-
-		converted.Parent = info.parent
-		for _, childEntity in info.children do
-			world:remove(childEntity, components.AncestryLocked)
-		end
-	end
-	
-	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
-	Manager.DeferredTaskScheduler.ChildGraphDirty = true
-	Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
-
-	for _, v in convertedEntities do
-		world:remove(v, components.AncestryLocked)
-	end
-
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
-
-	task.delay(0.1, function()
-		Manager.setExplorerEntitiesAsSelection(convertedEntities, true)
+		task.delay(0.1, function()
+			Manager.setExplorerEntitiesAsSelection(convertedEntities, true)
+		end)
 	end)
 	
 	return convertedEntities
@@ -839,36 +838,33 @@ function Manager.triggerDeleteTarget()
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
-
-	local id = ChangeHistoryService:TryBeginRecording("Destroy", "Destroy")
+	
 	profilebegin("Jexplorer::BACKSPACE/DELETE (remove)")
 
 	local selection = state.CurrentSelection
 	for _, entity in selection do
 		world:add(entity, components.AncestryLocked)
 	end
-	for _, entity in selection do
-		world:add(entity, components.Deleted)
-		local instance = world:get(entity, components.Instance)
-		assert(instance)
-		
-		instance.Parent = nil
-		VirtualScroller.invalidateEntityHeightCache(Manager, entity)
-		Manager.updateParent(entity, nil)
-		HierarchyState.cleanupEntity(Manager, entity)
-	end
 	
-	HierarchyState.flushEntityCleanupQueue(Manager)
-	Manager.DeferredTaskScheduler.ChildGraphDirty = true
+	recordChanges("Delete Changes", function()
+		for _, entity in selection do
+			world:add(entity, components.Deleted)
+			local instance = world:get(entity, components.Instance)
+			assert(instance)
+
+			instance.Parent = nil
+			VirtualScroller.invalidateEntityHeightCache(Manager, entity)
+			Manager.updateParent(entity, nil)
+			HierarchyState.cleanupEntity(Manager, entity)
+		end
+	end)
+	
+	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 
 	for _, entity in selection do
 		world:remove(entity, components.AncestryLocked)
 	end
-
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
-
+	
 	profileend()
 end
 
@@ -876,36 +872,33 @@ function Manager.triggerDuplicateTarget()
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
-
-	local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
+	
 	profilebegin("Jexplorer::D (duplicate)")
 
 	local cloned = {}
-	for _, entity in state.CurrentSelection do
-		local parent = Manager.parentOf(entity)
-		if parent == nil then continue end
+	recordChanges("Duplicate Targets", function()
+		for _, entity in state.CurrentSelection do
+			local parent = Manager.parentOf(entity)
+			if parent == nil then continue end
 
-		local instance = world:get(entity, components.Instance)
-		if not instance then continue end
-		
-		world:add(parent, components.AncestryLocked)
+			local instance = world:get(entity, components.Instance)
+			if not instance then continue end
 
-		local clone = instance:Clone()
-		--clone.Parent = instance.Parent
-		clone.Parent = instance.Parent
-		local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
-		VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
+			world:add(parent, components.AncestryLocked)
 
-		world:remove(parent, components.AncestryLocked)
-	end
+			local clone = instance:Clone()
+			--clone.Parent = instance.Parent
+			clone.Parent = instance.Parent
+			local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
+			VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
+
+			world:remove(parent, components.AncestryLocked)
+		end
+	end)
 	
 	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 	
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
-
 	profileend()
 end
 
@@ -913,7 +906,7 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
-	local id = ChangeHistoryService:TryBeginRecording("Clone", "Clone")
+	
 	profilebegin("Jexplorer::D (duplicate with increment name)")
 
 	-- Pre-scan: find the highest existing number for each base name per parent
@@ -945,45 +938,45 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 		nameCounters[parentInstance][baseName] = maxNum + 1
 	end
 
-	for _, entity in state.CurrentSelection do
-		local parent = Manager.parentOf(entity)
-		if parent == nil then continue end
-		local instance = world:get(entity, components.Instance)
-		if not instance then continue end
-		
-		local baseName
-		local _baseName, numPart = instance.Name:match("^(.*%D)(%d+)$")
-		if not _baseName then
-			-- Name has no trailing number (e.g. "Part"), treat whole name as base
-			baseName = instance.Name
-		else
-			baseName = _baseName
+	recordChanges("Duplicate With Increment Name", function()
+		for _, entity in state.CurrentSelection do
+			local parent = Manager.parentOf(entity)
+			if parent == nil then continue end
+			local instance = world:get(entity, components.Instance)
+			if not instance then continue end
+
+			local baseName
+			local _baseName, numPart = instance.Name:match("^(.*%D)(%d+)$")
+			if not _baseName then
+				-- Name has no trailing number (e.g. "Part"), treat whole name as base
+				baseName = instance.Name
+			else
+				baseName = _baseName
+			end
+
+			world:add(parent, components.AncestryLocked)
+			local clone = instance:Clone()
+			clone.Parent = instance.Parent
+
+			local incrementNameIfNoNumPart = Manager.getSetting("IncrementNamesWithNoNumberSuffix")
+
+			if clone.Parent and (numPart ~= nil or (numPart == nil and incrementNameIfNoNumPart)) then
+				initCounterForParent(clone.Parent, baseName)
+				local nextNum = nameCounters[clone.Parent][baseName]
+
+				clone.Name = baseName .. nextNum
+				nameCounters[clone.Parent][baseName] = nextNum + 1
+			end
+
+			local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
+			VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
+			world:remove(parent, components.AncestryLocked)
 		end
-
-		world:add(parent, components.AncestryLocked)
-		local clone = instance:Clone()
-		clone.Parent = instance.Parent
-		
-		local incrementNameIfNoNumPart = Manager.getSetting("IncrementNamesWithNoNumberSuffix")
-		
-		if clone.Parent and (numPart ~= nil or (numPart == nil and incrementNameIfNoNumPart)) then
-			initCounterForParent(clone.Parent, baseName)
-			local nextNum = nameCounters[clone.Parent][baseName]
-
-			clone.Name = baseName .. nextNum
-			nameCounters[clone.Parent][baseName] = nextNum + 1
-		end
-
-		local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
-		VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
-		world:remove(parent, components.AncestryLocked)
-	end
+	end)
 	
 	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 	Manager.DeferredTaskScheduler.ChildGraphDirty = true
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
+	
 	profileend()
 end
 
@@ -1390,51 +1383,40 @@ function Manager.insertClassInto(entity: ExplorerEntity, class: string)
 	local state = Manager.WidgetState
 	local world = state.World
 	local components = Manager.Components
-
-	local id = ChangeHistoryService:TryBeginRecording("CreateInstance", "Create Instance")
-
-	local entityInst = world:get(entity, components.Instance)
-	if not entityInst then
-		if id then
-			ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
+	
+	return recordChanges("Insert Class", function(cancel)
+		local entityInst = world:get(entity, components.Instance)
+		if not entityInst then
+			cancel()
+			return 
 		end
-		return 
-	end
 
-	local success, inst = pcall(Instance.new, class)
-	if not success then warn(inst) return end
-
-	local infos = {}
-	for k, v in InsertInfo do
-		if inst:IsA(k) then table.insert(infos, v) end
-	end
-	inst.Name = class
-	for _, info in infos do
-		for k, v in info.Props do
-			pcall(rawnewindex, inst, k, v)
+		local success, inst = pcall(Instance.new, class)
+		if not success then
+			warn(inst)
+			cancel()
+			return
 		end
-		if info.SideEffect then
-			info.SideEffect(inst)
+
+		local infos = {}
+		for k, v in InsertInfo do
+			if inst:IsA(k) then table.insert(infos, v) end
 		end
-	end
+		inst.Name = class
+		for _, info in infos do
+			for k, v in info.Props do
+				pcall(rawnewindex, inst, k, v)
+			end
+			if info.SideEffect then
+				info.SideEffect(inst)
+			end
+		end
 
-	inst.Parent = entityInst
-	--if not Manager.isExplorerEntityExpanded(entity) then
-	--	--toggleExpand(world, entity, true, true)
-	--	world:add(entity, components.Expanded)
-	--	Manager.HierarchyState.invalidateEntityStateCache(entity)
-	--	Manager.DeferredTaskScheduler.ChildGraphDirty = true
-	--end
-
-	--local childEntity = assert(Manager.HierarchyState.createInstanceEntity(Manager, inst, entity))
-	--Manager.HierarchyState.queueForOnChildAdded(entity, childEntity)
-
-	game.Selection:Set({inst})
-
-	if id then
-		ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-	end
-	return inst
+		inst.Parent = entityInst
+		
+		game.Selection:Set({inst})
+		return inst
+	end)
 end
 
 local function getColorBrightness(color)
@@ -2202,7 +2184,7 @@ local function initRegisterPluginMenusAndActions(
 			local instance = world:get(entity, components.Instance)
 			if not instance then return end
 
-			local file = StudioService:PromptImportFile({"lua", "luau", "rbxm"}) :: File?
+			local file = StudioService:PromptImportFile({"lua", "luau", "txt", "rbxm", "rbxmx"}) :: File?
 			if not file then return end
 
 			local success, instances = pcall(game.GetObjects, game, file:GetTemporaryId())
@@ -2215,27 +2197,22 @@ local function initRegisterPluginMenusAndActions(
 
 				instances = {luaSourceContainer}
 			end
-
-			local id = ChangeHistoryService:TryBeginRecording("Import", "Import from File")
-			for _, v in instances do
-				local success, err = pcall(function()
-					v.Parent = instance
-				end)
-				if not success then
-					warn(err)
-					if id then
-						ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Cancel)
-					end
-					state.CurrentlyInserting = nil
-					return
-				end
-				HierarchyState.queueForOnChildAdded(Manager, entity, v)
-			end
-			Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 			
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-			end
+			recordChanges("Insert From File", function(cancel)
+				for _, v in instances do
+					local success, err = pcall(function()
+						v.Parent = instance
+					end)
+					if not success then
+						warn(err)
+						cancel()
+						state.CurrentlyInserting = nil
+						return
+					end
+					HierarchyState.queueForOnChildAdded(Manager, entity, v)
+				end
+			end)
+			Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 		end)
 	end
 
@@ -2370,7 +2347,7 @@ local function initRegisterPluginMenusAndActions(
 				if not className then continue end
 
 				InstanceVisibilityEditor.setInvisible(className, true)
-				VirtualScroller.update(Manager, false)
+				VirtualScroller.rebuildAndUpdate(Manager, false)
 			end
 		end)
 	end
@@ -2507,49 +2484,51 @@ local function initRegisterPluginMenusAndActions(
 			assert(targetParentEnt)
 			local targetParent = world:get(targetParentEnt, components.Instance)
 			assert(targetParent)
+			
+			recordChanges("Group As", function(cancel)
+				local container = Instance.new(className)
+				container.Parent = targetParent
 
-			local id = ChangeHistoryService:TryBeginRecording("GroupAs", "Group As")
+				local containerEntity = HierarchyState.getOrCreateInstanceEntity(Manager, container, targetParentEnt)
 
-			local container = Instance.new(className)
-			container.Parent = targetParent
+				assert(containerEntity)
+				world:add(containerEntity, components.AncestryLocked)
 
-			local containerEntity = HierarchyState.getOrCreateInstanceEntity(Manager, container, targetParentEnt)
-
-			assert(containerEntity)
-			world:add(containerEntity, components.AncestryLocked)
-
-			for _, ent in entities do
-				world:add(ent, components.AncestryLocked)
-			end
-
-			for _, ent in entities do
-				local inst = world:get(ent, components.Instance)
-				if not inst then continue end
-
-				Manager.updateParent(ent, containerEntity)
-				pcall(rawnewindex, inst, "Parent", container)
-
-				local frame = world:get(ent, components.Frame)
-				if frame then
-					ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+				for _, ent in entities do
+					world:add(ent, components.AncestryLocked)
 				end
-			end
-			
-			for _, ent in entities do
-				world:remove(ent, components.AncestryLocked)
-			end
 
-			world:remove(containerEntity, components.AncestryLocked)
-			
-			Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
-			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
-			Manager.DeferredTaskScheduler.ChildGraphDirty = true
+				for _, ent in entities do
+					local inst = world:get(ent, components.Instance)
+					if not inst then continue end
+					
+					local suc, err = (pcall :: any)(rawnewindex, inst, "Parent", container)
+					if not suc then
+						warn(`Could not group '{inst.Name}' as '{className}' with error: '{err}'`)
+						cancel()
+						return
+					end
+					Manager.updateParent(ent, containerEntity)
 
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-			end
-			task.delay(0.1, function()
-				game.Selection:Set({container})
+					local frame = world:get(ent, components.Frame)
+					if frame then
+						ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+					end
+				end
+
+				for _, ent in entities do
+					world:remove(ent, components.AncestryLocked)
+				end
+
+				world:remove(containerEntity, components.AncestryLocked)
+
+				Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+				Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+				Manager.DeferredTaskScheduler.ChildGraphDirty = true
+
+				task.delay(0.1, function()
+					game.Selection:Set({container})
+				end)
 			end)
 		end
 		groupAsFolderAction = createPluginAction(
@@ -2585,34 +2564,30 @@ local function initRegisterPluginMenusAndActions(
 
 			local children = HierarchyState.getChildren(target)
 			if not children then return end
-
-			local id = ChangeHistoryService:TryBeginRecording("Ungroup", "Ungroup")
 			
-			for _, child in children do
-				world:add(child, components.AncestryLocked)
-			end
-			for _, child in children do
-				local inst = Manager.instanceOf(child)
-				if not inst then continue end
+			recordChanges("Ungroup", function()
+				for _, child in children do
+					world:add(child, components.AncestryLocked)
+				end
+				for _, child in children do
+					local inst = Manager.instanceOf(child)
+					if not inst then continue end
 
-				Manager.updateParent(child, parent)
-				inst.Parent = Manager.instanceOf(parent)
-				table.insert(entities, child)
-			end
+					Manager.updateParent(child, parent)
+					inst.Parent = Manager.instanceOf(parent)
+					table.insert(entities, child)
+				end
 
-			targetInst.Parent = nil
-			Manager.updateParent(target, nil)
-			
-			VirtualScroller.rebuildAndUpdate(Manager, false)
-			Manager.setExplorerEntitiesAsSelection(entities, true)
-			
-			for _, child in children do
-				world:remove(child, components.AncestryLocked)
-			end
+				targetInst.Parent = nil
+				Manager.updateParent(target, nil)
 
-			if id then
-				ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-			end
+				VirtualScroller.rebuildAndUpdate(Manager, false)
+				Manager.setExplorerEntitiesAsSelection(entities, true)
+
+				for _, child in children do
+					world:remove(child, components.AncestryLocked)
+				end
+			end)
 		end)
 	end
 	
@@ -2904,28 +2879,30 @@ local function initRegisterPluginMenusAndActions(
 				return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
 			end
 
-			if #models == 1 and #parts > 0 then
-				-- 1 model + multiple baseparts: weld all parts to model's primary
-				local primary = getPrimaryPart(models[1])
-				if primary then
-					weldTo(primary, parts)
-				else
-					-- No primary, weld parts to each other
+			recordChanges("Weld Together", function()
+				if #models == 1 and #parts > 0 then
+					-- 1 model + multiple baseparts: weld all parts to model's primary
+					local primary = getPrimaryPart(models[1])
+					if primary then
+						weldTo(primary, parts)
+					else
+						-- No primary, weld parts to each other
+						weldTo(parts[1], { table.unpack(parts, 2) })
+					end
+
+				elseif #models > 1 then
+					-- Multiple models: weld their primary parts to each other
+					local primaries = {}
+					for _, model in models do
+						table.insert(primaries, getPrimaryPart(model))
+					end
+					weldTo(primaries[1], { table.unpack(primaries, 2) })
+
+				elseif #parts > 1 then
+					-- Only baseparts: weld to each other
 					weldTo(parts[1], { table.unpack(parts, 2) })
 				end
-
-			elseif #models > 1 then
-				-- Multiple models: weld their primary parts to each other
-				local primaries = {}
-				for _, model in models do
-					table.insert(primaries, getPrimaryPart(model))
-				end
-				weldTo(primaries[1], { table.unpack(primaries, 2) })
-
-			elseif #parts > 1 then
-				-- Only baseparts: weld to each other
-				weldTo(parts[1], { table.unpack(parts, 2) })
-			end
+			end)
 		end)
 	end
 
@@ -3781,8 +3758,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				[v "KeybindDuplicateTargetWithIncrementName"] = Manager.triggerDuplicateTargetWithIncrementName,
 				[v "KeybindCopy"] = function() copySelection(world) end,
 				[v "KeybindPaste"] = function() pasteCopiedInstances(world) end,
-				[v "KeybindUndo"] = function() ChangeHistoryService:Undo() end,
-				[v "KeybindRedo"] = function() ChangeHistoryService:Redo() end,
+				[v "KeybindUndo"] = function() game:GetService("ChangeHistoryService"):Undo() end,
+				[v "KeybindRedo"] = function() game:GetService("ChangeHistoryService"):Redo() end,
 			}, input)
 		end),
 		Manager.connectInputEnded(function(input)
@@ -3831,13 +3808,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					value = nil
 				end
 				
-				local id = ChangeHistoryService:TryBeginRecording("Set Instance", "Set Instance")
-				for _, inst in instances do
-					rawnewindex(inst, propName, value)
-				end
-				if id then
-					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-				end
+				recordChanges("Set Drop Property", function()
+					for _, inst in instances do
+						rawnewindex(inst, propName, value)
+					end
+				end)
 			elseif info.Type == "reparent" then
 				if not foundDropEntity then return end
 				state.IsDragging = false
@@ -3881,24 +3856,28 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				for _, e in dragEntities do
 					world:add(e, components.AncestryLocked)
 				end
-
-				local id = ChangeHistoryService:TryBeginRecording("Drop", "Drop")
 				
-				for _, dragEntity in dragEntities do
-					local child = world:get(dragEntity, components.Instance)
-					if not child then continue end
+				recordChanges("Reparent Dropped", function(cancel)
+					for _, dragEntity in dragEntities do
+						local child = world:get(dragEntity, components.Instance)
+						if not child then continue end
 
-					local oldParentEntity = Manager.parentOf(dragEntity)
-					Manager.updateParent(dragEntity, foundDropEntity)
+						local oldParentEntity = Manager.parentOf(dragEntity)
+						Manager.updateParent(dragEntity, foundDropEntity)
 
-					if oldParentEntity then
-						VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
+						if oldParentEntity then
+							VirtualScroller.invalidateEntityHeightCache(Manager, oldParentEntity)
+						end
+
+						local suc = pcall(rawnewindex, child, "Parent", newParentInstance)
+						if not suc then
+							cancel()
+							return
+						end
+						HierarchyState.updateEntityOrder(Manager, dragEntity)
+						VirtualScroller.invalidateEntityHeightCache(Manager, dragEntity)
 					end
-
-					pcall(rawnewindex, child, "Parent", newParentInstance)
-					HierarchyState.updateEntityOrder(Manager, dragEntity)
-					VirtualScroller.invalidateEntityHeightCache(Manager, dragEntity)
-				end
+				end)
 				
 				ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 				
@@ -3910,10 +3889,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					world:remove(e, components.AncestryLocked)
 				end
 				VirtualScroller.rebuildAndUpdate(Manager, false)
-
-				if id then
-					ChangeHistoryService:FinishRecording(id, Enum.FinishRecordingOperation.Commit)
-				end
+				
 				ExplorerFrame.updateSelectionVisuals(Manager, false)
 				profileend()
 			end
@@ -3923,16 +3899,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			local selection = game.Selection:Get()
 			
 			local entities = {}
-			local n = 0
 			for _, v in selection do
-				while not Manager.InstanceToEntity[v] do
-					task.wait()
-				end
-
 				local ent = Manager.InstanceToEntity[v]
-				if not table.find(state.CurrentSelection, ent) then
-					n += 1
-				end
+				if not ent then continue end
 				table.insert(entities, ent)
 			end
 			state.CurrentSelection = entities
@@ -3948,8 +3917,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			for _, ent in entities do
 				world:add(ent, components.Selected)
 			end
-			if n == 0 then return end
-
+			
 			local autoExpand = Manager.getSetting("AutoExpandOnSelect")
 			-- I am a genius for this
 			if autoExpand then
@@ -4456,21 +4424,22 @@ function Manager.init(connections, jexplorerWidget)
 				local scheduler = Manager.DeferredTaskScheduler
 				
 				-- Scheduler branch A that depends on branches B and C should be placed above the elseif branch of those cases
-				if scheduler.FrameReuseQueuePending and not VirtualScroller.IsScrolling and not VirtualScroller.IsVirtualScrollerUpdating then
-					scheduler.FrameReuseQueuePending = false
-					local suc = ExplorerFrame.flushFrameReuseQueue(Manager)
-					if suc then
-						ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
-					end
-				elseif scheduler.FrameTagAssignQueuePending then
+				if scheduler.FrameTagAssignQueuePending then
 					scheduler.FrameTagAssignQueuePending = false
+					
 					ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 				elseif scheduler.EntityCleanupQueuePending then
 					scheduler.EntityCleanupQueuePending = false
+					
 					local suc = HierarchyState.flushEntityCleanupQueue(Manager)
-					if suc then scheduler.ChildGraphDirty = true end
+					if suc then
+						-- If there wasn't any loops then theres no frames queued, now that we're here it means theres no gaurantee theres no frames queued so need to let scheduler know
+						Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+						Manager.DeferredTaskScheduler.ChildGraphDirty = true
+					end
 				elseif scheduler.EntityChildAddedQueuePending then
 					scheduler.EntityChildAddedQueuePending = false
+					
 					local suc = HierarchyState.flushOnChildAddedQueue(Manager)
 					if suc then
 						scheduler.ChildGraphDirty = true
@@ -4478,6 +4447,7 @@ function Manager.init(connections, jexplorerWidget)
 					end
 				elseif scheduler.EntityChildRemovedQueuePending then
 					scheduler.EntityChildRemovedQueuePending = false
+					
 					local suc = HierarchyState.flushOnChildRemovedQueue(Manager)
 					if suc then
 						scheduler.ChildGraphDirty = true
@@ -4485,6 +4455,7 @@ function Manager.init(connections, jexplorerWidget)
 					end
 				elseif scheduler.EntityCreationQueuePending then
 					scheduler.EntityCreationQueuePending = false
+					
 					local suc = HierarchyState.flushEntityCreationQueue(Manager)
 					if suc then
 						scheduler.EntityPropAssignQueuePending = true
@@ -4492,9 +4463,18 @@ function Manager.init(connections, jexplorerWidget)
 					end
 				elseif scheduler.EntityPropAssignQueuePending then
 					scheduler.EntityPropAssignQueuePending = false
+					
 					HierarchyState.flushEntityPropAssignQueue(Manager)
+				elseif scheduler.FrameReuseQueuePending then
+					scheduler.FrameReuseQueuePending = false
+
+					local suc = ExplorerFrame.flushFrameReuseQueue(Manager)
+					if suc then
+						ExplorerFrame.stepFlushFrameSetParentQueue(Manager)
+					end
 				elseif scheduler.ChildGraphDirty then
 					scheduler.ChildGraphDirty = false
+					
 					VirtualScroller.rebuildAndUpdate(Manager, false)
 				else
 					-- Stepped tasks here because they need to run at all times
