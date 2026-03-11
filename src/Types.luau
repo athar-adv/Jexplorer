@@ -372,7 +372,7 @@ export type ExplorerFrameLib = {
 	initializeFrameCaches: (Manager) -> (),
 
 	getExplorerFrame: (Manager) -> ExplorerFrame,
-	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean, assignSetParentTicket: boolean) -> (),
+	assignExplorerFrame: (Manager, ExplorerFrame, assignee: ExplorerEntity?, parent: ExplorerEntity?, parentIsGame: boolean, assignSetParentTicket: boolean) -> boolean?,
 	flushExplorerFrameTagAssignQueue: (Manager) -> boolean,
 
 	queueForExplorerFrameReuse: (Manager, ExplorerFrame, ExplorerEntity?) -> (),

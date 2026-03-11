@@ -14,6 +14,7 @@ local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 local stickToRightEdge = require("./Small/StickToRightEdge")
 local recordChanges = require("./Small/RecordChanges")
+local TextBoundsHelper = require("./Small/TextBoundsHelper")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -282,16 +283,12 @@ local function onMouseEnter(
 	local inst = Manager.instanceOf(entity)
 	if not inst then return end
 	
-	local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-	local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-	frameState.currentNameBoundX = x
-	
 	if state.IsDragging then
 		frame:AddTag("JEXP_DropTarget")
 	end
 	
 	do
-		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+		insertInstanceButton.Position = UDim2.new(0, frameState.currentNameBoundX  + 10, 0.5)
 		insertInstanceButton.Visible = true
 	end
 	
@@ -358,26 +355,7 @@ local function onReclassActivated(Manager: Manager, frameWorld: Types.World, fra
 	end)
 end
 
-local function onInstanceNameFocusedTyping(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, instanceName: TextBox,
-	insertInstanceButton: GuiButton, reclassButton: GuiButton, frame: Instance & any, currentTypingConnRef: {conn: RBXScriptConnection?}, frameState: Types.FrameState)
-	local entity = frameWorld:get(frameEntity, components.Entity)
-	if not entity then return end
-
-	currentTypingConnRef.conn = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function()
-		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-		frameState.currentNameBoundX = x
-		
-		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
-	end)
-end
-
 local function onInstanceNameFocusLostTyping(currentTypingConnRef: {conn: RBXScriptConnection?}, instanceName: TextBox)
-	if currentTypingConnRef.conn then
-		currentTypingConnRef.conn:Disconnect()
-		currentTypingConnRef.conn = nil
-	end
 	instanceName.TextEditable = false
 	instanceName.Interactable = false
 end
@@ -408,7 +386,7 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 end
 
 local set
-local function createExplorerFrame(Manager: Manager, frame: Instance & any)
+local function createExplorerFrame(Manager: Manager, frame: Types.TYPE_UI_InstanceFrame)
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
 	local ExplorerFrame = Manager.ExplorerFrame
@@ -495,28 +473,40 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	items[n+4] = selectInstanceButton.InputEnded:Connect(function(input)
 		onInputEnded(Manager, world, frameWorld, frameEntity, components, state, frameState, input)
 	end)
-	items[n+5] = selectInstanceButton.MouseEnter:Connect(function()
-		onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
+	
+	local wasHovering = false
+	items[n+5] = selectInstanceButton:GetPropertyChangedSignal("GuiState"):Connect(function()
+		local newstate = selectInstanceButton.GuiState
+		local ishovered = newstate == Enum.GuiState.Hover or newstate == Enum.GuiState.Press
+		
+		if ishovered == wasHovering then return end 
+		wasHovering = ishovered
+		
+		if ishovered then
+			onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
+		else 
+			onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
+		end
 	end)
-	items[n+6] = selectInstanceButton.MouseLeave:Connect(function()
-		onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
-	end)
-	items[n+7] = insertInstanceButton.Activated:Connect(function()
+	items[n+6] = insertInstanceButton.Activated:Connect(function()
 		onInsertActivated(Manager, frameWorld, frameEntity, components, state, insertInstanceButton)
 	end)
-	items[n+8] = instanceName.Focused:Connect(function()
-		onInstanceNameFocusedTyping(frameWorld, frameEntity, components, instanceName, insertInstanceButton, reclassButton, frame, currentTypingConnRef, frameState)
+	items[n+7] = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function() 
+		local bounds: Vector2 = TextBoundsHelper.GetBounds(Manager, instanceName)
+		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		frameState.currentNameBoundX = x
+		
+		rawnewindex(insertInstanceButton, "Position", UDim2.new(0, x + 10, 0.5))
 	end)
-	items[n+9] = instanceName.FocusLost:Connect(function()
+	items[n+8] = instanceName.FocusLost:Connect(function()
 		onInstanceNameFocusLostTyping(currentTypingConnRef, instanceName)
 	end)
-	items[n+10] = arrow.Activated:Connect(function()
+	items[n+9] = arrow.Activated:Connect(function()
 		onArrowActivated(Manager, world, frameWorld, frameEntity, components)
 	end)
-	items[n+11] = reclassButton.Activated:Connect(function()
+	items[n+10] = reclassButton.Activated:Connect(function()
 		onReclassActivated(Manager, frameWorld, frameEntity, components, state, reclassButton)
 	end)
-	
 	return frameEntity
 end
 
@@ -669,7 +659,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	local frameWorld = state.FrameWorld
 	
 	if entity ~= nil and frameWorld:get(frame, components.Entity) == entity then
-		if parent and Manager.frameOf(parent) == frameWorld:parent(frame) then
+		if (not parent) or world:get(parent, components.Frame) == frameWorld:parent(frame) then
 			return
 		end
 	end
@@ -682,10 +672,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	
 	frameState.isAssigning = true
 	
-	local parentFrame
-	if parent then
-		parentFrame = world:get(parent, components.Frame)
-	end
+	local parentFrame = if parent then world:get(parent, components.Frame) else nil
 	profilebegin("InstanceFrame::Assign")
 	if not entity or (not parent and not parentIsGame) or Manager.isExplorerEntityDeleted(entity) then
 		frameWorld:remove(frame, components.Entity)
@@ -704,6 +691,8 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		profileend()
 		return
 	end
+
+	frameState.reclassIconVisible = false
 	
 	if assignSetParentTicket then
 		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = state.InstanceTree})
@@ -728,6 +717,8 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	
 	profileend()
 	frameState.isAssigning = false
+	
+	return true
 end
 
 function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
@@ -1064,10 +1055,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local name = Manager.NameCache[entity]
 		
 		local instanceName = frameState.instanceName
-		--local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-		--local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-		--frameState.currentNameBoundX = x
-		
+	
 		local newTags = {}
 		if typeof(inst) == "Instance" then
 			local propmap = getClassPropMap(className)
@@ -1135,6 +1123,8 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			end
 		end
 		frameState.tagsToRemove = newTags
+
+		ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity, frameState)
 	end
 	
 	if #entitiesToAddIcons > 0 then

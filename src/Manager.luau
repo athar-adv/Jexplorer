@@ -36,6 +36,7 @@ local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
 local getClassPropMap = require("./Shared/Small/GetClassPropMap")
 local getClampedXY = require("./Shared/Small/GetClampedXY")
+local TextBoundsHelper = require("./Shared/Small/TextBoundsHelper")
 
 local UniPlugin = require("./UniPlugin")(plugin)
 
@@ -4250,6 +4251,8 @@ function Manager.init(connections, jexplorerWidget)
 	local jexplorerUi = UITemplates.JexplorerUi {
 		Parent = jexplorerWidget
 	}
+
+	TextBoundsHelper.SetProxyParent(jexplorerWidget)
 
 	local instanceTree = jexplorerUi.InstanceTree :: GuiObject
 	local treeScroller = (instanceTree :: any).TreeScroller :: ScrollingFrame

@@ -368,20 +368,21 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 
 			-- text
 			rawnewindex(frameState.instanceName, "Text", nameCache[entity])
-			
+
+			-- assign frame
+			local entityState = stateCache[entity]
+			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
+	
+			local isnewlyassigned = assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
+		
 			-- frame icons
-			
-			if forceUpdateIcons or world:has(entity, components.HasSideIcons) then
+
+			if (not isnewlyassigned) and (forceUpdateIcons or world:has(entity, components.HasSideIcons)) then
 				ExplorerFrame.updateRightEdgeIcons(Manager,
 					frame, containerWidth, if isScroller then frameX else nil, entity, frameState
 				)
 			end
-
-			-- finalize
-			local entityState = stateCache[entity]
-			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
-
-			assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
+			
 		end
 	end
 	
