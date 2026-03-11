@@ -815,11 +815,14 @@ end
 local padding = 4
 local frameIconOrderUpdaters = {
 	-- package,
-	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean?)
 		profilebegin("updatePackageLink")
 		
-		frameState.hasPackageLink = Manager.WidgetState.World:has(entity, Manager.Components.HasPackageLink)
-		
+		local offset
+		local iconCanExist = Manager.WidgetState.World:has(entity, Manager.Components.HasPackageLink)
+
+		frameState.hasPackageLink = iconCanExist
+
 		if frameState.hasPackageLink then
 			local linkIcon = frameState.packageLinkIcon
 			local pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
@@ -829,24 +832,25 @@ local frameIconOrderUpdaters = {
 			
 			if canShow then 
 				linkIcon.Position = pos 
-				return linkIcon.AbsoluteSize.X
+				offset = linkIcon.AbsoluteSize.X
 			end
-			
-			frameState.hasPackageLink = true
 		else
 			frameState.packageLinkIcon.Visible = false
-			frameState.hasPackageLink = false
 		end
 		
-		return nil
+		return offset, iconCanExist
 	end,
 	-- pending changes,
-	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean??)
 		profilebegin("updatePendingChanges")
+
+		local offset
+		local iconCanExist = Manager.WidgetState.World:has(entity, Manager.Components.PendingChanges)
+		
 		local pendingchangeicon = frameState.pendingChanges
 		local canShow, pos = false, nil 
 		
-		if Manager.WidgetState.World:has(entity, Manager.Components.PendingChanges) then
+		if iconCanExist then
 			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
 			canShow = pos.X.Offset > nameBoundX
 		end
@@ -855,14 +859,17 @@ local frameIconOrderUpdaters = {
 
 		if canShow then 
 			pendingchangeicon.Position = pos 
-			return pendingchangeicon.AbsoluteSize.X
+			offset = pendingchangeicon.AbsoluteSize.X
 		end
 		
-		return nil
+		return offset, iconCanExist
 	end,
 	-- reclass
-	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): number?
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean??)
 		profilebegin("updateReclassIcon")
+
+		local offset
+		local iconCanExist = frameState.reclassIconVisible
 		
 		local reclassicon = frameState.reclassButton
 		local canShow, pos = false, nil 
@@ -876,10 +883,10 @@ local frameIconOrderUpdaters = {
 
 		if canShow then
 			reclassicon.Position = pos
-			return reclassicon.AbsoluteSize.X
+			offset = reclassicon.AbsoluteSize.X
 		end
 		
-		return nil
+		return offset, iconCanExist
 	end,
 }
 function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWidth, frameX, entity, frameState)
@@ -904,9 +911,10 @@ function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWi
 	
 	local nameBoundX = frameState.currentNameBoundX + 18 + 16 + padding  -- padding
 	
-	local currentoffset = 0
+	local currentoffset, canHaveSideIcons = 0, false
 	for _, updater in frameIconOrderUpdaters do 
-		local addoffset = updater(Manager, entity, frameX, frameState, state, containerWidth, nameBoundX, currentoffset)
+		local addoffset, iconcanexist = updater(Manager, entity, frameX, frameState, state, containerWidth, nameBoundX, currentoffset)
+		if iconcanexist then canHaveSideIcons = true end
 		profileend()
 		
 		if addoffset then
@@ -914,7 +922,7 @@ function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWi
 		end
 	end
 	
-	if currentoffset ~= 0 then
+	if canHaveSideIcons then
 		world:add(entity, components.HasSideIcons)
 	else 
 		world:remove(entity, components.HasSideIcons)

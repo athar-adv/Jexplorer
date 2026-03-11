@@ -313,13 +313,13 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 			local frameX = -smoothed.X + info.indentoffset
 			local frameY = -smoothed.Y + absoluteYOffset
 			
-			local className = classNameCache[info.entity]
+			local className = classNameCache[entity]
 			
 			-- position
 			frameInst.Position = UDim2.fromOffset(frameX, frameY)
 			
 			-- ruler
-			local expandedHeight = expandedHeightIndex[info.entity]
+			local expandedHeight = expandedHeightIndex[entity]
 			if expandedHeight then
 				local ruler = frameState.ruler
 				ruler.Visible = true
@@ -367,7 +367,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 			end
 
 			-- text
-			rawnewindex(frameState.instanceName, "Text", nameCache[info.entity])
+			rawnewindex(frameState.instanceName, "Text", nameCache[entity])
 			
 			-- frame icons
 			
