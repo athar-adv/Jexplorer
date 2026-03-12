@@ -240,7 +240,11 @@ export type FrameState = {
 	reclassIconVisible: boolean,
 	currentNameBoundX: number,
 	currentFrameX: number,
-	lastFrameX: number
+	lastFrameX: number,
+	
+	linkIconPos: UDim2?,
+	pendingChangesIconPos: UDim2?,
+	reclassIconPos: UDim2?
 }
 
 export type Components = {

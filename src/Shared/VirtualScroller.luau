@@ -312,6 +312,8 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 		if lockedInstanceModification then
 			local frameX = -smoothed.X + info.indentoffset
 			local frameY = -smoothed.Y + absoluteYOffset
+			
+			frameState.lastFrameX = frameState.currentFrameX
 			frameState.currentFrameX = frameX
 			
 			local className = classNameCache[entity]

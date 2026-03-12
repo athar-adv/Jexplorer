@@ -808,7 +808,10 @@ local frameIconOrderUpdaters = {
 			linkIcon.Visible = canShow
 			
 			if canShow then 
-				linkIcon.Position = pos 
+				if FrameX ~= frameState.lastFrameX or pos ~= frameState.linkIconPos then
+					linkIcon.Position = pos
+					frameState.linkIconPos = pos
+				end
 				offset = linkIcon.AbsoluteSize.X
 			end
 		else
@@ -835,7 +838,10 @@ local frameIconOrderUpdaters = {
 		pendingchangeicon.Visible = canShow
 
 		if canShow then 
-			pendingchangeicon.Position = pos 
+			if FrameX ~= frameState.lastFrameX or pos ~= frameState.pendingChangesIconPos then
+				pendingchangeicon.Position = pos 
+				frameState.pendingChangesIconPos = pos
+			end
 			offset = pendingchangeicon.AbsoluteSize.X
 		end
 		
@@ -859,7 +865,10 @@ local frameIconOrderUpdaters = {
 		reclassicon.Visible = canShow
 
 		if canShow then
-			reclassicon.Position = pos
+			if FrameX ~= frameState.lastFrameX or pos ~= frameState.reclassIconPos then
+				reclassicon.Position = pos
+				frameState.reclassIconPos = pos
+			end
 			offset = reclassicon.AbsoluteSize.X
 		end
 		
@@ -879,9 +888,6 @@ function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWi
 	
 	local containerWidth = containerWidth or Manager.InstTreeAbsoluteSizeX
 	local frameX = frameX or frameState.currentFrameX
-	
-	if frameX == frameState.lastFrameX then return end
-	frameState.lastFrameX = frameX
 	
 	local entity = entity or state.FrameWorld:get(frame, components.Entity)
 	assert(entity)
