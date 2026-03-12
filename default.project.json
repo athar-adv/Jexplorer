@@ -1,0 +1,12 @@
+{
+    "name": "Jexplorer",
+    "tree": {
+        "$className": "DataModel",
+        "ReplicatedStorage": {
+            "$className": "ReplicatedStorage",
+            "Jexplorer": {
+                "$path": "./src"
+            }
+        }
+    }
+}

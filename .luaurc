@@ -1,0 +1,8 @@
+{
+    "languageMode": "nocheck",
+    "lint": {
+        "LocalUnused": false,
+        "ImportUnused": false,
+        "LocalShadow": false
+    }
+}

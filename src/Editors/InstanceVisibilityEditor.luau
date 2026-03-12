@@ -65,7 +65,7 @@ function InstanceVisibilityEditor.init(Manager)
 			Security = SecurityCapabilities.new(unpack(Enum.SecurityCapability:GetEnumItems()))
 		})
 		
-		local customclasses = {}
+		local customclasses: {ReflectedClass} = {}
 		local function insertclass(f: ReflectedClass)
 			table.insert(customclasses, f)
 		end
@@ -146,7 +146,7 @@ function InstanceVisibilityEditor.init(Manager)
 	jsonBox = PluginUI.createAttributeBox(list, "Invisible Classes JSON", HttpService:JSONEncode(InstanceVisibilityEditor.InvisibleClasses), function(newValue)
 		if newValue == "" then
 			InstanceVisibilityEditor.InvisibleClasses = {}
-			Manager.VirtualScroller.update(Manager, false)
+			Manager.VirtualScroller.update(Manager, false, true)
 			return
 		end
 

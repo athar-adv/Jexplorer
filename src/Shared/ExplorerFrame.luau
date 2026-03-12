@@ -14,6 +14,7 @@ local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
 local stickToRightEdge = require("./Small/StickToRightEdge")
 local recordChanges = require("./Small/RecordChanges")
+local TextBoundsHelper = require("./Small/TextBoundsHelper")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -63,12 +64,6 @@ local function setFrameSelected(Manager: Manager, frame: ExplorerFrame, selected
 	profileend()
 end
 
-local function onCleanupFrameState(frameState: Types.FrameState, currentTypingConn: RBXScriptConnection?)
-	if currentTypingConn then
-		currentTypingConn:Disconnect()
-	end
-end
-
 local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlHeld: boolean, isShiftHeld: boolean)
 	profilebegin("Jexplorer::toggleSelection")
 	local VirtualScroller = Manager.VirtualScroller
@@ -109,7 +104,7 @@ local function switchSelection(Manager: Manager, entity: ExplorerEntity, isCtrlH
 	end
 
 	ExplorerFrame.updateSelectionVisuals(Manager, true)
-	VirtualScroller.update(Manager, false)
+	VirtualScroller.update(Manager, false, true)
 	profileend()
 end
 
@@ -267,7 +262,7 @@ local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Ty
 			state.LastSelectedEntity = entity
 
 			ExplorerFrame.updateSelectionVisuals(Manager, true)
-			VirtualScroller.update(Manager, false)
+			VirtualScroller.update(Manager, false, true)
 		end
 	end
 end
@@ -282,28 +277,18 @@ local function onMouseEnter(
 	local inst = Manager.instanceOf(entity)
 	if not inst then return end
 	
-	local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-	local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-	frameState.currentNameBoundX = x
-	
 	if state.IsDragging then
 		frame:AddTag("JEXP_DropTarget")
 	end
 	
 	do
-		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+		insertInstanceButton.Position = UDim2.new(0, frameState.currentNameBoundX  + 10, 0.5)
 		insertInstanceButton.Visible = true
 	end
-	do
-		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
-		frameState.reclassIconVisible = true
-		-- Can't reclass services
-		if inst.Parent ~= game then
-			local info = ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
-			if info and info.reclassIconIsVisible then
-				reclassButton.Visible = true
-			end
-		end
+	
+	frameState.reclassIconVisible = inst.Parent ~= game
+	if frameState.reclassIconVisible then
+		ExplorerFrame.updateRightEdgeIcons(Manager, frameEntity)
 	end
 end
 
@@ -364,26 +349,7 @@ local function onReclassActivated(Manager: Manager, frameWorld: Types.World, fra
 	end)
 end
 
-local function onInstanceNameFocusedTyping(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, instanceName: TextBox,
-	insertInstanceButton: GuiButton, reclassButton: GuiButton, frame: Instance & any, currentTypingConnRef: {conn: RBXScriptConnection?}, frameState: Types.FrameState)
-	local entity = frameWorld:get(frameEntity, components.Entity)
-	if not entity then return end
-
-	currentTypingConnRef.conn = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function()
-		local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-		frameState.currentNameBoundX = x
-		
-		insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
-		--reclassButton.Position = UDim2.new(0, insertInstanceButton.AbsoluteSize.X + x + 10 + RECLASS_ICON_PADDING, 0.5)
-	end)
-end
-
-local function onInstanceNameFocusLostTyping(currentTypingConnRef: {conn: RBXScriptConnection?}, instanceName: TextBox)
-	if currentTypingConnRef.conn then
-		currentTypingConnRef.conn:Disconnect()
-		currentTypingConnRef.conn = nil
-	end
+local function onInstanceNameFocusLostTyping(instanceName: TextBox)
 	instanceName.TextEditable = false
 	instanceName.Interactable = false
 end
@@ -410,11 +376,11 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 		ExplorerFrame.updateExpandedVisuals(Manager)
 	end
 
-	VirtualScroller.update(Manager, false)
+	VirtualScroller.update(Manager, false, true)
 end
 
 local set
-local function createExplorerFrame(Manager: Manager, frame: Instance & any)
+local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_InstanceFrame)
 	local VirtualScroller = Manager.VirtualScroller
 	local HierarchyState = Manager.HierarchyState
 	local ExplorerFrame = Manager.ExplorerFrame
@@ -474,15 +440,6 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	Manager.FrameToInstanceFrame[frame] = frameEntity
 	overlayFrame:AddTag("JEXP_Hover")
 
-	-- Use a ref table so the typing conn can be mutated from static functions
-	local currentTypingConnRef: {conn: RBXScriptConnection?} = { conn = nil }
-
-	connections:extend(cleanup.call, {
-		function()
-			onCleanupFrameState(frameState, currentTypingConnRef.conn)
-		end
-	})
-
 	local items = connections.items
 	local n = #items
 
@@ -501,28 +458,40 @@ local function createExplorerFrame(Manager: Manager, frame: Instance & any)
 	items[n+4] = selectInstanceButton.InputEnded:Connect(function(input)
 		onInputEnded(Manager, world, frameWorld, frameEntity, components, state, frameState, input)
 	end)
-	items[n+5] = selectInstanceButton.MouseEnter:Connect(function()
-		onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
+	
+	local wasHovering = false
+	items[n+5] = selectInstanceButton:GetPropertyChangedSignal("GuiState"):Connect(function()
+		local newstate = selectInstanceButton.GuiState
+		local ishovered = newstate == Enum.GuiState.Hover or newstate == Enum.GuiState.Press
+		
+		if ishovered == wasHovering then return end 
+		wasHovering = ishovered
+		
+		if ishovered then
+			onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
+		else 
+			onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
+		end
 	end)
-	items[n+6] = selectInstanceButton.MouseLeave:Connect(function()
-		onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
-	end)
-	items[n+7] = insertInstanceButton.Activated:Connect(function()
+	items[n+6] = insertInstanceButton.Activated:Connect(function()
 		onInsertActivated(Manager, frameWorld, frameEntity, components, state, insertInstanceButton)
 	end)
-	items[n+8] = instanceName.Focused:Connect(function()
-		onInstanceNameFocusedTyping(frameWorld, frameEntity, components, instanceName, insertInstanceButton, reclassButton, frame, currentTypingConnRef, frameState)
+	items[n+7] = instanceName:GetPropertyChangedSignal("TextBounds"):Connect(function() 
+		local bounds: Vector2 = TextBoundsHelper.GetBounds(Manager, instanceName)
+		local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+		frameState.currentNameBoundX = x
+		
+		rawnewindex(insertInstanceButton, "Position", UDim2.new(0, x + 10, 0.5))
 	end)
-	items[n+9] = instanceName.FocusLost:Connect(function()
-		onInstanceNameFocusLostTyping(currentTypingConnRef, instanceName)
+	items[n+8] = instanceName.FocusLost:Connect(function()
+		onInstanceNameFocusLostTyping(instanceName)
 	end)
-	items[n+10] = arrow.Activated:Connect(function()
+	items[n+9] = arrow.Activated:Connect(function()
 		onArrowActivated(Manager, world, frameWorld, frameEntity, components)
 	end)
-	items[n+11] = reclassButton.Activated:Connect(function()
+	items[n+10] = reclassButton.Activated:Connect(function()
 		onReclassActivated(Manager, frameWorld, frameEntity, components, state, reclassButton)
 	end)
-	
 	return frameEntity
 end
 
@@ -675,7 +644,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	local frameWorld = state.FrameWorld
 	
 	if entity ~= nil and frameWorld:get(frame, components.Entity) == entity then
-		if parent and Manager.frameOf(parent) == frameWorld:parent(frame) then
+		if (not parent) or world:get(parent, components.Frame) == frameWorld:parent(frame) then
 			return
 		end
 	end
@@ -688,10 +657,7 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	
 	frameState.isAssigning = true
 	
-	local parentFrame
-	if parent then
-		parentFrame = world:get(parent, components.Frame)
-	end
+	local parentFrame = if parent then world:get(parent, components.Frame) else nil
 	profilebegin("InstanceFrame::Assign")
 	if not entity or (not parent and not parentIsGame) or Manager.isExplorerEntityDeleted(entity) then
 		frameWorld:remove(frame, components.Entity)
@@ -710,6 +676,8 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 		profileend()
 		return
 	end
+
+	frameState.reclassIconVisible = false
 	
 	if assignSetParentTicket then
 		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = state.InstanceTree})
@@ -734,6 +702,8 @@ function ExplorerFrame.assignExplorerFrame(Manager, frame, entity, parent, paren
 	
 	profileend()
 	frameState.isAssigning = false
+	
+	return true
 end
 
 function ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
@@ -819,7 +789,83 @@ function ExplorerFrame.updateExpandedVisuals(Manager)
 end
 
 local padding = 4
-function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, frameX, entity, frameState)
+local frameIconOrderUpdaters = {
+	-- package,
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean?)
+		profilebegin("updatePackageLink")
+		
+		local offset
+		local iconCanExist = Manager.WidgetState.World:has(entity, Manager.Components.HasPackageLink)
+
+		frameState.hasPackageLink = iconCanExist
+
+		if frameState.hasPackageLink then
+			local linkIcon = frameState.packageLinkIcon
+			local pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			
+			local canShow = pos.X.Offset > nameBoundX
+			linkIcon.Visible = canShow
+			
+			if canShow then 
+				linkIcon.Position = pos 
+				offset = linkIcon.AbsoluteSize.X
+			end
+		else
+			frameState.packageLinkIcon.Visible = false
+		end
+		
+		return offset, iconCanExist
+	end,
+	-- pending changes,
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean??)
+		profilebegin("updatePendingChanges")
+
+		local offset
+		local iconCanExist = Manager.WidgetState.World:has(entity, Manager.Components.PendingChanges)
+		
+		local pendingchangeicon = frameState.pendingChanges
+		local canShow, pos = false, nil 
+		
+		if iconCanExist then
+			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			canShow = pos.X.Offset > nameBoundX
+		end
+		
+		pendingchangeicon.Visible = canShow
+
+		if canShow then 
+			pendingchangeicon.Position = pos 
+			offset = pendingchangeicon.AbsoluteSize.X
+		end
+		
+		return offset, iconCanExist
+	end,
+	-- reclass
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean??)
+		profilebegin("updateReclassIcon")
+
+		local offset
+		local iconCanExist = frameState.reclassIconVisible
+		
+		local reclassicon = frameState.reclassButton
+		local canShow, pos = false, nil 
+
+		if frameState.reclassIconVisible then
+			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			canShow = pos.X.Offset > nameBoundX
+		end
+		
+		reclassicon.Visible = canShow
+
+		if canShow then
+			reclassicon.Position = pos
+			offset = reclassicon.AbsoluteSize.X
+		end
+		
+		return offset, iconCanExist
+	end,
+}
+function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWidth, frameX, entity, frameState)
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
@@ -841,84 +887,22 @@ function ExplorerFrame.updateRightEdgeIcons(Manager, frame, containerWidth, fram
 	
 	local nameBoundX = frameState.currentNameBoundX + 18 + 16 + padding  -- padding
 	
-	local function updatePendingChanges(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState)
-		profilebegin("updatePendingChanges")
-		if frameState.hasPackageLink then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			--if pos.X.Offset > nameBoundX then
-			--	frameInst.Position = pos
-			--end
-			frameInst.Position = pos
-		else
-			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			frameInst.Position = pos
-		end
+	local currentoffset, canHaveSideIcons = 0, false
+	for _, updater in frameIconOrderUpdaters do 
+		local addoffset, iconcanexist = updater(Manager, entity, frameX, frameState, state, containerWidth, nameBoundX, currentoffset)
+		if iconcanexist then canHaveSideIcons = true end
 		profileend()
-	end
-	
-	local reclassIconIsVisible = true
-	local function updateReclassIcon(frameX: number, frameState: Types.FrameState, frameInst: GuiObject, state: Types.WidgetState, hasPendingChanges: boolean, setPosition: boolean)
-		profilebegin("updateReclassIcon")
-		if frameState.hasPackageLink and hasPendingChanges then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - frameState.pendingChanges.AbsoluteSize.X - padding)
-			--if pos.X.Offset > nameBoundX then
-			--	if setPosition then
-			--		frameInst.Position = pos
-			--	end
-			--else
-			--	reclassIconIsVisible = false
-			--end
-			if setPosition then
-				frameInst.Position = pos
-			end
-		elseif hasPendingChanges then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.pendingChanges.AbsoluteSize.X - padding)
-			if setPosition then
-				frameInst.Position = pos
-			end
-		elseif frameState.hasPackageLink then
-			local pos = stickToRightEdge(containerWidth, frameX, -frameState.packageLinkIcon.AbsoluteSize.X - padding)
-			if setPosition then
-				frameInst.Position = pos
-			end
-		else
-			local pos = stickToRightEdge(containerWidth, frameX, 0)
-			if setPosition then
-				frameInst.Position = pos
-			end
+		
+		if addoffset then
+			currentoffset -= (addoffset + padding)
 		end
-		profileend()
 	end
 	
-	local hasPendingChanges = world:has(entity, components.PendingChanges)
-	
-	if world:has(entity, components.HasPackageLink) then
-		local linkIcon = frameState.packageLinkIcon
-		local pos = stickToRightEdge(containerWidth, frameX, 0)
-		--if pos.X.Offset > nameBoundX then
-		--	linkIcon.Position = pos
-		--end
-		linkIcon.Position = pos
-		linkIcon.Visible = true
-		frameState.hasPackageLink = true
-	else
-		frameState.packageLinkIcon.Visible = false
-		frameState.hasPackageLink = false
-		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
-		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
+	if canHaveSideIcons then
+		world:add(entity, components.HasSideIcons)
+	else 
+		world:remove(entity, components.HasSideIcons)
 	end
-
-	if hasPendingChanges then
-		updatePendingChanges(frameX, frameState, frameState.pendingChanges, state)
-		frameState.pendingChanges.Visible = true
-	else
-		frameState.pendingChanges.Visible = false
-		updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
-	end
-
-	updateReclassIcon(frameX, frameState, frameState.reclassButton, state, hasPendingChanges, frameState.reclassIconVisible)
-	
-	return {reclassIconIsVisible = reclassIconIsVisible}
 end
 
 function ExplorerFrame.updateCollapsedVisuals(Manager)
@@ -1056,10 +1040,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local name = Manager.NameCache[entity]
 		
 		local instanceName = frameState.instanceName
-		--local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-		--local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-		--frameState.currentNameBoundX = x
-		
+	
 		local newTags = {}
 		if typeof(inst) == "Instance" then
 			local propmap = getClassPropMap(className)
@@ -1127,6 +1108,8 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			end
 		end
 		frameState.tagsToRemove = newTags
+
+		ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity, frameState)
 	end
 	
 	if #entitiesToAddIcons > 0 then

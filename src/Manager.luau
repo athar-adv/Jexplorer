@@ -36,6 +36,7 @@ local PluginManager = require("./Shared/PluginManager")
 local xyz = require("./Shared/Small/xyz")
 local getClassPropMap = require("./Shared/Small/GetClassPropMap")
 local getClampedXY = require("./Shared/Small/GetClampedXY")
+local TextBoundsHelper = require("./Shared/Small/TextBoundsHelper")
 
 local UniPlugin = require("./UniPlugin")(plugin)
 
@@ -136,6 +137,7 @@ local components: Types.Components do
 		Deleted = tag(),
 		DisplayTopLevel = tag(),
 		HasPackageLink = tag(),
+		HasSideIcons = tag(),
 		
 		CleanupTicket = comp(),
 		DeletionTicket = comp(),
@@ -1049,10 +1051,10 @@ function Manager.instanceOf(ent: ExplorerEntity): Instance?
 	return world:get(ent, components.Instance)
 end
 
-function Manager.frameOf(ent: ExplorerEntity): typeof(script.Parent.__legacy.UI.InstanceFrame)?
+function Manager.frameOf(ent: ExplorerEntity): Types.UITEMPLATE_InstanceFrame?
 	local world = Manager.WidgetState.FrameWorld
 	local components = Manager.Components
-	return world:get(ent, components.Instance)
+	return world:get(ent, components.Instance) :: any
 end
 
 function Manager.getSetting(name)
@@ -1786,7 +1788,7 @@ function Manager.saveState()
 							ser_props[k] = UDF.to(v)
 						end
 						ser_versions[i] = {
-							timestamp = version.timestamp:ToUniversalTime(),
+							timestamp = version.timestamp.UnixTimestamp,
 							props = ser_props
 						}
 					end
@@ -1968,13 +1970,22 @@ function Manager.loadState(savedState)
 				
 				local de_versions = {}
 				for i, version in versions do
-					local t = version.timestamp
+					local t: any = version.timestamp
 					local de_props = {}
 					for k, v in version.props do
 						de_props[k] = UDF.from(v)
 					end
+
+					local timestamp: DateTime
+					if type(t) == 'table' then
+						-- old format which sucks but we gotta live with it
+						timestamp = DateTime.fromUniversalTime(t.Year, t.Month, t.Day, t.Hour, t.Minute, t.Second, t.Millisecond)
+					else 
+						timestamp = DateTime.fromUnixTimestamp(t)
+					end
+
 					de_versions[i] = {
-						timestamp = DateTime.fromUniversalTime(t.Year, t.Month, t.Day, t.Hour, t.Minute, t.Second, t.Millisecond),
+						timestamp = timestamp,
 						props = de_props
 					}
 				end
@@ -2264,7 +2275,7 @@ local function initRegisterPluginMenusAndActions(
 					
 					HierarchyState.invalidateEntityStateCache(target)
 					ExplorerFrame.updateExpandedVisuals(Manager)
-					VirtualScroller.update(Manager, false)
+					VirtualScroller.update(Manager, false, true)
 				end
 				Manager.addExplorerEntitiesToSelection(children, true)
 			end
@@ -2338,7 +2349,7 @@ local function initRegisterPluginMenusAndActions(
 				HierarchyState.invalidateEntityStateCache(entity)
 				ExplorerFrame.updateCollapsedVisuals(Manager)
 			end
-			VirtualScroller.update(Manager, false)
+			VirtualScroller.update(Manager, false, true)
 		end)
 	end
 	
@@ -2899,7 +2910,11 @@ local function initRegisterPluginMenusAndActions(
 					-- Multiple models: weld their primary parts to each other
 					local primaries = {}
 					for _, model in models do
-						table.insert(primaries, getPrimaryPart(model))
+						local primary = getPrimaryPart(model)
+						if primary then
+							table.insert(primaries, primary)
+						end
+						
 					end
 					weldTo(primaries[1], { table.unpack(primaries, 2) })
 
@@ -4069,7 +4084,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					world:remove(entity, components.IsQueried)
 				end
 				state.TreeScroller.CanvasSize = UDim2.fromScale(0, 0)
-				VirtualScroller.update(Manager, false)
+				VirtualScroller.update(Manager, false, true)
 				return
 			end
 
@@ -4191,7 +4206,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				n += 1
 			end
 			
-			topbar.QueryInputFrame.QueryCount.Text = n
+			topbar.QueryInputFrame.QueryCount.Text = tostring(n)
 
 			VirtualScroller.clearHeightCache(Manager)
 			ExplorerFrame.updateExpandedVisuals(Manager)
@@ -4236,6 +4251,8 @@ function Manager.init(connections, jexplorerWidget)
 	local jexplorerUi = UITemplates.JexplorerUi {
 		Parent = jexplorerWidget
 	}
+
+	TextBoundsHelper.SetProxyParent(jexplorerWidget)
 
 	local instanceTree = jexplorerUi.InstanceTree :: GuiObject
 	local treeScroller = (instanceTree :: any).TreeScroller :: ScrollingFrame
@@ -4331,7 +4348,7 @@ function Manager.init(connections, jexplorerWidget)
 			continue
 		end
 		
-		local id = obj:GetAttribute(ID_ATTR)
+		local id = obj:GetAttribute(ID_ATTR) :: string
 		
 		Manager.InstanceToId[inst] = id
 		Manager.IdToInstance[id] = inst

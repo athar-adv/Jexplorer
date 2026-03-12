@@ -17,8 +17,6 @@ type Manager = Types.Manager
 type World = Types.World
 type ExplorerEntity = Types.ExplorerEntity
 
-local recentlyReusedEntities = {}
-local reuseDebounceTime = {}
 local lastScrollTime = 0
 
 local heightCache = {}
@@ -211,7 +209,7 @@ end
 
 local isModifyingInstances = false
 local lastCanvasPos = Vector2.zero
-function VirtualScroller.update(Manager, isScroller)
+function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: boolean?)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 
@@ -226,6 +224,7 @@ function VirtualScroller.update(Manager, isScroller)
 		--task.defer(VirtualScroller.update, Manager, true)
 		return
 	end
+	
 	profilebegin("Jexplorer::updateVirtualScroller")
 
 	VirtualScroller.IsVirtualScrollerUpdating = true
@@ -266,21 +265,30 @@ function VirtualScroller.update(Manager, isScroller)
 	
 	lastCanvasPos = scrollPos
 	
-	local frameInfo = {}
-	local ftamI = 1
+	local lockedInstanceModification = not isModifyingInstances
+	isModifyingInstances = true
+
+	local classNameCache = Manager.ClassNameCache
+	local nameCache = Manager.NameCache
+	
+	local scrollingFrame = state.TreeScroller
+	local containerWidth = scrollingFrame.AbsoluteSize.X
+
+--	local frameInfo = {}
+--	local ftamI = 1
+
 	for _, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
 
 		local frame = world:get(entity, components.Frame)
 
-		reuseDebounceTime[entity] = nil
-		
 		if not frame then
 			local f = allocateFrame(Manager)
 			world:set(entity, components.Frame, f)
 			frame = f
 		end
+		
 		if not frame then continue end
 
 		local frameInst = frameOf(frame)
@@ -297,26 +305,21 @@ function VirtualScroller.update(Manager, isScroller)
 				childAmountCache[entity] = 0
 			end
 		end
+
+--		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState, frame = frame}
+--		ftamI += 1
 		
-		local frameX = -smoothed.X + info.indentoffset
-		local frameY = -smoothed.Y + absoluteYOffset
-		
-		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState, frame = frame}
-		ftamI += 1
-	end
-	
-	local classNameCache = Manager.ClassNameCache
-	local nameCache = Manager.NameCache
-	
-	if not isModifyingInstances then
-		isModifyingInstances = true
-		
-		for _, info in frameInfo do
-			info.frameInst.Position = UDim2.fromOffset(info.frameX, info.frameY)
-		end
-		for _, info in frameInfo do
-			local frameState = info.frameState
-			local expandedHeight = expandedHeightIndex[info.entity]
+		if lockedInstanceModification then
+			local frameX = -smoothed.X + info.indentoffset
+			local frameY = -smoothed.Y + absoluteYOffset
+			
+			local className = classNameCache[entity]
+			
+			-- position
+			frameInst.Position = UDim2.fromOffset(frameX, frameY)
+			
+			-- ruler
+			local expandedHeight = expandedHeightIndex[entity]
 			if expandedHeight then
 				local ruler = frameState.ruler
 				ruler.Visible = true
@@ -325,75 +328,65 @@ function VirtualScroller.update(Manager, isScroller)
 				local ruler = frameState.ruler
 				ruler.Visible = false
 			end
-		end
-		profilebegin("PositionExplorerFrameIcons")
-		
-		local scrollingFrame = state.TreeScroller
-		local containerWidth = scrollingFrame.AbsoluteSize.X
-		for _, info in frameInfo do
-			local frameState = info.frameState
-			local entity = info.entity
-			local frameX = info.frameX
-			local frameInst = info.frameInst
-
-			ExplorerFrame.updateRightEdgeIcons(Manager,
-				info.frame, containerWidth, frameX, entity, frameState
-			)
-		end
-		profileend()
-		for _, info in frameInfo do
-			local inst = info.inst
-			local className = classNameCache[info.entity]
-			local frameState = info.frameState
-			local frameInst = info.frameInst
-
-			local newName
-			if className == "Script" then
-				newName = Constants.ExplorerFrameScriptClassNameFormat:format(
-					rawindex(inst, "RunContext").Name
-				)
-			else
-				newName = Constants.ExplorerFrameNameFormat:format(className)
-			end
-			if newName ~= frameState.currentFrameName then
-				rawnewindex(frameInst, "Name", newName)
-				frameState.currentFrameName = newName
-			end
-		end
-		for _, info in frameInfo do
-			local frameState = info.frameState
-			local entity = info.entity
-
-			local arrow = frameState.arrow
-			if world:has(entity, components.ArrowInvisible) then
-				arrow.Visible = false
-			else
-				if info.inst == game or childAmountCache[entity] == 0 then
+			
+			-- arrow
+			do 
+				local arrow = frameState.arrow
+				if world:has(entity, components.ArrowInvisible) then
 					arrow.Visible = false
 				else
-					arrow.Visible = true
+					if className == "DataModel" or childAmountCache[entity] == 0 then
+						arrow.Visible = false
+					else
+						arrow.Visible = true
+					end
+					if Manager.isExplorerEntityExpanded(entity) then
+						arrow.Rotation = 0
+					else
+						arrow.Rotation = -90
+					end
 				end
-				if Manager.isExplorerEntityExpanded(entity) then
-					arrow.Rotation = 0
+			end 
+			
+			-- special name states
+			do 
+				local newName
+
+				if className == "Script" then
+					newName = Constants.ExplorerFrameScriptClassNameFormat:format(
+						rawindex(instance, "RunContext").Name
+					)
 				else
-					arrow.Rotation = -90
+					newName = Constants.ExplorerFrameNameFormat:format(className)
+				end
+
+				if newName ~= frameState.currentFrameName then
+					rawnewindex(frameInst, "Name", newName)
+					frameState.currentFrameName = newName
 				end
 			end
-		end
-		for _, info in frameInfo do
-			rawnewindex(info.frameState.instanceName, "Text", nameCache[info.entity])
-		end
-		for _, info in frameInfo do
-			local entity = info.entity
-			local frame = info.frame
-			local instance = info.inst
 
+			-- text
+			rawnewindex(frameState.instanceName, "Text", nameCache[entity])
+
+			-- assign frame
 			local entityState = stateCache[entity]
 			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
-
-			assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
-		end
+	
+			local isnewlyassigned = assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
 		
+			-- frame icons
+
+			if (not isnewlyassigned) and (forceUpdateIcons or world:has(entity, components.HasSideIcons)) then
+				ExplorerFrame.updateRightEdgeIcons(Manager,
+					frame, containerWidth, if isScroller then frameX else nil, entity, frameState
+				)
+			end
+			
+		end
+	end
+	
+	if lockedInstanceModification then
 		isModifyingInstances = false
 	end
 	
@@ -411,7 +404,7 @@ end
 
 function VirtualScroller.rebuildAndUpdate(Manager, isScroller)
 	Manager.HierarchyState.rebuildHierarchyCache(Manager)
-	VirtualScroller.update(Manager, isScroller)
+	VirtualScroller.update(Manager, isScroller, true)
 end
 
 function VirtualScroller.trackScrolling(Manager)
