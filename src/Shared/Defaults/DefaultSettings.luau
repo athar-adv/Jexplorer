@@ -79,6 +79,11 @@ return {
 			Display = "Auto-expand Ancestors on Select Unexpanded Instance",
 			Default = true,
 		},
+		StickyStacksEnabled = {
+			Type = "boolean",
+			Display = "Sticky Stack Breadcrumb when Ancestors Are Expanded",
+			Default = true
+		}
 	},
 	Selection = {
 		PropertyEditorUpdatedOnSelect = {

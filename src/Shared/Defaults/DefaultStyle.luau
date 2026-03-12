@@ -417,13 +417,22 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				TextColor3 = var "brightness($TabPickingRootsColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)"
 			}),
 		}),
+		rule("ExplorerFrameRulerStyle", "#StickyRuler Frame", 0, {
+			Position = var "udim2(0, 20, 0, 20)",
+			Visible = true,
+			--Size = UDim2.new(0, 1, 1, 0),
+			BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
+			BackgroundTransparency = 0.5,
+			--AutomaticSize = Enum.AutomaticSize.Y,
+			ZIndex = 12
+		}),
 		rule("ExplorerFrameStyle", ".JEXP_ExplorerFrame Frame", 0, {
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.XY,
 			SizeConstraint = Enum.SizeConstraint.RelativeXX,
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			ZIndex = 100,
+			ZIndex = -2,
 			
 			rule("BufferStyle", "> #Buffer Frame", 0, {
 				AnchorPoint = Vector2.new(1, 0),
@@ -431,15 +440,6 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				BackgroundTransparency = 1,
 				BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 				Size = UDim2.new(0.94, 0, 0, 0)
-			}),
-			rule("RulerStyle", "> #Ruler Frame", 0, {
-				Position = var "udim2(0, 20, 0, 20)",
-				Visible = true,
-				--Size = UDim2.new(0, 1, 1, 0),
-				BackgroundColor3 = var "$BackgroundColor.R > 0.5 ? rgb(200, 200, 200) : rgb(70, 70, 70)",
-				BackgroundTransparency = 0.5,
-				--AutomaticSize = Enum.AutomaticSize.Y,
-				ZIndex = 0
 			}),
 			rule("MainFrameStyle", "> #Main", 0, {
 				Size = "$InstanceFrameSize",

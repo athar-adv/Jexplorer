@@ -12,6 +12,7 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 local TextService = game:GetService("TextService")
+local Selection = game:GetService("Selection")
 
 local Jecs = require("./Jecs")
 local Types = require("./Types")
@@ -151,6 +152,8 @@ local components: Types.Components do
 		FRAMEWORLD_FrameSetParentTicket = comp(),
 		FRAMEWORLD_Main = comp(),
 		FRAMEWORLD_CurrentParent = comp(),
+		FRAMEWORLD_Ruler = comp(),
+		FRAMEWORLD_IsSticky = tag(),
 		QUERYWORLD_ComponentHash = comp(),
 
 		Instance = comp(),
@@ -248,6 +251,10 @@ local function pasteCopiedInstances(world: World)
 		end
 
 		Manager.DeferredTaskScheduler.ChildGraphDirty = true
+		
+		task.delay(0.1, function()
+			Selection:Set(instances)
+		end)
 	end)
 end
 
@@ -581,7 +588,7 @@ local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, c
 			local relativeX = input.Position.X - pathButton.AbsolutePosition.X + pathSegments.CanvasPosition.X
 			for _, item in segmentBounds do
 				if relativeX <= item.bound then
-					game.Selection:Set {item.entity}
+					Selection:Set {item.entity}
 					break
 				end
 			end
@@ -1422,7 +1429,7 @@ function Manager.insertClassInto(entity: ExplorerEntity, class: string)
 
 		inst.Parent = entityInst
 		
-		game.Selection:Set({inst})
+		Selection:Set({inst})
 		return inst
 	end)
 end
@@ -1497,7 +1504,7 @@ local function cancelTabPickingRoots(changeImage: boolean)
 	if pickingTab then
 		pickingTab.TabFrame:RemoveTag("JEXP_SelectingRoots")
 		state.OverridePathBarText = nil
-		refreshPathBar(game.Selection:Get(), state, components)
+		refreshPathBar(Selection:Get(), state, components)
 		sharedTabState.currentlyPickingTabRoots = nil
 		if changeImage then
 			switchTabIcon(pickingTab)
@@ -2559,7 +2566,7 @@ local function initRegisterPluginMenusAndActions(
 				Manager.DeferredTaskScheduler.ChildGraphDirty = true
 
 				task.delay(0.1, function()
-					game.Selection:Set({container})
+					Selection:Set({container})
 				end)
 			end)
 		end
@@ -2795,7 +2802,7 @@ local function initRegisterPluginMenusAndActions(
 				end)
 			end)
 
-			local selectionChangedConn = game.Selection.SelectionChanged:Connect(function()
+			local selectionChangedConn = Selection.SelectionChanged:Connect(function()
 				refreshFromSelection()
 			end)
 
@@ -3930,9 +3937,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				profileend()
 			end
 		end),
-		game.Selection.SelectionChanged:Connect(function()
+		Selection.SelectionChanged:Connect(function()
 			profilebegin("Jexplorer::onSelectionChanged")
-			local selection = game.Selection:Get()
+			local selection = Selection:Get()
 			
 			local entities = {}
 			for _, v in selection do

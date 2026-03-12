@@ -16,6 +16,7 @@ local profilebegin, profileend = debug.profilebegin, debug.profileend
 type Manager = Types.Manager
 type World = Types.World
 type ExplorerEntity = Types.ExplorerEntity
+type ExplorerFrame = Types.ExplorerFrame
 
 local lastScrollTime = 0
 
@@ -97,7 +98,6 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	local viewportBuffer = height * frameBuffer
 	local viewportTop = top - viewportBuffer
 	local viewportBottom = top + viewportHeight + viewportBuffer
-	local effectiveViewportHeight = viewportHeight + viewportBuffer
 
 	local flattenedEntities, entityToIndex, indexToIndentOffset = 
 		Manager.HierarchyState.getFlattenedVisibleEntities(Manager, {}, isScroller)
@@ -106,10 +106,10 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	local startIndex = math.max(1, math.floor(viewportTop / height) + 1)
 	local endIndex = math.min(flatCount, math.ceil(viewportBottom / height) + 1)
 
-	local visible = {}--table.create(endIndex - startIndex + 1)
+	local visible = {}
 	local invisible = {}
 	local visibleN = 1
-	
+
 	local expandedHeightIndex = {}
 
 	local isEntityExpanded = Manager.isExplorerEntityExpanded
@@ -119,22 +119,24 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	local world = Manager.WidgetState.World
 	local HierarchyState = Manager.HierarchyState
 	local stateCache = HierarchyState.StateCache
-	
+
 	local expandedParents = {}
 	local expandedParentsSet = {}
-	
+	local numExpandedParents = 0
+
 	profilebegin("visible check")
 	local visibleSet = {}
 	for index = startIndex, endIndex do
 		local entity = flattenedEntities[index]
 		local absoluteYOffset = height * (index - 1)
-		
+
 		local parent = Manager.parentOf(entity)
 		if parent and not expandedParentsSet[parent] and isEntityExpanded(parent) then
-			table.insert(expandedParents, parent)
+			numExpandedParents += 1
+			expandedParents[numExpandedParents] = parent
 			expandedParentsSet[parent] = true
 		end
-		
+
 		visibleSet[entity] = true
 		visible[visibleN] = {
 			entity = entity,
@@ -144,55 +146,92 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 		visibleN += 1
 	end
 	profileend()
-	
+
 	profilebegin("expanded check")
 	for _, entity in expandedParents do
 		local parent = Manager.parentOf(entity)
 		if parent and not expandedParentsSet[parent] and isEntityExpanded(parent) then
-			table.insert(expandedParents, parent)
+			numExpandedParents += 1
+			expandedParents[numExpandedParents] = parent
+			
 			expandedParentsSet[parent] = true
 		end
 	end
-	for _, entity in expandedParents do
-		local index = entityToIndex[entity]
-		local absoluteYOffset = height * (index - 1)
-		
-		local expandedHeight = calculateDeepHeightOptimized(
-			world, components.Expanded, components.QueryExpanded,
-			HierarchyState.ChildrenMap, Manager.ChildAmountCache,
-			isEntityInvisible, isEntityDeleted, entity
-		)
-		local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
-		expandedHeightIndex[entity] = expandedHeight
+	
+	local stickyStackDepth = 0
+	local visibleExpandedAncestors
+	if numExpandedParents > 0 then
+		if numExpandedParents >= 2 then
+			table.sort(expandedParents, function(a, b)
+				return (entityToIndex[a] or 0) < (entityToIndex[b] or 0)
+			end)
+		end
+		visibleExpandedAncestors = {}
 
-		local viewportBottom = top + effectiveViewportHeight
-		local viewportTop = top - viewportBuffer
+		for _, entity in expandedParents do
+			local index = entityToIndex[entity]
+			if not index then continue end
 
-		local topIsVisible =
-			absoluteYOffset >= viewportTop
-			and	absoluteYOffset <= viewportBottom
-		local bottomIsVisible =
-			expandedBottomOffset >= viewportTop
-			and	expandedBottomOffset <= viewportBottom
-		local spanIsVisible1 =
-			absoluteYOffset >= viewportTop
-			and	expandedBottomOffset <= viewportBottom
-		local spanIsVisible2 =
-			expandedBottomOffset >= viewportTop
-			and	absoluteYOffset <= viewportBottom
+			local absoluteYOffset = height * (index - 1)
 
-		if topIsVisible or bottomIsVisible or spanIsVisible1 or spanIsVisible2 then
-			visibleSet[entity] = true
-			visible[visibleN] = {
-				entity = entity,
-				yoffset = absoluteYOffset,
-				indentoffset = indexToIndentOffset[index] * indentWidth
-			}
-			visibleN += 1
+			local expandedHeight = calculateDeepHeightOptimized(
+				world, components.Expanded, components.QueryExpanded,
+				HierarchyState.ChildrenMap, Manager.ChildAmountCache,
+				isEntityInvisible, isEntityDeleted, entity
+			)
+			expandedHeightIndex[entity] = expandedHeight
+
+			local expandedBottomOffset = absoluteYOffset + (height * expandedHeight)
+
+			local childrenAreVisible =
+				expandedBottomOffset > top                    -- real, no buffer
+				and absoluteYOffset < (top + viewportHeight)  -- real, no buffer
+
+			if not childrenAreVisible then continue end
+
+			local indentOffset = indexToIndentOffset[index] * indentWidth
+			local stickyStackBottom = stickyStackDepth  * height  -- bottom of all currently pinned frames
+
+			local isScrolledPast = absoluteYOffset <= (top + stickyStackBottom)
+
+			local stickyY: number? = nil
+			local rulerHeight: number
+
+			if isScrolledPast then
+				local nextStickyBottom = (stickyStackDepth + 1) * height
+				local tailTop = expandedBottomOffset - top - height
+
+				if nextStickyBottom > tailTop then
+					rulerHeight = (expandedHeight - 1) * height
+					stickyY = nil
+				else
+					local _stickyY = stickyStackDepth * height
+					stickyStackDepth += 1
+					rulerHeight = (expandedBottomOffset - top - _stickyY) - height
+					stickyY = _stickyY
+				end
+			else
+				rulerHeight = (expandedHeight - 1) * height
+			end
+
+			if not visibleSet[entity] or isScrolledPast then
+				visibleSet[entity] = true
+				visible[visibleN] = {
+					entity = entity,
+					yoffset = absoluteYOffset,
+					indentoffset = indentOffset,
+				}
+				visibleExpandedAncestors[visibleN] = {
+					stickyY = stickyY,
+					rulerHeight = rulerHeight,
+				}
+				visibleN += 1
+			end
 		end
 	end
-	profileend()
 	
+	profileend()
+
 	profilebegin("invisible check")
 	for _, info in lastVisible do
 		local entity = info.entity
@@ -204,7 +243,65 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	profileend()
 
 	profileend()
-	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount
+	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors or {}, stickyStackDepth
+end
+
+local RULER_POOL_SIZE = 20
+local rulerPool: {GuiObject} = {}
+
+local RulerPool = {}
+
+function RulerPool.fillToLimit(Manager: Manager)
+	if #rulerPool >= RULER_POOL_SIZE then return end
+	local framesToCreate = RULER_POOL_SIZE - #rulerPool
+	for _ = 1, framesToCreate do
+		local ruler = Instance.new("Frame")
+		ruler.Name = "StickyRuler"
+		ruler.BorderSizePixel = 0
+		
+		table.insert(rulerPool, ruler)
+	end
+end
+
+function RulerPool.getRuler(Manager: Manager): Frame
+	if #rulerPool == 0 then
+		RulerPool.fillToLimit(Manager)
+	end
+	return table.remove(rulerPool) :: Frame
+end
+
+function RulerPool.releaseRuler(Manager: Manager, frame: ExplorerFrame)
+	local state = Manager.WidgetState
+	local frameWorld = state.FrameWorld
+	local components = Manager.Components
+
+	local ruler = frameWorld:get(frame, components.FRAMEWORLD_Ruler)
+	if not ruler then return end
+
+	--ruler.Visible = false
+	ruler.Size = UDim2.fromOffset(0, 0)
+	ruler.Parent = nil
+	frameWorld:remove(frame, components.FRAMEWORLD_Ruler)
+	table.insert(rulerPool, ruler)
+end
+
+function RulerPool.assignRuler(Manager: Manager, frame: ExplorerFrame, frameX: number, stickyY: number, rulerHeight: number, indentWidth: number)
+	local state = Manager.WidgetState
+	local frameWorld = state.FrameWorld
+	local components = Manager.Components
+
+	local ruler = frameWorld:get(frame, components.FRAMEWORLD_Ruler)
+	if not ruler then
+		local _ruler = RulerPool.getRuler(Manager)
+		_ruler.Parent = state.InstanceTree
+		frameWorld:set(frame, components.FRAMEWORLD_Ruler, _ruler)
+		ruler = _ruler
+	end
+	local ruler = assert(ruler)
+	
+	ruler.Position = UDim2.fromOffset(frameX + indentWidth, stickyY + Manager.getSetting("FrameHeight"))
+	ruler.Size = UDim2.fromOffset(1, math.max(0, rulerHeight))
+	--ruler.Visible = rulerHeight > 0
 end
 
 local isModifyingInstances = false
@@ -221,24 +318,31 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	local HierarchyState = Manager.HierarchyState
 
 	if isScroller and VirtualScroller.IsVirtualScrollerUpdating then
-		--task.defer(VirtualScroller.update, Manager, true)
 		return
 	end
-	
+
 	profilebegin("Jexplorer::updateVirtualScroller")
 
 	VirtualScroller.IsVirtualScrollerUpdating = true
+	
+	local indentWidth: number = Manager.getSetting("IndentWidth")
 	local scrollStep = Manager.getSetting("ScrollStep")
 	local rawPos = state.TreeScroller.CanvasPosition
 	local top = math.floor(rawPos.Y / scrollStep) * scrollStep
-	
-	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount = filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
+
+	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors, stickyStackDepth =
+		filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
 
 	local currentTime = os.clock()
 	local any = false
 	for _, entity in invisible do
 		local frame = world:get(entity, components.Frame)
 		if frame then
+			local frameState = frameWorld:get(frame, components.FrameState)
+			if frameState then
+				frameState.isSticky = false
+			end
+			RulerPool.releaseRuler(Manager, frame)  -- release before reuse
 			ExplorerFrame.queueForExplorerFrameReuse(Manager, frame, entity)
 			any = true
 		end
@@ -246,38 +350,42 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	if any then
 		ExplorerFrame.flushFrameReuseQueue(Manager)
 	end
+	
+	local stickyStackHeight = stickyStackDepth * height
 
 	local parentOf = Manager.parentOf
 	local frameOf = Manager.frameOf
 	local assign = ExplorerFrame.assignExplorerFrame
 	local reuse = ExplorerFrame.queueForExplorerFrameReuse
 	local allocateFrame = ExplorerFrame.getExplorerFrame
-	
+
 	local isEntityInvisible = Manager.isExplorerEntityInvisible
 	local childAmountCache = Manager.ChildAmountCache
 	local stateCache = HierarchyState.StateCache
 	local scrollContainer = state.InstanceTree
 	local childrenMap = HierarchyState.ChildrenMap
-	
+
 	local scrollPos = Vector2.new(rawPos.X, top)
 	local smoothed = lastCanvasPos:Lerp(scrollPos, 0.8)
 	local xMoved = math.abs(lastCanvasPos.X - scrollPos.X) > 0
-	
+
 	lastCanvasPos = scrollPos
-	
+
 	local lockedInstanceModification = not isModifyingInstances
 	isModifyingInstances = true
 
 	local classNameCache = Manager.ClassNameCache
 	local nameCache = Manager.NameCache
-	
+
 	local scrollingFrame = state.TreeScroller
 	local containerWidth = scrollingFrame.AbsoluteSize.X
-
---	local frameInfo = {}
---	local ftamI = 1
-
-	for _, info in visible do
+	local maxNameBoundsX = 0
+	
+	local stickyStacksEnabled = Manager.getSetting("StickyStacksEnabled")
+	
+	local updateRightEdgeIcons = {}
+	
+	for i, info in visible do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
 
@@ -288,15 +396,15 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 			world:set(entity, components.Frame, f)
 			frame = f
 		end
-		
+
 		if not frame then continue end
 
 		local frameInst = frameOf(frame)
 		if not frameInst then continue end
-		
+
 		local frameState = state.FrameWorld:get(frame, components.FrameState)
 		if not frameState then continue end
-		
+
 		if not isScroller then
 			local children = childrenMap[entity]
 			if children then
@@ -305,100 +413,135 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 				childAmountCache[entity] = 0
 			end
 		end
-
---		frameInfo[ftamI] = {frameX = frameX, frameY = frameY, entity = entity, inst = instance, frameInst = frameInst, frameState = frameState, frame = frame}
---		ftamI += 1
+		if not lockedInstanceModification then continue end
 		
-		if lockedInstanceModification then
-			local frameX = -smoothed.X + info.indentoffset
-			local frameY = -smoothed.Y + absoluteYOffset
-			
-			frameState.lastFrameX = frameState.currentFrameX
-			frameState.currentFrameX = frameX
-			
-			local className = classNameCache[entity]
-			
-			-- position
-			frameInst.Position = UDim2.fromOffset(frameX, frameY)
-			
-			-- ruler
+		local frameX = -smoothed.X + info.indentoffset
+		local frameY
+		local ancestorInfo = visibleExpandedAncestors[i]
+		
+		local isSticky
+		if ancestorInfo and ancestorInfo.stickyY then
+			if stickyStacksEnabled then
+				isSticky = true
+				frameWorld:add(frame, components.FRAMEWORLD_IsSticky)
+				frameY = ancestorInfo.stickyY
+				RulerPool.assignRuler(Manager, frame, frameX, ancestorInfo.stickyY, ancestorInfo.rulerHeight, indentWidth)
+			else
+				frameY = -smoothed.Y + absoluteYOffset
+				local expandedHeight = expandedHeightIndex[entity]
+				if expandedHeight then
+					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+				else
+					RulerPool.releaseRuler(Manager, frame)
+				end
+			end
+		else
+			isSticky = false
+			frameWorld:remove(frame, components.FRAMEWORLD_IsSticky)
+			frameY = -smoothed.Y + absoluteYOffset
 			local expandedHeight = expandedHeightIndex[entity]
 			if expandedHeight then
-				local ruler = frameState.ruler
-				ruler.Visible = true
-				ruler.Size = UDim2.fromOffset(1, (expandedHeight - 1) * height)
+				if frameY > stickyStackHeight then
+					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+				elseif frameWorld:has(frame, components.FRAMEWORLD_Ruler) then
+					RulerPool.releaseRuler(Manager, frame)
+				end
 			else
-				local ruler = frameState.ruler
-				ruler.Visible = false
+				RulerPool.releaseRuler(Manager, frame)
 			end
-			
-			-- arrow
-			do 
-				local arrow = frameState.arrow
-				if world:has(entity, components.ArrowInvisible) then
+		end
+		
+		do
+			local nameBoundsX = info.indentoffset + frameState.currentNameBoundX
+			if nameBoundsX > maxNameBoundsX then
+				maxNameBoundsX = nameBoundsX
+			end
+		end
+
+		frameState.lastFrameX = frameState.currentFrameX
+		frameState.currentFrameX = frameX
+
+		local className = classNameCache[entity]
+
+		frameInst.Position = UDim2.fromOffset(frameX, frameY)
+
+		-- arrow
+		do
+			local arrow = frameState.arrow
+			if world:has(entity, components.ArrowInvisible) then
+				arrow.Visible = false
+			else
+				if className == "DataModel" or childAmountCache[entity] == 0 then
 					arrow.Visible = false
 				else
-					if className == "DataModel" or childAmountCache[entity] == 0 then
-						arrow.Visible = false
-					else
-						arrow.Visible = true
-					end
-					if Manager.isExplorerEntityExpanded(entity) then
-						arrow.Rotation = 0
-					else
-						arrow.Rotation = -90
-					end
+					arrow.Visible = true
 				end
-			end 
-			
-			-- special name states
-			do 
-				local newName
-
-				if className == "Script" then
-					newName = Constants.ExplorerFrameScriptClassNameFormat:format(
-						rawindex(instance, "RunContext").Name
-					)
+				if Manager.isExplorerEntityExpanded(entity) then
+					arrow.Rotation = 0
 				else
-					newName = Constants.ExplorerFrameNameFormat:format(className)
-				end
-
-				if newName ~= frameState.currentFrameName then
-					rawnewindex(frameInst, "Name", newName)
-					frameState.currentFrameName = newName
+					arrow.Rotation = -90
 				end
 			end
+		end
 
-			-- text
-			rawnewindex(frameState.instanceName, "Text", nameCache[entity])
+		-- special name states
+		do
+			local newName
 
-			-- assign frame
-			local entityState = stateCache[entity]
-			local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
-	
-			local isnewlyassigned = assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
-		
-			-- frame icons
-
-			if (not isnewlyassigned) and (forceUpdateIcons or world:has(entity, components.HasSideIcons)) then
-				ExplorerFrame.updateRightEdgeIcons(Manager,
-					frame, containerWidth, if isScroller then frameX else nil, entity, frameState
+			if className == "Script" then
+				newName = Constants.ExplorerFrameScriptClassNameFormat:format(
+					rawindex(instance, "RunContext").Name
 				)
+			else
+				newName = Constants.ExplorerFrameNameFormat:format(className)
 			end
-			
+
+			if newName ~= frameState.currentFrameName then
+				rawnewindex(frameInst, "Name", newName)
+				frameState.currentFrameName = newName
+			end
+		end
+
+		-- text
+		rawnewindex(frameState.instanceName, "Text", nameCache[entity])
+
+		-- assign frame
+		local entityState = stateCache[entity]
+		local isTopLevel = if entityState ~= nil then entityState.isTopLevel else world:has(entity, components.DisplayTopLevel)
+
+		local isnewlyassigned = assign(Manager, frame, entity, parentOf(entity), instance.Parent == game or isTopLevel, true)
+		if (not isnewlyassigned) and (forceUpdateIcons or world:has(entity, components.HasSideIcons)) then
+			table.insert(updateRightEdgeIcons, {frame = frame, frameX = if isScroller then frameX else nil, entity = entity, frameState = frameState})
+		end
+		if stickyStacksEnabled then
+			if isSticky then
+				frameState.overlayFrame.BackgroundTransparency = 0.01
+				frameInst.ZIndex = 10
+			else
+				frameState.overlayFrame.BackgroundTransparency = 0
+				frameInst.ZIndex = 0
+			end
 		end
 	end
-	
+	for _, args in updateRightEdgeIcons do
+		ExplorerFrame.updateRightEdgeIcons(Manager,
+			args.frame, containerWidth, args.frameX, args.entity, args.frameState
+		)
+	end
+
 	if lockedInstanceModification then
 		isModifyingInstances = false
 	end
-	
+
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
 	Manager.DeferredTaskScheduler.FrameTagAssignQueuePending = true
-	
-	local size = UDim2.new(5, 0, 0, (flatCount + 3) * height)
+
+	local size = UDim2.new(
+		0, maxNameBoundsX + 80, -- Enough padding for 3 right edge icons
+		0, (flatCount + 3) * height
+	)
 	state.TreeScroller.CanvasSize = size
 
 	VirtualScroller.IsVirtualScrollerUpdating = false

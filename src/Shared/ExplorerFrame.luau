@@ -405,7 +405,6 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 
 	local connections = state.Connections:extend(cleanup.disconnect)
 	local frameState: Types.FrameState = {
-		ruler = frame.Ruler,
 		isLMBActive = false,
 		shouldDeselect = false,
 		tagsToRemove = {},
@@ -427,7 +426,9 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 		reclassIconVisible = false,
 		currentNameBoundX = 0,
 		lastFrameX = math.huge,
-		currentFrameX = 0
+		currentFrameX = 0,
+		overlayFrame = overlayFrame,
+		isSticky = false
 	}
 	
 	local frameEntity = frameWorld:entity()

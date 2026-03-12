@@ -105,9 +105,9 @@ return {
 		template "Frame" {
 			Name = "Buffer",
 		},
-		template "Frame" {
-			Name = "Ruler"
-		},
+		--template "Frame" {
+		--	Name = "Ruler"
+		--},
 		template "Frame" {
 			Name = "Main",
 			

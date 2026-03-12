@@ -216,7 +216,6 @@ export type World = Jecs.World
 export type ExplorerEntity = Jecs.Id
 export type QueryEntity = Jecs.Id
 export type FrameState = {
-	ruler: GuiObject,
 	isLMBActive: boolean,
 	tagsToRemove: {string},
 	hasBeenSelected: boolean,
@@ -241,6 +240,8 @@ export type FrameState = {
 	currentNameBoundX: number,
 	currentFrameX: number,
 	lastFrameX: number,
+	overlayFrame: Frame,
+	isSticky: boolean,
 	
 	linkIconPos: UDim2?,
 	pendingChangesIconPos: UDim2?,
@@ -276,6 +277,8 @@ export type Components = {
 	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
 	FRAMEWORLD_Main: Jecs.Component<UITEMPLATE_InstanceFrame_Main>,
 	FRAMEWORLD_CurrentParent: Jecs.Component<Instance>,
+	FRAMEWORLD_Ruler: Jecs.Component<GuiObject>,
+	FRAMEWORLD_IsSticky: Jecs.Component,
 	QUERYWORLD_ComponentHash: Jecs.Component<string>,
 
 	Instance: Jecs.Component<Instance>,
