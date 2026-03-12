@@ -210,7 +210,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						BackgroundTransparency = 1,
 						Size = UDim2.new(1, 0, 1, 0),
 						Position = var "udim2(0, $IconSizeOffset.X.Offset + 2, 0, 0)",
-						AutomaticCanvasSize = Enum.AutomaticSize.X,
+						--AutomaticCanvasSize = Enum.AutomaticSize.X,
 						BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						CanvasSize = UDim2.new(0, 0, 0, 0),
 						ElasticBehavior = Enum.ElasticBehavior.Never,
@@ -220,7 +220,8 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 						ScrollBarImageColor3 = "$ScrollbarColor",
 						
 						rule("InsertTabButtonStyle", "> #InsertTabButton TextButton", 10, {
-							LayoutOrder = 9999999
+							LayoutOrder = 999,
+							Size = UDim2.new(0, 20, 0, 20)
 						}),
 						rule("Padding", "::UIPadding", 0, {
 							PaddingLeft = UDim.new(0, 4)

@@ -1529,6 +1529,17 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 	local button = assert(tabFrame:FindFirstChild("Button")) :: TextButton
 
 	tabFrame.Parent = tabBar.Tabs
+	
+	local function updateTabBarCanvasSize()
+		local size = 20 + 60 -- Initial size, insert button size + some padding
+		size += 4 -- PaddingLeft
+		for _, tab in state.Tabs do
+			size += tab.TabFrame.AbsoluteSize.X
+				+ 8 -- UIPadding
+				
+		end
+		tabBar.Tabs.CanvasSize = UDim2.fromOffset(size, 0)
+	end
 
 	local tab = {
 		Roots = stored,
@@ -1628,6 +1639,8 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 			sharedTabState.currentlyOpenTab = nil
 			Manager.AllTab.Toggle()
 		end
+		
+		task.defer(updateTabBarCanvasSize)
 	end
 	
 	local function updateSize()
@@ -1635,6 +1648,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		if text == "" then
 			tabFrame.Size = UDim2.new(0, 70, 1, -2)
 			nameBox.Size = UDim2.new(0, 0, 1, 0)
+			task.defer(updateTabBarCanvasSize)
 			return
 		end
 
@@ -1645,6 +1659,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		local tabWidth = textWidth + 30
 		
 		tabFrame.Size = UDim2.fromOffset(tabWidth, tabBar.AbsoluteSize.Y - 1)
+		task.defer(updateTabBarCanvasSize)
 	end
 	tabConnections:add_many({
 		nameBox:GetPropertyChangedSignal("Text"):Connect(updateSize),
@@ -1675,7 +1690,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 			end
 		end)
 	})
-	task.delay(0.1,updateSize)
+	task.delay(0.1, updateSize)
 	
 	return tab
 end
