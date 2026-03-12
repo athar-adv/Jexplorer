@@ -878,9 +878,9 @@ function ExplorerFrame.updateRightEdgeIcons(Manager: Manager, frame, containerWi
 	assert(frameState)
 	
 	local containerWidth = containerWidth or Manager.InstTreeAbsoluteSizeX
-	if frameX == frameState.lastFrameX then return end
-	
 	local frameX = frameX or frameState.currentFrameX
+	
+	if frameX == frameState.lastFrameX then return end
 	frameState.lastFrameX = frameX
 	
 	local entity = entity or state.FrameWorld:get(frame, components.Entity)
