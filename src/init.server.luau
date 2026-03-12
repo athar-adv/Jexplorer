@@ -11,7 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "4.7.0"
+local VERSION = "4.8.1"
 
 local global = shared
 local shared = script.Shared
@@ -108,7 +108,7 @@ end)
 
 jexplorerWidget:AddTag("JEXP_Widget")
 jexplorerWidget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-jexplorerWidget.Title = `Jexplorer [{VERSION}]`
+jexplorerWidget.Title = `Jexplorer @{VERSION}`
 jexplorerWidget.Name = "Jexplorer"
 
 jexplorerWidget:BindToClose(function()

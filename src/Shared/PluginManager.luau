@@ -1,0 +1,1 @@
+return PluginManager() :: PluginManager
