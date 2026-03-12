@@ -695,6 +695,15 @@ function Manager.convertEntitiesInto(entities, className: string)
 	recordChanges("Convert Entities Into", function(cancel)
 		for _, info in toConvert do
 			if not info.parent then continue end
+			local suc, err = pcall(function()
+				info.inst.Parent = nil
+			end)
+			if not suc then
+				warn(`Could not reclass '{info.inst.Name}' into '{className}' with error: '{err}'`)
+				cancel()
+				return
+			end
+			
 			local converted: Instance = Instance.new(className)
 
 			-- Reassign props
@@ -766,14 +775,6 @@ function Manager.convertEntitiesInto(entities, className: string)
 				HierarchyState.updateEntityOrder(Manager, childEntity)
 			end
 			
-			local suc, err = pcall(function()
-				info.inst.Parent = nil
-			end)
-			if not suc then
-				warn(`Could not reclass '{oldInst.Name}' into '{className}' with error: '{err}'`)
-				cancel()
-				return
-			end
 			HierarchyState.ChildrenMap[info.entity] = nil
 
 			ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
