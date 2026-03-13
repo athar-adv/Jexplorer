@@ -243,7 +243,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	profileend()
 
 	profileend()
-	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors or {}, stickyStackDepth
+	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors or {}, stickyStackDepth, viewportTop
 end
 
 local RULER_POOL_SIZE = 20
@@ -330,7 +330,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	local rawPos = state.TreeScroller.CanvasPosition
 	local top = math.floor(rawPos.Y / scrollStep) * scrollStep
 
-	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors, stickyStackDepth =
+	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors, stickyStackDepth, viewportTop =
 		filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
 
 	local currentTime = os.clock()
@@ -429,11 +429,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 			else
 				frameY = -smoothed.Y + absoluteYOffset
 				local expandedHeight = expandedHeightIndex[entity]
-				if expandedHeight then
-					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
-				else
-					RulerPool.releaseRuler(Manager, frame)
-				end
+				RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
 			end
 		else
 			isSticky = false
@@ -441,10 +437,14 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 			frameY = -smoothed.Y + absoluteYOffset
 			local expandedHeight = expandedHeightIndex[entity]
 			if expandedHeight then
-				if frameY > stickyStackHeight then
+				if stickyStacksEnabled then
+					if frameY > stickyStackHeight then
+						RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+					elseif frameWorld:has(frame, components.FRAMEWORLD_Ruler) then
+						RulerPool.releaseRuler(Manager, frame)
+					end
+				else
 					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
-				elseif frameWorld:has(frame, components.FRAMEWORLD_Ruler) then
-					RulerPool.releaseRuler(Manager, frame)
 				end
 			else
 				RulerPool.releaseRuler(Manager, frame)
