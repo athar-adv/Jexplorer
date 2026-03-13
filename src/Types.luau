@@ -146,6 +146,25 @@ export type SavedState = {
 	},
 }
 
+export type VisibleViewportInfo = {
+	visibleArray: Array<{
+		entity: ExplorerEntity,
+		yoffset: number,
+		indentoffset: number
+	}>,
+	invisibleArray: {ExplorerEntity},
+	entityToIndex: {[ExplorerEntity]: number},
+	entityToVisibleIndex: {[ExplorerEntity]: number},
+	explorerFrameHeight: number,
+	expandedHeightIndex: {[ExplorerEntity]: number},
+	flatCount: number,
+	visibleExpandedAncestors: Array<{
+		stickyY: number?,
+		rulerHeight: number
+	}>,
+	stickyStackDepth: number,
+	viewportTop: number
+}
 export type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
 type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
 export type DragInfo_SetInstTypeProperty = {
@@ -398,7 +417,8 @@ export type ExplorerFrameLib = {
 export type VirtualScroller = {
 	clearHeightCache: (Manager) -> (),
 	invalidateEntityHeightCache: (Manager, ExplorerEntity) -> (),
-
+	
+	getVisibleViewportInfo: (Manager, top: number, isScroller: boolean) -> VisibleViewportInfo,
 	update: (Manager, isScroller: boolean, forceUpdateIcons: boolean?) -> (),
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
 	trackScrolling: (Manager) -> (RBXScriptConnection, thread),

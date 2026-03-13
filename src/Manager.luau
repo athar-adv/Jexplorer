@@ -3989,41 +3989,56 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				profileend()
 			end
 
-			-- Jump the canvas position to the middle entity
-			local middle = entities[math.max(#entities // 2, 1)]
-			local _, entityIndex = HierarchyState.getFlattenedVisibleEntities(Manager, {}, false)
-			local idx = entityIndex[middle]
-			if idx then
+			if Manager.getSetting("JumpToSelection") and #entities > 0 then
+				-- Jump the canvas position to the last entity
+				--local middle = entities[math.max(#entities // 2, 1)]
 				local scroller = state.TreeScroller
 				local currentViewportTop = scroller.CanvasPosition.Y
 				local currentViewportBottom = currentViewportTop + Manager.InstTreeAbsoluteSizeY
-
-				local size: UDim2 = Manager.Style:GetToken("InstanceFrameSize")
-
-				local targetFrameY = (idx - 1) * size.Y.Offset
-				local targetFrameBottom = targetFrameY + size.Y.Offset
-
-				if targetFrameY < currentViewportTop or targetFrameBottom > currentViewportBottom then
-					local target = Vector2.new(
-						0,
-						math.max(
+				
+				local viewportInfo = VirtualScroller.getVisibleViewportInfo(Manager, currentViewportTop, false)
+				local jumpTarget
+				local minJumpTargetIdx = math.huge
+				
+				local atleastOneIsVisible = false
+				
+				-- Only jump if all entities aren't visible
+				for _, entity in entities do
+					local visIdx = viewportInfo.entityToVisibleIndex[entity]
+					if visIdx then
+						atleastOneIsVisible = true
+						break
+					end
+					
+					local idx = viewportInfo.entityToIndex[entity]
+					local targetFrameY = (idx - 1) * viewportInfo.explorerFrameHeight
+					
+					-- Not visible
+					if idx < minJumpTargetIdx then
+						minJumpTargetIdx = idx
+						jumpTarget = Vector2.new(
 							0,
-							targetFrameY - (Manager.InstTreeAbsoluteSizeY - size.Y.Offset) / 2
+							math.max(
+								0,
+								targetFrameY - (Manager.InstTreeAbsoluteSizeY - viewportInfo.explorerFrameHeight) / 2
+							)
 						)
-					)
-					scroller.CanvasPosition = target
-					if not scroller.CanvasPosition:FuzzyEq(target, 0.01) then
+					end
+				end
+				if not atleastOneIsVisible and jumpTarget then
+					scroller.CanvasPosition = jumpTarget
+					if not scroller.CanvasPosition:FuzzyEq(jumpTarget, 0.01) then
 						local lastPosition = scroller.CanvasPosition
 						repeat
 							task.wait()
 							lastPosition = scroller.CanvasPosition
-							scroller.CanvasPosition = target
+							scroller.CanvasPosition = jumpTarget
 						until scroller.CanvasPosition:FuzzyEq(lastPosition, 0.01)
 					end
 				end
+
+				VirtualScroller.update(Manager, false)
 			end
-			
-			VirtualScroller.update(Manager, false)
 			ExplorerFrame.updateSelectionVisuals(Manager, false)
 			profileend()
 		end),

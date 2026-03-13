@@ -89,11 +89,12 @@ function VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 end
 
 local lastVisible: {any} = {}
-local function filterVisible(Manager: Manager, top: number, viewportHeight: number, isScroller: boolean)
-	profilebegin("Jexplorer::filterVisible")
+function VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
+	profilebegin("Jexplorer::getVisibleViewportInfo")
 	local height: number = Manager.getSetting("FrameHeight")
 	local indentWidth: number = Manager.getSetting("IndentWidth")
 	local frameBuffer = Manager.getSetting("VirtualScrollFrameBuffer")
+	local viewportHeight = Manager.InstTreeAbsoluteSizeY
 
 	local viewportBuffer = height * frameBuffer
 	local viewportTop = top - viewportBuffer
@@ -126,6 +127,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 
 	profilebegin("visible check")
 	local visibleSet = {}
+	local entityToVisibleIndex = {}
 	for index = startIndex, endIndex do
 		local entity = flattenedEntities[index]
 		local absoluteYOffset = height * (index - 1)
@@ -143,6 +145,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 			yoffset = absoluteYOffset,
 			indentoffset = indexToIndentOffset[index] * indentWidth,
 		}
+		entityToVisibleIndex[entity] = visibleN
 		visibleN += 1
 	end
 	profileend()
@@ -225,6 +228,7 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 					stickyY = stickyY,
 					rulerHeight = rulerHeight,
 				}
+				entityToVisibleIndex[entity] = visibleN
 				visibleN += 1
 			end
 		end
@@ -241,9 +245,20 @@ local function filterVisible(Manager: Manager, top: number, viewportHeight: numb
 	end
 	lastVisible = visible
 	profileend()
-
+	
 	profileend()
-	return visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors or {}, stickyStackDepth, viewportTop
+	return {
+		visibleArray = visible,
+		invisibleArray = invisible,
+		entityToIndex = entityToIndex,
+		explorerFrameHeight = height,
+		expandedHeightIndex = expandedHeightIndex,
+		flatCount = flatCount,
+		visibleExpandedAncestors = visibleExpandedAncestors or {},
+		stickyStackDepth = stickyStackDepth,
+		viewportTop = viewportTop,
+		entityToVisibleIndex = entityToVisibleIndex
+	}
 end
 
 local RULER_POOL_SIZE = 20
@@ -330,12 +345,11 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	local rawPos = state.TreeScroller.CanvasPosition
 	local top = math.floor(rawPos.Y / scrollStep) * scrollStep
 
-	local visible, invisible, entityToIndex, height, expandedHeightIndex, flatCount, visibleExpandedAncestors, stickyStackDepth, viewportTop =
-		filterVisible(Manager, top, Manager.InstTreeAbsoluteSizeY, isScroller)
+	local viewportInfo = VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
 
 	local currentTime = os.clock()
 	local any = false
-	for _, entity in invisible do
+	for _, entity in viewportInfo.invisibleArray do
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			local frameState = frameWorld:get(frame, components.FrameState)
@@ -351,7 +365,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 		ExplorerFrame.flushFrameReuseQueue(Manager)
 	end
 	
-	local stickyStackHeight = stickyStackDepth * height
+	local stickyStackHeight = viewportInfo.stickyStackDepth * viewportInfo.explorerFrameHeight
 
 	local parentOf = Manager.parentOf
 	local frameOf = Manager.frameOf
@@ -385,7 +399,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	
 	local updateRightEdgeIcons = {}
 	
-	for i, info in visible do
+	for i, info in viewportInfo.visibleArray do
 		local entity, absoluteYOffset = info.entity, info.yoffset
 		local instance = world:get(entity, components.Instance) :: Instance
 
@@ -417,7 +431,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 		
 		local frameX = -smoothed.X + info.indentoffset
 		local frameY
-		local ancestorInfo = visibleExpandedAncestors[i]
+		local ancestorInfo = viewportInfo.visibleExpandedAncestors[i]
 		
 		local isSticky
 		if ancestorInfo and ancestorInfo.stickyY then
@@ -428,23 +442,23 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 				RulerPool.assignRuler(Manager, frame, frameX, ancestorInfo.stickyY, ancestorInfo.rulerHeight, indentWidth)
 			else
 				frameY = -smoothed.Y + absoluteYOffset
-				local expandedHeight = expandedHeightIndex[entity]
-				RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+				local expandedHeight = viewportInfo.expandedHeightIndex[entity]
+				RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * viewportInfo.explorerFrameHeight, indentWidth)
 			end
 		else
 			isSticky = false
 			frameWorld:remove(frame, components.FRAMEWORLD_IsSticky)
 			frameY = -smoothed.Y + absoluteYOffset
-			local expandedHeight = expandedHeightIndex[entity]
+			local expandedHeight = viewportInfo.expandedHeightIndex[entity]
 			if expandedHeight then
 				if stickyStacksEnabled then
 					if frameY > stickyStackHeight then
-						RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+						RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * viewportInfo.explorerFrameHeight, indentWidth)
 					elseif frameWorld:has(frame, components.FRAMEWORLD_Ruler) then
 						RulerPool.releaseRuler(Manager, frame)
 					end
 				else
-					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * height, indentWidth)
+					RulerPool.assignRuler(Manager, frame, frameX, frameY, (expandedHeight - 1) * viewportInfo.explorerFrameHeight, indentWidth)
 				end
 			else
 				RulerPool.releaseRuler(Manager, frame)
@@ -540,7 +554,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 
 	local size = UDim2.new(
 		0, maxNameBoundsX + 80, -- Enough padding for 3 right edge icons
-		0, (flatCount + 3) * height
+		0, (viewportInfo.flatCount + 3) * viewportInfo.explorerFrameHeight
 	)
 	state.TreeScroller.CanvasSize = size
 

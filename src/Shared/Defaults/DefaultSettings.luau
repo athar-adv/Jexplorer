@@ -86,6 +86,11 @@ return {
 		}
 	},
 	Selection = {
+		JumpToSelection = {
+			Type = "boolean",
+			Display = "Jump to Middle of Selection",
+			Default = true,
+		},
 		PropertyEditorUpdatedOnSelect = {
 			Type = "boolean",
 			Display = "Property Editor (JProperties) Updated on Selection Changed",
