@@ -192,12 +192,6 @@ local function onSelectExplorerFrame(
 			-- Single item selected, clicking on it again - could be drag or deselect
 			-- Wait to see if it's a drag
 		end
-
-		-- Wait to distinguish between click and drag
-		task.wait(0.1)
-
-		if not frameState.isLMBActive then return end -- User released mouse quickly
-		Manager.startDraggingSelected()
 	end
 end
 
@@ -293,7 +287,7 @@ local function onMouseEnter(
 end
 
 local function onMouseLeave(
-	frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, frame: Instance & any,
+	Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, frame: Instance & any,
 	insertInstanceButton: GuiButton, reclassButton: GuiButton, frameState: Types.FrameState
 )
 	local entity = frameWorld:get(frameEntity, components.Entity)
@@ -305,6 +299,10 @@ local function onMouseLeave(
 	
 	if frame:HasTag("JEXP_DropTarget") then
 		frame:RemoveTag("JEXP_DropTarget")
+	end
+	
+	if frameState.isLMBActive then
+		Manager.startDraggingSelected()
 	end
 end
 
@@ -357,7 +355,9 @@ end
 local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
-
+	
+	local state = Manager.WidgetState
+	local treeScroller = state.TreeScroller
 	local HierarchyState = Manager.HierarchyState
 	local ExplorerFrame = Manager.ExplorerFrame
 	local VirtualScroller = Manager.VirtualScroller
@@ -369,14 +369,37 @@ local function onArrowActivated(Manager: Manager, world: Types.World, frameWorld
 
 		HierarchyState.invalidateEntityStateCache(entity)
 		ExplorerFrame.updateCollapsedVisuals(Manager)
+		
+		local viewportInfo = Manager.VirtualScroller.getLastVisibleViewportInfo(Manager)
+		local newInfo = VirtualScroller.update(Manager, false, true)
+		task.delay(1/10, function()
+			if not newInfo then return end
+			if not viewportInfo then return end
+			
+			-- Jump to the position of the actual ExplorerFrame being collapsed if it is sticky
+			local visIdx = viewportInfo.entityToVisibleIndex[entity]
+			local ancestorInfo = viewportInfo.visibleExpandedAncestors[visIdx]
+			
+			if ancestorInfo and ancestorInfo.stickyY then
+				local idx = viewportInfo.entityToIndex[entity]
+				if idx then
+					local depthDiff = viewportInfo.stickyStackDepth - newInfo.stickyStackDepth
+					
+					local frameIdx = ((idx - 1 + depthDiff - 1) - 2)
+					local frameY = frameIdx * viewportInfo.explorerFrameHeight
+					Manager.jumpCanvasTo(nil, frameY, 0)
+					VirtualScroller.update(Manager, false, true)
+				end
+			end
+		end)
 	else
 		world:add(entity, components.Expanded)
 
 		HierarchyState.invalidateEntityStateCache(entity)
 		ExplorerFrame.updateExpandedVisuals(Manager)
+		
+		VirtualScroller.update(Manager, false, true)
 	end
-
-	VirtualScroller.update(Manager, false, true)
 end
 
 local set
@@ -472,7 +495,7 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 		if ishovered then
 			onMouseEnter(Manager, frameWorld, frameEntity, components, state, frame, instanceName, insertInstanceButton, reclassButton, frameState)
 		else 
-			onMouseLeave(frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
+			onMouseLeave(Manager, frameWorld, frameEntity, components, frame, insertInstanceButton, reclassButton, frameState)
 		end
 	end)
 	items[n+6] = insertInstanceButton.Activated:Connect(function()
@@ -919,14 +942,12 @@ function ExplorerFrame.updateCollapsedVisuals(Manager)
 	local components = Manager.Components
 	local state = Manager.WidgetState
 	local world = state.World
+	local treeScroller = state.TreeScroller
 	
 	local components = Manager.Components
 	for entity, instance, frame in world:query(components.Instance, components.Frame):without(components.Expanded, components.QueryExpanded):iter() do
 		local frameInst = Manager.frameOf(frame)
 		if not frameInst then continue end
-
-		--local children = frameInst.Children
-		--children.Visible = false
 		
 		world:remove(entity, components.Expanded)
 		world:remove(entity, components.QueryExpanded)

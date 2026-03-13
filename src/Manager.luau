@@ -1136,6 +1136,29 @@ function Manager.getInstFromTempId(id)
 	return Manager.TempIdToInstance[id]
 end
 
+function Manager.jumpCanvasTo(x, y, epsilon)
+	local state = Manager.WidgetState
+	local scroller = state.TreeScroller
+	local x = x or scroller.CanvasPosition.X
+	local y = y or scroller.CanvasPosition.Y
+	local target = Vector2.new(x, y)
+	
+	local epsilon = epsilon or 0.0001
+	
+	local originalValue = Manager.getSetting("ScrollStep")
+	Manager.setSetting("ScrollStep", 0.01)
+	scroller.CanvasPosition = target
+	if not scroller.CanvasPosition:FuzzyEq(target, epsilon) then
+		local lastPosition = scroller.CanvasPosition
+		repeat
+			task.wait()
+			lastPosition = scroller.CanvasPosition
+			scroller.CanvasPosition = target
+		until scroller.CanvasPosition:FuzzyEq(lastPosition, epsilon)
+	end
+	Manager.setSetting("ScrollStep", originalValue)
+end
+
 function Manager.getSetPropertyDragInfo(instances, propName)
 	local ids = {}
 	for _, v in instances do
@@ -4026,15 +4049,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					end
 				end
 				if not atleastOneIsVisible and jumpTarget then
-					scroller.CanvasPosition = jumpTarget
-					if not scroller.CanvasPosition:FuzzyEq(jumpTarget, 0.01) then
-						local lastPosition = scroller.CanvasPosition
-						repeat
-							task.wait()
-							lastPosition = scroller.CanvasPosition
-							scroller.CanvasPosition = jumpTarget
-						until scroller.CanvasPosition:FuzzyEq(lastPosition, 0.01)
-					end
+					Manager.jumpCanvasTo(
+						jumpTarget.X,
+						jumpTarget.Y,
+						0
+					)
 				end
 
 				VirtualScroller.update(Manager, false)

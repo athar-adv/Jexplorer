@@ -25,6 +25,7 @@ local heightCacheVersion = 0
 local lastHeightCacheVersion = -1
 -- Track which entities need height recalculation
 local dirtyHeights = {}
+local lastInfo: Types.VisibleViewportInfo?
 
 local function calculateDeepHeightOptimized(
 	world: World, 
@@ -88,7 +89,6 @@ function VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 	heightCacheVersion += 1
 end
 
-local lastVisible: {any} = {}
 function VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
 	profilebegin("Jexplorer::getVisibleViewportInfo")
 	local height: number = Manager.getSetting("FrameHeight")
@@ -108,7 +108,6 @@ function VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
 	local endIndex = math.min(flatCount, math.ceil(viewportBottom / height) + 1)
 
 	local visible = {}
-	local invisible = {}
 	local visibleN = 1
 
 	local expandedHeightIndex = {}
@@ -235,21 +234,10 @@ function VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
 	end
 	
 	profileend()
-
-	profilebegin("invisible check")
-	for _, info in lastVisible do
-		local entity = info.entity
-		if not visibleSet[entity] then
-			table.insert(invisible, entity)
-		end
-	end
-	lastVisible = visible
-	profileend()
 	
 	profileend()
 	return {
 		visibleArray = visible,
-		invisibleArray = invisible,
 		entityToIndex = entityToIndex,
 		explorerFrameHeight = height,
 		expandedHeightIndex = expandedHeightIndex,
@@ -257,8 +245,13 @@ function VirtualScroller.getVisibleViewportInfo(Manager, top, isScroller)
 		visibleExpandedAncestors = visibleExpandedAncestors or {},
 		stickyStackDepth = stickyStackDepth,
 		viewportTop = viewportTop,
-		entityToVisibleIndex = entityToVisibleIndex
+		entityToVisibleIndex = entityToVisibleIndex,
+		visibleSet = visibleSet
 	}
+end
+
+function VirtualScroller.getLastVisibleViewportInfo(Manager)
+	return lastInfo
 end
 
 local RULER_POOL_SIZE = 20
@@ -349,7 +342,21 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 
 	local currentTime = os.clock()
 	local any = false
-	for _, entity in viewportInfo.invisibleArray do
+	local invisible = {}
+	
+	profilebegin("invisible check")
+	if lastInfo then
+		for _, info in lastInfo.visibleArray do
+			local entity = info.entity
+			if not viewportInfo.visibleSet[entity] then
+				table.insert(invisible, entity)
+			end
+		end
+	end
+	lastInfo = viewportInfo
+	profileend()
+	
+	for _, entity in invisible do
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			local frameState = frameWorld:get(frame, components.FrameState)
@@ -560,6 +567,7 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 
 	VirtualScroller.IsVirtualScrollerUpdating = false
 	profileend()
+	return viewportInfo
 end
 
 function VirtualScroller.rebuildAndUpdate(Manager, isScroller)

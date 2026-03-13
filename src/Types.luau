@@ -152,7 +152,6 @@ export type VisibleViewportInfo = {
 		yoffset: number,
 		indentoffset: number
 	}>,
-	invisibleArray: {ExplorerEntity},
 	entityToIndex: {[ExplorerEntity]: number},
 	entityToVisibleIndex: {[ExplorerEntity]: number},
 	explorerFrameHeight: number,
@@ -163,7 +162,8 @@ export type VisibleViewportInfo = {
 		rulerHeight: number
 	}>,
 	stickyStackDepth: number,
-	viewportTop: number
+	viewportTop: number,
+	visibleSet: {[ExplorerEntity]: boolean}
 }
 export type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
 type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
@@ -419,7 +419,8 @@ export type VirtualScroller = {
 	invalidateEntityHeightCache: (Manager, ExplorerEntity) -> (),
 	
 	getVisibleViewportInfo: (Manager, top: number, isScroller: boolean) -> VisibleViewportInfo,
-	update: (Manager, isScroller: boolean, forceUpdateIcons: boolean?) -> (),
+	getLastVisibleViewportInfo: (Manager) -> VisibleViewportInfo?,
+	update: (Manager, isScroller: boolean, forceUpdateIcons: boolean?) -> VisibleViewportInfo?,
 	rebuildAndUpdate: (Manager, isScroller: boolean) -> (),
 	trackScrolling: (Manager) -> (RBXScriptConnection, thread),
 
@@ -578,6 +579,8 @@ export type Manager = {
 
 	convertEntitiesInto: (entities: {ExplorerEntity}, class: string) -> {ExplorerEntity},
 	insertClassInto: (entity: ExplorerEntity, class: string) -> Instance?,
+	
+	jumpCanvasTo: (x: number?, y: number?, epsilon: number?) -> (),
 
 	saveState: () -> {
 		save: () -> (),
