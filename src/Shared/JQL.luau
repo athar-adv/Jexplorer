@@ -1,26 +1,136 @@
-local JDF = require(script.Parent.UDF)
+--!strict
+
+local Selection = game:GetService("Selection")
+
+local Types = require("../Types")
+local UDF = require(script.Parent.UDF)
+local Jecs = require("../Jecs")
+local RawInst = require("./Small/RawInst")
+
+local rawindex = RawInst.rawindex
+
+local selectionVersion = 0
+
+type Id = Jecs.Id
+type World = Types.World
+type ExplorerEntity = Types.ExplorerEntity
+type IdMap = {[string]: Id}
+
+type NoCondition = {
+	type: "none"
+}
+type PairCondition = {
+	type: "pair",
+	component: string,
+	value: any,
+	rawValue: string
+}
+type HasCondition = {
+	type: "has",
+	componentName: string
+}
+type PropMatchesCondition = {
+	type: "matches",
+	property: string,
+	pattern: string,
+}
+type PropIsCondition = {
+	type: "is",
+	property: string,
+	expectedType: string
+}
+type PatternCondition = {
+	type: "pattern",
+	property: string,
+	pattern: string
+}
+type PredicateCondition = {
+	type: "predicate",
+	propertyPath: string,
+	component: string,
+	value: any,
+	rawValue: string
+}
+type DescendantCondition = {
+	type: "descendant",
+	condition: QueryCondition
+}
+type AncestorCondition = {
+	type: "ancestor",
+	condition: QueryCondition
+}
+type ParentCondition = {
+	type: "parent",
+	depth: number,
+	wildcard: boolean,
+	condition: QueryCondition
+}
+type FirstChildCondition = {
+	type: "child",
+	depth: number,
+	wildcard: boolean,
+	condition: QueryCondition
+}
+type AttributeCondition = {
+	type: "attribute",
+	attributeName: string,
+	value: any,
+	rawValue: string
+}
+type TagCondition = {
+	type: "tag",
+	name: string
+}
+type AndCondition = {
+	type: "and",
+	conditions: {QueryCondition}
+}
+type OrCondition = {
+	type: "or",
+	conditions: {QueryCondition}
+}
+type SelectedCondition = {
+	type: "selected"
+}
+type QueryCondition =
+	|NoCondition
+	|PairCondition
+	|HasCondition
+	|PropMatchesCondition
+	|PropIsCondition
+	|PatternCondition
+	|PredicateCondition
+	|DescendantCondition
+	|AncestorCondition
+	|ParentCondition
+	|FirstChildCondition
+	|AttributeCondition
+	|TagCondition
+	|AndCondition
+	|OrCondition
+	|SelectedCondition
 
 local evaluateCondition
 
 local JQL = {}
 
-local function fuzzyMatch(str, pattern)
+local function fuzzyMatch(str: string, pattern: string)
 	if not str or not pattern then
 		return false
 	end
-
-	str = string.lower(tostring(str))
-	pattern = string.lower(tostring(pattern))
+	
+	local str = string.lower(tostring(str))
+	local pattern = string.lower(tostring(pattern))
 
 	return string.find(str, pattern, 1, true) ~= nil
 end
 
 local _error = error 
-local function error(msg, level)
+local function error(msg: string, level: number?)
 	_error({message  = msg}, level)
 end
 
-local function splitTopLevel(text, delimiter)
+local function splitTopLevel(text: string, delimiter: string)
 	local parts = {}
 	local current = ""
 	local depth = 0
@@ -54,7 +164,7 @@ local function splitTopLevel(text, delimiter)
 	return parts
 end
 
-local function parseInlinePair(expr)
+local function parseInlinePair(expr: string): PairCondition
 	local equalPos = nil
 	local depth = 0
 	for i = 1, #expr do
@@ -76,7 +186,7 @@ local function parseInlinePair(expr)
 	local component = expr:sub(1, equalPos - 1):gsub("^%s+", ""):gsub("%s+$", "")
 	local valueStr = expr:sub(equalPos + 1):gsub("^%s+", ""):gsub("%s+$", "")
 
-	local parsedValue = JDF.from(valueStr)
+	local parsedValue = UDF.from(valueStr)
 
 	return {
 		type = "pair",
@@ -86,12 +196,10 @@ local function parseInlinePair(expr)
 	}
 end
 
-local function parsePair(expr)
+local function parsePair(expr: string): PairCondition
 	local content = expr:match("^%((.*)%)$")
-	if not content then
-		error("Invalid pair syntax: " .. expr)
-	end
-
+	assert(content, `Invalid pair syntax: {expr}`)
+	
 	local equalPos = nil
 	local depth = 0
 	for i = 1, #content do
@@ -113,7 +221,7 @@ local function parsePair(expr)
 	local component = content:sub(1, equalPos - 1):gsub("^%s+", ""):gsub("%s+$", "")
 	local valueStr = content:sub(equalPos + 1):gsub("^%s+", ""):gsub("%s+$", "")
 
-	local parsedValue = JDF.from(valueStr)
+	local parsedValue = UDF.from(valueStr)
 
 	return {
 		type = "pair",
@@ -123,7 +231,7 @@ local function parsePair(expr)
 	}
 end
 
-local function splitArguments(content)
+local function splitArguments(content: string): {string}
 	local args = {}
 	local current = ""
 	local depth = 0
@@ -157,12 +265,10 @@ local function splitArguments(content)
 	return args
 end
 
-local function parseHasMacro(expr)
+local function parseHasMacro(expr: string): HasCondition
 	local content = expr:match("^@has%((.*)%)$")
-	if not content then
-		error("Invalid @has syntax: " .. expr)
-	end
-
+	assert(content, `Invalid @has syntax: {expr}`)
+	
 	local componentName = content:gsub("^%s+", ""):gsub("%s+$", "")
 
 	return {
@@ -171,17 +277,15 @@ local function parseHasMacro(expr)
 	}
 end
 
-local function parseMatchesMacro(expr)
+local function parseMatchesMacro(expr: string): PropMatchesCondition
 	local content = expr:match("^@matches%((.*)%)$")
-	if not content then
-		error("Invalid @matches syntax: " .. expr)
-	end
-
+	assert(content, `Invalid @matches syntax: {expr}`)
+	
 	local parts = splitArguments(content)
 	if #parts ~= 2 then
 		error("@matches requires exactly 2 arguments: property and pattern: " .. expr)
 	end
-
+	
 	local property = parts[1]
 	local pattern = parts[2]
 
@@ -192,12 +296,10 @@ local function parseMatchesMacro(expr)
 	}
 end
 
-local function parseIsMacro(expr)
+local function parseIsMacro(expr: string): PropIsCondition
 	local content = expr:match("^@is%((.*)%)$")
-	if not content then
-		error("Invalid @is syntax: " .. expr)
-	end
-
+	assert(content, `Invalid @is syntax: {expr}`)
+	
 	local parts = splitArguments(content)
 	if #parts ~= 2 then
 		error("@is requires exactly 2 arguments: property and type: " .. expr)
@@ -210,11 +312,9 @@ local function parseIsMacro(expr)
 	}
 end
 
-local function parsePatternMacro(expr)
+local function parsePatternMacro(expr: string): PatternCondition
 	local content = expr:match("^@pattern%((.*)%)$")
-	if not content then
-		error("Invalid @pattern syntax: " .. expr)
-	end
+	assert(content, `Invalid @pattern syntax: {content}`)
 
 	local parts = splitArguments(content)
 	if #parts ~= 2 then
@@ -226,10 +326,8 @@ local function parsePatternMacro(expr)
 
 	-- Strip required surrounding quotes
 	local stripped = patternStr:match('^"(.*)"$') or patternStr:match("^'(.*)'$")
-	if not stripped then
-		error("@pattern second argument must be a quoted string: " .. expr)
-	end
-
+	assert(stripped, `@pattern second argument must be a quoted string: {expr}`)
+	
 	return {
 		type = "pattern",
 		property = property,
@@ -237,12 +335,10 @@ local function parsePatternMacro(expr)
 	}
 end
 
-local function parsePredicate(expr)
+local function parsePredicate(expr: string): PredicateCondition
 	local content = expr:match("^predicate%((.*)%)$")
-	if not content then
-		error("Invalid predicate syntax: " .. expr)
-	end
-
+	assert(content, `Invalid predicate syntax: {expr}`)
+	
 	local parts = splitArguments(content)
 	if #parts ~= 3 then
 		error("Predicate requires exactly 3 arguments: " .. expr)
@@ -252,7 +348,7 @@ local function parsePredicate(expr)
 	local component = parts[2]
 	local valueStr = parts[3]
 
-	local parsedValue = JDF.from(valueStr)
+	local parsedValue = UDF.from(valueStr)
 
 	return {
 		type = "predicate",
@@ -263,8 +359,10 @@ local function parsePredicate(expr)
 	}
 end
 
-local function parseCondition(condition)
-	condition = condition:gsub("^%s+", ""):gsub("%s+$", "")
+local function parseCondition(condition: string): QueryCondition
+	local condition = condition
+		:gsub("^%s+", "")
+		:gsub("%s+$", "")
 
 	-- Parse descendant operator (*<)
 	if condition:match("^%*<") then
@@ -378,7 +476,7 @@ local function parseCondition(condition)
 		if equalPos then
 			local attributeName = condition:sub(2, equalPos - 1):gsub("^%s+", ""):gsub("%s+$", "")
 			local valueStr = condition:sub(equalPos + 1):gsub("^%s+", ""):gsub("%s+$", "")
-			local parsedValue = JDF.from(valueStr)
+			local parsedValue = UDF.from(valueStr)
 
 			return {
 				type = "attribute",
@@ -398,7 +496,7 @@ local function parseCondition(condition)
 	elseif condition:match("^%.") then
 		local tagName = condition:sub(2):gsub("^%s+", ""):gsub("%s+$", "")
 		return {
-			type = "component",
+			type = "tag",
 			name = tagName
 		}
 	elseif condition:match("^@has%(") then
@@ -409,19 +507,27 @@ local function parseCondition(condition)
 		return parseIsMacro(condition)
 	elseif condition:match("^@pattern%(") then
 		return parsePatternMacro(condition)
+	elseif condition:match("^%[selected%]$") then
+		return { type = "selected" }
 	else
 		error(`invalid condition: '{condition}'`)
 	end
+	return {
+		type = "none"
+	}
 end
 
-local function parseExpression(text)
-	text = text:gsub("^%s+", ""):gsub("%s+$", "")
+local function parseExpression(text: string): QueryCondition
+	local text = text:gsub("^%s+", ""):gsub("%s+$", "")
 
 	local orParts = splitTopLevel(text, "|")
 	if #orParts > 1 then
 		local orConditions = {}
 		for _, part in orParts do
-			table.insert(orConditions, parseExpression(part:gsub("^%s+", ""):gsub("%s+$", "")))
+			local subbed = part
+				:gsub("^%s+", "")
+				:gsub("%s+$", "")
+			table.insert(orConditions, parseExpression(subbed))
 		end
 		return {
 			type = "or",
@@ -433,7 +539,10 @@ local function parseExpression(text)
 	if #andParts > 1 then
 		local andConditions = {}
 		for _, part in andParts do
-			table.insert(andConditions, parseExpression(part:gsub("^%s+", ""):gsub("%s+$", "")))
+			local subbed = part
+				:gsub("^%s+", "")
+				:gsub("%s+$", "")
+			table.insert(andConditions, parseExpression(subbed))
 		end
 		return {
 			type = "and",
@@ -443,14 +552,15 @@ local function parseExpression(text)
 
 	if text:match("^%(.+%)$") then
 		local content = text:match("^%((.+)%)$")
+		assert(content, "Could not match parens")
 		return parseExpression(content)
 	end
 
 	return parseCondition(text)
 end
 
-local function getQueryCacheKey(queryTree)
-	if queryTree.type == "component" then
+local function getQueryCacheKey(queryTree: QueryCondition): string
+	if queryTree.type == "tag" then
 		return "comp:" .. queryTree.name
 	elseif queryTree.type == "pair" then
 		return "pair:" .. queryTree.component .. "=" .. tostring(queryTree.value)
@@ -486,12 +596,14 @@ local function getQueryCacheKey(queryTree)
 		return "descendant(" .. getQueryCacheKey(queryTree.condition) .. ")"
 	elseif queryTree.type == "ancestor" then
 		return "ancestor(" .. getQueryCacheKey(queryTree.condition) .. ")"
+	elseif queryTree.type == "selected" then
+		return "selected:" .. selectionVersion
 	else
 		return tostring(queryTree.type)
 	end
 end
 
-local function intersectEntitySetsOptimized(set1, set2)
+local function intersectEntitySetsOptimized(set1: {ExplorerEntity}, set2: {ExplorerEntity}): {ExplorerEntity}
 	if #set1 > #set2 then
 		set1, set2 = set2, set1
 	end
@@ -512,8 +624,8 @@ local function intersectEntitySetsOptimized(set1, set2)
 	return result
 end
 
-local function estimateConditionCost(condition, world, componentMap, tagMap, attributeMap)
-	if condition.type == "component" then
+local function estimateConditionCost(condition: QueryCondition, world: World, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap)
+	if condition.type == "tag" then
 		local component = componentMap[condition.name] or tagMap[condition.name]
 		if component then
 			local count = 0
@@ -579,16 +691,21 @@ local function estimateConditionCost(condition, world, componentMap, tagMap, att
 		return totalCost
 	elseif condition.type == "descendant" or condition.type == "ancestor" then
 		return 50000
-	else
+	elseif condition.type == "child" or condition.type == "parent" then
 		local baseCost = 10000
 		if condition.wildcard then
 			baseCost = baseCost * 5
 		end
 		return baseCost
+	elseif condition.type == "selected" then
+		return 10 -- Selection is tiny, very selective
+	else
+		error(`Unprocessed QueryCondition type: {condition.type}`)
 	end
+	return 0
 end
 
-local function sortConditionsBySelectivity(conditions, world, componentMap, tagMap, attributeMap)
+local function sortConditionsBySelectivity(conditions: {QueryCondition}, world: World, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap)
 	local conditionsWithCost = {}
 
 	for i, condition in conditions do
@@ -611,7 +728,7 @@ local function sortConditionsBySelectivity(conditions, world, componentMap, tagM
 	return sorted
 end
 
-local function getDescendantsAtDepthOptimized(world, entity, depth)
+local function getDescendantsAtDepthOptimized(world: World, entity: ExplorerEntity, depth: number)
 	if depth == 0 then
 		return {entity}
 	end
@@ -651,21 +768,25 @@ local function getDescendantsAtDepthOptimized(world, entity, depth)
 	return descendants
 end
 
-local function getAncestorsAtDepthOptimized(world, entity, depth)
+local function getAncestorAtDepthOptimized(world: World, entity: ExplorerEntity, depth: number): ExplorerEntity?
 	local current = entity
 
 	for i = 1, depth do
-		current = world:parent(current)
-		if not current then
-			return {}
+		local parent = world:parent(current)
+		if not parent then
+			return nil
+		else
+			current = parent
 		end
 	end
 
-	return {current}
+	return current
 end
 
-local function testConditionMatch(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition)
-	if condition.type == "component" then
+local function testConditionMatch(
+	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, entity: ExplorerEntity, condition: QueryCondition
+)
+	if condition.type == "tag" then
 		local component = componentMap[condition.name] or tagMap[condition.name]
 		if not component then return false end
 		return world:has(entity, component)
@@ -677,8 +798,8 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-
-		local value = instance[condition.component]
+		
+		local value = rawindex(instance, condition.component)
 		return condition.value == value
 	elseif condition.type == "has" then
 		local component = componentMap[condition.componentName]
@@ -688,7 +809,7 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if not value then return false end
 
 		return fuzzyMatch(value, condition.pattern)
@@ -696,7 +817,7 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if value == nil then return false end
 
 		local enumType = condition.expectedType:match("^Enum%.(.+)$")
@@ -709,7 +830,7 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if value == nil then return false end
 
 		return tostring(value):match(condition.pattern) ~= nil
@@ -719,6 +840,13 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 
 		local value = instance:GetAttribute(condition.attributeName)
 		return condition.value == value
+	elseif condition.type == "selected" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+		
+		local selection = Selection:Get()
+		if table.find(selection, instance) then return true end
+		return false
 	else
 		local result = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 		for _, resultEntity in result do
@@ -730,7 +858,9 @@ local function testConditionMatch(world, queryWorld, components, componentMap, t
 	end
 end
 
-local function getAllWildcardParents(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition)
+local function getAllWildcardParents(
+	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, entity: ExplorerEntity, condition: QueryCondition
+)
 	local matches = {}
 	local current = world:parent(entity)
 	local visited = {}
@@ -748,7 +878,9 @@ local function getAllWildcardParents(world, queryWorld, components, componentMap
 	return matches
 end
 
-local function getAllWildcardChildren(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition)
+local function getAllWildcardChildren(
+	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, entity: ExplorerEntity, condition: QueryCondition
+)
 	local matches = {}
 	local visited = {}
 
@@ -775,8 +907,10 @@ local function getAllWildcardChildren(world, queryWorld, components, componentMa
 	return matches
 end
 
-local function checkSingleCondition(world, components, componentMap, attributeMap, entity, condition)
-	if condition.type == "component" then
+local function checkSingleCondition(
+	world: World, components: Types.Components, componentMap: IdMap, attributeMap: IdMap, entity: ExplorerEntity, condition: QueryCondition
+)
+	if condition.type == "tag" then
 		return true -- Already filtered by the query
 	elseif condition.type == "has" then
 		return true -- Already filtered by the query
@@ -784,7 +918,7 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if not value then return false end
 
 		return fuzzyMatch(value, condition.pattern)
@@ -792,7 +926,7 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if value == nil then return false end
 
 		local enumType = condition.expectedType:match("^Enum%.(.+)$")
@@ -805,7 +939,7 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
 
-		local value = instance[condition.property]
+		local value = rawindex(instance, condition.property)
 		if value == nil then return false end
 
 		return tostring(value):match(condition.pattern) ~= nil
@@ -817,7 +951,7 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-		local value = instance[condition.component]
+		local value = rawindex(instance, condition.component)
 
 		return condition.value == value
 	elseif condition.type == "attribute" then
@@ -831,7 +965,9 @@ local function checkSingleCondition(world, components, componentMap, attributeMa
 	return false
 end
 
-local function evaluateLeafCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
+local function evaluateLeafCondition(
+	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, condition: QueryCondition
+)
 	local validEntities = {}
 
 	-- Full instance scan for conditions that can't be indexed
@@ -848,11 +984,24 @@ local function evaluateLeafCondition(world, queryWorld, components, componentMap
 		end
 
 		return validEntities
+	elseif condition.type == "selected" then
+		local selection = game:GetService("Selection"):Get()
+		local selectionSet = {}
+		for _, inst in selection do
+			selectionSet[inst] = true
+		end
+		for entity in world:query(components.Instance):iter() do
+			local instance = world:get(entity, components.Instance)
+			if instance and selectionSet[instance] then
+				table.insert(validEntities, entity)
+			end
+		end
+		return validEntities
 	end
 
 	local queriedComponents = {}
 
-	if condition.type == "component" then
+	if condition.type == "tag" then
 		local component = tagMap[condition.name]
 		if component then
 			table.insert(queriedComponents, component)
@@ -889,7 +1038,10 @@ local function evaluateLeafCondition(world, queryWorld, components, componentMap
 	end
 
 	for _, queryEntity in entityList do
-		for _, entity in queryWorld:get(queryEntity, components.QueryLinkedEntities) do
+		local entities = queryWorld:get(queryEntity, components.QueryLinkedEntities)
+		if not entities then continue end
+		
+		for _, entity in entities do
 			if checkSingleCondition(world, components, componentMap, attributeMap, entity, condition) then
 				table.insert(validEntities, entity)
 			end
@@ -899,7 +1051,9 @@ local function evaluateLeafCondition(world, queryWorld, components, componentMap
 	return validEntities
 end
 
-function evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
+function evaluateCondition(
+	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, condition: QueryCondition
+)
 	if condition.type == "and" then
 		local sortedConditions = sortConditionsBySelectivity(condition.conditions, world, componentMap, tagMap, attributeMap)
 
@@ -918,7 +1072,6 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 			end
 		end
 		return result or {}
-
 	elseif condition.type == "or" then
 		local resultSet = {}
 		local seen = {}
@@ -933,14 +1086,13 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 			end
 		end
 		return resultSet
-
 	elseif condition.type == "parent" then
 		local validEntities = {}
 
 		if condition.wildcard then
 			local leafEntities = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap,
-				{type = "component", name = condition.condition.name or condition.condition.component or "Instance"})
-
+				{type = "tag", name = (condition.condition :: any).name or (condition.condition :: any).component or "Instance"})
+			
 			for _, entity in leafEntities do
 				local parentMatches = getAllWildcardParents(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
 				for _, parentEntity in parentMatches do
@@ -959,13 +1111,12 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		end
 
 		return validEntities
-
 	elseif condition.type == "child" then
 		local validEntities = {}
 
 		if condition.wildcard then
 			local leafEntities = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap,
-				{type = "component", name = condition.condition.name or condition.condition.component or "Instance"})
+				{type = "tag", name = (condition.condition :: any).name or (condition.condition :: any).component or "Instance"})
 
 			for _, entity in leafEntities do
 				local childMatches = getAllWildcardChildren(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
@@ -977,15 +1128,14 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		else
 			local childMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
 			for _, childEntity in childMatches do
-				local ancestors = getAncestorsAtDepthOptimized(world, childEntity, condition.depth)
-				for _, ancestor in ancestors do
+				local ancestor = getAncestorAtDepthOptimized(world, childEntity, condition.depth)
+				if ancestor then
 					table.insert(validEntities, ancestor)
 				end
 			end
 		end
 
 		return validEntities
-
 	elseif condition.type == "descendant" then
 		local validEntities = {}
 		local ancestorMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
@@ -998,7 +1148,6 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		end
 
 		return validEntities
-
 	elseif condition.type == "ancestor" then
 		local validEntities = {}
 		local descendantMatches = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
@@ -1021,17 +1170,16 @@ function evaluateCondition(world, queryWorld, components, componentMap, tagMap, 
 		end
 
 		return validEntities
-
 	else
 		return evaluateLeafCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 	end
 end
 
-function JQL.executeQuery(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
+function JQL.executeQuery(world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, condition: QueryCondition)
 	return evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap or {}, condition)
 end
 
-function JQL.parseQuery(queryText)
+function JQL.parseQuery(queryText: string): QueryCondition
 	return parseExpression(queryText)
 end
 
@@ -1040,14 +1188,14 @@ local parentTreeCache = {}
 local cacheSize = 0
 local MAX_CACHE_SIZE = 1000
 
-function JQL.collectParentTree(world, entity, visited, useCache)
-	useCache = useCache ~= false
+function JQL.collectParentTree(world: World, entity: ExplorerEntity, visited: {[ExplorerEntity]: boolean}?, useCache: boolean?): {ExplorerEntity}
+	local useCache = useCache ~= false
 
 	if useCache and parentTreeCache[entity] then
 		return parentTreeCache[entity]
 	end
 
-	visited = visited or {}
+	local visited = visited or {}
 	local tree = {}
 
 	if visited[entity] then
@@ -1078,17 +1226,16 @@ function JQL.clearParentTreeCache()
 	cacheSize = 0
 end
 
-function JQL.getAllChildren(world, entity, maxDepth)
+function JQL.getAllChildren(world: World, entity: ExplorerEntity, maxDepth: number?)
 	local children = {}
 	local visited = {}
-	maxDepth = maxDepth or 100
+	local maxDepth = maxDepth or 100
 
 	local function collectChildren(currentEntity, depth)
 		if visited[currentEntity] or depth > maxDepth then
 			return
 		end
 		visited[currentEntity] = true
-
 		for child in world:children(currentEntity) do
 			table.insert(children, child)
 			collectChildren(child, depth + 1)
@@ -1099,13 +1246,16 @@ function JQL.getAllChildren(world, entity, maxDepth)
 	return children
 end
 
-function JQL.isAncestorOf(world, potentialAncestor, entity, maxDepth)
-	maxDepth = maxDepth or 1000
+function JQL.isAncestorOf(world: World, potentialAncestor: ExplorerEntity, entity: ExplorerEntity, maxDepth: number?)
+	local maxDepth = maxDepth or 1000
 	local current = entity
 	local depth = 0
 
 	while current and depth < maxDepth do
-		current = world:parent(current)
+		local parent = world:parent(current)
+		if parent then
+			current = parent
+		end
 		depth = depth + 1
 
 		if current == potentialAncestor then
@@ -1116,7 +1266,7 @@ function JQL.isAncestorOf(world, potentialAncestor, entity, maxDepth)
 	return false
 end
 
-function JQL.isOnPathToValidEntity(world, entity, validEntitySet)
+function JQL.isOnPathToValidEntity(world: World, entity: ExplorerEntity, validEntitySet: {[ExplorerEntity]: boolean})
 	if validEntitySet[entity] then
 		return true
 	end
@@ -1134,6 +1284,10 @@ function JQL.isOnPathToValidEntity(world, entity, validEntitySet)
 	end
 
 	return false
+end
+
+function JQL.bumpSelectionVersion()
+	selectionVersion += 1
 end
 
 return JQL

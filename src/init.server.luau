@@ -11,7 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "5.3.0"
+local VERSION = "5.4.0"
 
 local global = shared
 local shared = script.Shared
@@ -55,11 +55,16 @@ end)
 -- Public jexplorer plugin api
 UniPlugin:setApi("manager", Manager)
 UniPlugin:setApi("editors", {
-	StyleEditor = require(editors.StyleEditor),
-	SettingEditor = require(editors.SettingEditor),
+	ContextMenuEditor = require(editors.ContextMenuEditor),
+	ExplorerFrameEditor = require(editors.ExplorerFrameEditor),
+	InstanceVisibilityEditor = require(editors.InstanceVisibilityEditor),
+	JextensionEditor = require(editors.JextensionEditor),
 	OrderEditor = require(editors.OrderEditor),
-	VersionControl = require(editors.VersionControl),
 	PropertyEditor = require(editors.PropertyEditor),
+	SettingEditor = require(editors.SettingEditor),
+	StateEditor = require(editors.StateEditor),
+	StyleEditor = require(editors.StyleEditor),
+	VersionControl = require(editors.VersionControl)
 })
 UniPlugin:setApi("dependencies", {
 	Selector = require(shared.Small.Selector),
@@ -68,9 +73,11 @@ UniPlugin:setApi("dependencies", {
 	ClassIcon = require(shared.Small.ClassIcon),
 	UDF = require(shared.UDF),
 	SavedState = SavedState,
-	GitAPI = require(shared.GitAPI)
+	GitAPI = require(shared.GitAPI),
+	PluginManager = require(shared.PluginManager),
+	JQL = require(shared.JQL),
+	Create = require(shared.Create)
 })
-UniPlugin:exportAs("athar-adv/Jexplorer")
 
 local function pluginui<T>(name: string, create: () -> T): T
 	local success
@@ -143,3 +150,5 @@ end)
 if jexplorerWidget.HostWidgetWasRestored and not finished_init then
 	init()
 end
+
+UniPlugin:exportAs("athar-adv/Jexplorer")

@@ -111,7 +111,7 @@ return {
 		AutosaveInstChanged = {
 			Type = "boolean",
 			Display = "Autosave Instance Changes",
-			Default = false
+			Default = true
 		},
 		SaveOnClose = {
 			Type = "boolean",

@@ -3,6 +3,7 @@
 
 local global = shared
 local plugin = script:FindFirstAncestorOfClass("Plugin")
+assert(plugin)
 
 local HttpService = game:GetService("HttpService")
 local ReflectionService = game:GetService("ReflectionService")
@@ -38,6 +39,7 @@ local xyz = require("./Shared/Small/xyz")
 local getClassPropMap = require("./Shared/Small/GetClassPropMap")
 local getClampedXY = require("./Shared/Small/GetClampedXY")
 local TextBoundsHelper = require("./Shared/Small/TextBoundsHelper")
+local Signal = require("./Shared/Vendor/SimpleSignal").new
 
 local UniPlugin = require("./UniPlugin")(plugin)
 
@@ -199,7 +201,10 @@ local Manager = {
 	IdToObjectValue = {},
 	TabFrameToTab = {},
 	InstanceToTempId = {},
-	TempIdToInstance = {}
+	TempIdToInstance = {},
+	
+	TabChanged = Signal(),
+	SelectionChanged = Signal()
 } :: Types.Manager
 
 local function copySelection(world: World)
@@ -561,7 +566,7 @@ local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, c
 		local current: Instance? = commonAncestor
 		local segmentBounds = {}
 
-		local pathParts = {}
+		local pathParts: {string} = {}
 		local size = pathButton.TextSize
 		local font = pathButton.Font
 		local entities = {}
@@ -638,7 +643,7 @@ local function createPluginAction(actionId: string, text: string, statusTip: str
 	
 	while true do
 		success, action = pcall(function()
-			return plugin:CreatePluginAction(getId(actionId), text, "[Jexplorer] "..statusTip, iconId, true)
+			return plugin:CreatePluginAction(getId(`JEXPLORER_PLUGIN_ACTION_{actionId}`), text, "[Jexplorer] "..statusTip, iconId, true)
 		end)
 		if success then break end
 		warn(`Failed to create PluginAction '{actionId}' with error '{action}', retrying...`)
@@ -684,7 +689,7 @@ function Manager.convertEntitiesInto(entities, className: string)
 				table.insert(tbl, v)
 			end
 		end
-
+		
 		--world:add(entity, components.AncestryLocked)
 		table.insert(toConvert, {
 			name = inst.Name,
@@ -1452,7 +1457,9 @@ function Manager.insertClassInto(entity: ExplorerEntity, class: string)
 
 		inst.Parent = entityInst
 		
-		Selection:Set({inst})
+		task.delay(0.1, function()
+			Selection:Set({inst})
+		end)
 		return inst
 	end)
 end
@@ -1587,6 +1594,18 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 	if registerIntoTabs then
 		table.insert(state.Tabs, tab)
 	end
+	
+	function tab.QueryDescendants(selector)
+		local descendants = {}
+		for _, entity in tab.Roots do
+			local inst = Manager.instanceOf(entity)
+			if not inst then continue end
+			
+			local dsc = inst:QueryDescendants(selector)
+			table.move(dsc, 1, #dsc, #descendants + 1, descendants)
+		end
+		return descendants
+	end
 
 	function tab.Toggle()
 		-- Already selected
@@ -1634,6 +1653,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 			HierarchyState.updateEntityOrder(Manager, entity)
 		end
 		
+		Manager.TabChanged:Fire(tab, currentlyOpenTab)
 		cancelTabPickingRoots(true)
 		task.delay(0.1, VirtualScroller.rebuildAndUpdate, Manager, false)
 	end
@@ -2216,7 +2236,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local renameAction do
 		renameAction = createPluginAction(
-			"Jexplorer_ContextMenu_Rename", "Rename", "Rename selected instance."
+			"Rename", "Rename", "Rename selected instance."
 		) :: PluginAction
 		renameAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -2237,7 +2257,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local insertFromFileAction do
 		insertFromFileAction = createPluginAction(
-			"Jexplorer_ContextMenu_InsertFromFile", "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
+			"InsertFromFile", "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
 		)
 		insertFromFileAction.Triggered:Connect(function()
 			local entity = Manager.takeContextTarget()
@@ -2277,10 +2297,10 @@ local function initRegisterPluginMenusAndActions(
 			Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 		end)
 	end
-
+	
 	local insertObjectAction do
 		insertObjectAction = createPluginAction(
-			"Jexplorer_ContextMenu_InsertObject", "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
+			"InsertObject", "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
 		)
 		insertObjectAction.Triggered:Connect(function()
 			local entity = Manager.takeContextTarget()
@@ -2306,7 +2326,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local selectChildrenAction do
 		selectChildrenAction = createPluginAction(
-			"Jexplorer_ContextMenu_SelectChildren", "Select Children", "Selects all children of an Instance."
+			"SelectChildren", "Select Children", "Selects all children of an Instance."
 		)
 		selectChildrenAction.Triggered:Connect(function()
 			for _, target in state.CurrentSelection do
@@ -2330,7 +2350,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local saveToFileAction do
 		saveToFileAction = createPluginAction(
-			"Jexplorer_ContextMenu_SaveToFile", "Save to File...", "Saves an Instance as a local file."
+			"SaveToFile", "Save to File...", "Saves an Instance as a local file."
 		)
 		saveToFileAction.Triggered:Connect(function()
 			local target = Manager.takeContextTarget()
@@ -2344,7 +2364,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local saveToRobloxAction do
 		saveToRobloxAction = createPluginAction(
-			"Jexplorer_ContextMenu_SaveToRoblox", "Save to Roblox...", "Saves an Instance to Roblox."
+			"SaveToRoblox", "Save to Roblox...", "Saves an Instance to Roblox."
 		)
 		saveToRobloxAction.Triggered:Connect(function()
 			Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
@@ -2354,7 +2374,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local copyAction do
 		copyAction = createPluginAction(
-			"Jexplorer_ContextMenu_Copy", "Copy", "Copies all Instances to your clipboard."
+			"Copy", "Copy", "Copies all Instances to your clipboard."
 		)
 		copyAction.Triggered:Connect(function()
 			copySelection(world)
@@ -2363,7 +2383,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local pasteIntoAction do
 		pasteIntoAction = createPluginAction(
-			"Jexplorer_ContextMenu_PasteInto", "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
+			"PasteInto", "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
 		)
 		pasteIntoAction.Triggered:Connect(function()
 			pasteCopiedInstances(world)
@@ -2372,7 +2392,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local collapseAllAction do
 		collapseAllAction = createPluginAction(
-			"Jexplorer_ContextMenu_CollapseAll", "Collapse All", "Collapses all expanded descendants."
+			"CollapseAll", "Collapse All", "Collapses all expanded descendants."
 		)
 		collapseAllAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -2401,7 +2421,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local hideClassAction do
 		hideClassAction = createPluginAction(
-			"Jexplorer_ContextMenu_HideClass", "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
+			"HideClass", "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
 		)
 		hideClassAction.Triggered:Connect(function()
 			for _, v in state.CurrentSelection do
@@ -2416,27 +2436,27 @@ local function initRegisterPluginMenusAndActions(
 
 	local deleteAction do
 		deleteAction = createPluginAction(
-			"Jexplorer_ContextMenu_Delete", "Delete", "Deletes this Instance."
+			"Delete", "Delete", "Deletes this Instance."
 		)
 		deleteAction.Triggered:Connect(Manager.triggerDeleteTarget)
 	end
 
 	local escapeAction do
 		escapeAction = createPluginAction(
-			"Jexplorer_ContextMenu_Escape", "Escape", "Escapes this Instance."
+			"Escape", "Escape", "Escapes this Instance."
 		)
 		escapeAction.Triggered:Connect(Manager.triggerEscapeTarget)
 	end
 
 	local duplicateAction do
 		duplicateAction = createPluginAction(
-			"Jexplorer_ContextMenu_Duplicate", "Duplicate", "Duplicates this Instance."
+			"Duplicate", "Duplicate", "Duplicates this Instance."
 		)
 		duplicateAction.Triggered:Connect(Manager.triggerDuplicateTarget)
 	end
 	local openVersionHistoryAction do
 		openVersionHistoryAction = createPluginAction(
-			"Jexplorer_ContextMenu_OpenVersionHistory", "Open Version History", "Opens the version history viewer."
+			"OpenVersionHistory", "Open Version History", "Opens the version history viewer."
 		)
 		openVersionHistoryAction.Triggered:Connect(function()
 			local target = Manager.takeContextTarget()
@@ -2451,7 +2471,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local appendAction do
 		appendAction = createPluginAction(
-			"Jexplorer_ContextMenu_Append", "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
+			"Append", "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
 		)
 		appendAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -2463,7 +2483,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local commitAction do
 		commitAction = createPluginAction(
-			"Jexplorer_ContextMenu_Commit", "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
+			"Commit", "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
 		)
 		commitAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -2475,7 +2495,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local discardAction do
 		discardAction = createPluginAction(
-			"Jexplorer_ContextMenu_Discard", "Discard Changes", "Discard pending changes made to this Instance."
+			"Discard", "Discard Changes", "Discard pending changes made to this Instance."
 		)
 		discardAction.Triggered:Connect(function()
 			for _, entity in state.CurrentSelection do
@@ -2487,7 +2507,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local removeFromTabAction do
 		removeFromTabAction = createPluginAction(
-			"Jexplorer_ContextMenu_RemoveFromTab", "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
+			"RemoveFromTab", "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
 		)
 		removeFromTabAction.Triggered:Connect(function()
 			local currentlyOpenTab = sharedTabState.currentlyOpenTab
@@ -2594,11 +2614,11 @@ local function initRegisterPluginMenusAndActions(
 			end)
 		end
 		groupAsFolderAction = createPluginAction(
-			"Jexplorer_ContextMenu_GroupAsFolder", "Group as Folder", "Groups the selected Instances inside 1 Folder.",
+			"GroupAsFolder", "Group as Folder", "Groups the selected Instances inside 1 Folder.",
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Folder.png"
 		)
 		groupAsModelAction = createPluginAction(
-			"Jexplorer_ContextMenu_GroupAsModel", "Group as Model", "Groups the selected Instances inside 1 Model.",
+			"GroupAsModel", "Group as Model", "Groups the selected Instances inside 1 Model.",
 			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Model.png"
 		)
 		groupAsFolderAction.Triggered:Connect(function()
@@ -2611,7 +2631,7 @@ local function initRegisterPluginMenusAndActions(
 
 	local ungroupAction do
 		ungroupAction = createPluginAction(
-			"Jexplorer_ContextMenu_Ungroup", "Ungroup", "Ungroups the selected Instances."
+			"Ungroup", "Ungroup", "Ungroups the selected Instances."
 		)
 		ungroupAction.Triggered:Connect(function()
 			local target = Manager.takeContextTarget()
@@ -2655,7 +2675,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local convertSelectionAction do
 		convertSelectionAction = createPluginAction(
-			"Jexplorer_ContextMenu_ConvertSelection", "Convert Selection", "Turns selected instances into specified class.."
+			"ConvertSelection", "Convert Selection", "Turns selected instances into specified class.."
 		)
 		convertSelectionAction.Triggered:Connect(function()
 			local mousePos = state.Widget:GetRelativeMousePosition()
@@ -2873,7 +2893,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local goToPartAction do
 		goToPartAction = createPluginAction(
-			"Jexplorer_ContextMenu_GoToPart",
+			"GoToPart",
 			"Go To Part",
 			"Teleports the Workspace.CurrentCamera to the selected Part."
 		)
@@ -2907,7 +2927,7 @@ local function initRegisterPluginMenusAndActions(
 	
 	local weldTogetherAction do
 		weldTogetherAction = createPluginAction(
-			"Jexplorer_ContextMenu_WeldTogetherPart",
+			"WeldTogetherPart",
 			"Weld Together",
 			"Prompts to weld all selected BaseParts to eachother."
 		)
@@ -3861,7 +3881,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		end),
 		jexplorerWidget.PluginDragDropped:Connect(function(dragData)
 			local info = Manager.unpackDragInfo(dragData)
-
+			
 			local mousePos = jexplorerWidget:GetRelativeMousePosition()
 			local dropFrame, foundDropEntity, foundTab = Manager.getEntityAt(mousePos.X, mousePos.Y)
 			
@@ -3884,7 +3904,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				state.IsDragging = false
 				local dragEntities = info.Entities
 				profilebegin("InstanceFrame::dropCurrentlyDragged")
-
+				
 				if foundTab then
 					for _, ent in dragEntities do
 						local parentTabs = world:get(ent, components.ParentTabs)
@@ -3898,11 +3918,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 					return
 				end
-
+				
 				if not foundDropEntity then
 					return
 				end
-
+				
 				local newParentInstance = world:get(foundDropEntity, components.Instance)
 				if not newParentInstance then
 					return 
@@ -3918,7 +3938,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 						return
 					end
 				end
-
+				
 				for _, e in dragEntities do
 					world:add(e, components.AncestryLocked)
 				end
@@ -3962,6 +3982,9 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 		end),
 		Selection.SelectionChanged:Connect(function()
 			profilebegin("Jexplorer::onSelectionChanged")
+			
+			JQL.bumpSelectionVersion()
+			
 			local selection = Selection:Get()
 			
 			local entities = {}
@@ -3970,7 +3993,10 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				if not ent then continue end
 				table.insert(entities, ent)
 			end
+			
 			state.CurrentSelection = entities
+			Manager.SelectionChanged:Fire(entities)
+			
 			if Manager.getSetting("PropertyEditorUpdatedOnSelect") then
 				PropertyEditor.updateProperties(selection)
 			end
@@ -4055,7 +4081,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 						0
 					)
 				end
-
+				
 				VirtualScroller.update(Manager, false)
 			end
 			ExplorerFrame.updateSelectionVisuals(Manager, false)
@@ -4164,7 +4190,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end)
 			
 			if not success then
-				local err = `Query Error: '{type(result) == "table" and result.message or tostring(result)}'`
+				local err = `Query Error: '{type(result) == "table" and (result :: any).message or tostring(result)}'`
 				if queryErrorTimeout then
 					task.cancel(queryErrorTimeout)
 				end
@@ -4210,7 +4236,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			end
 
 			profilebegin("Jexplorer::query::optimizedVisibility")
-
+			
 			local visibilityMap = {}
 			local parentTreesCache = {}
 
@@ -4380,7 +4406,7 @@ function Manager.init(connections, jexplorerWidget)
 
 	--sheet:SetToken("QueryInputTextSize", jexplorerUi.Topbar.QueryInput.AbsoluteSize.Y - 1, true)
 	sheet:Link(jexplorerUi)
-
+	
 	StyleEditor.init(Manager)
 	SettingEditor.init(Manager)
 	if IS_EDIT then
@@ -4390,7 +4416,7 @@ function Manager.init(connections, jexplorerWidget)
 		PropertyEditor.init(Manager)
 	end
 	--ContextMenuEditor.init(Manager)
-
+	
 	loaders.settings()
 	
 	local settings = getGlobalConfigValue("settings")
@@ -4567,6 +4593,10 @@ function Manager.init(connections, jexplorerWidget)
 	
 	jexplorerUi.Parent = jexplorerWidget
 	sheet:UpdateTokens()
+	
+	local size = treeScroller.AbsoluteSize
+	Manager.InstTreeAbsoluteSizeY = size.Y
+	Manager.InstTreeAbsoluteSizeX = size.X
 end
 
 Manager.ChildOf = ChildOf

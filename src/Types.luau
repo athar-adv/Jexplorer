@@ -205,6 +205,7 @@ export type Tab = {
 
 	Toggle: () -> (),
 	Remove: () -> (),
+	QueryDescendants: (selector: string) -> {Instance}
 }
 export type RepoProxy = {
 	DisplayName: string,
@@ -461,9 +462,17 @@ export type DeferredTaskScheduler = {
 	EntityPropAssignQueuePending: boolean,
 }
 
+export type SharedTabState = {
+	currentlyPickingTabRoots: Tab?,
+	tabInsertListener: RBXScriptConnection?,
+	currentlyOpenTab: Tab?,
+	contextTargetTab: Tab?
+}
+
 export type Manager = {
 	CleanupFns: typeof(ItemGroup.cleanup),
 	WidgetState: WidgetState,
+	TabState: SharedTabState,
 	Components: Components,
 	Toolbar: PluginToolbar,
 	Storage: {
@@ -471,6 +480,9 @@ export type Manager = {
 		idObjects: Instance,
 		--pluginActions: Instance
 	},
+	
+	TabChanged: Signal<Tab, Tab?>,
+	SelectionChanged: Signal<{ExplorerEntity}>,
 
 	InstTreeAbsoluteSizeY: number,
 	InstTreeAbsoluteSizeX: number,

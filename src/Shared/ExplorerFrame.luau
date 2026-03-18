@@ -15,6 +15,7 @@ local Constants = require("../Constants")
 local stickToRightEdge = require("./Small/StickToRightEdge")
 local recordChanges = require("./Small/RecordChanges")
 local TextBoundsHelper = require("./Small/TextBoundsHelper")
+local RulerPool = require("./RulerPool")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -595,6 +596,7 @@ function ExplorerFrame.flushFrameReuseQueue(Manager)
 		world:remove(entity, components.Frame)
 	end
 	for _, frame in tounassign do
+		RulerPool.releaseRuler(Manager, frame)
 		frameWorld:set(frame, components.FRAMEWORLD_FrameSetParentTicket, {newParent = nil})
 		ExplorerFrame.assignExplorerFrame(Manager, frame, nil, nil, false, false)
 	end
