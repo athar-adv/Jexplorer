@@ -484,6 +484,16 @@ local function findOrCreateInstance(parent: Instance, name: string, classIfNotFo
 	return new
 end
 
+local function findOrCreateInstanceWithTag(parent: Instance, tag: string, classIfNotFound: string)
+	local child = game:QueryDescendants(`.{tag}`)
+	if child[1] then return child[1] end
+	local new = Instance.new(classIfNotFound)
+	new:AddTag(tag)
+	new.Name = `tag.{tag}`
+	new.Parent = parent
+	return new
+end
+
 local function getCommonAncestor(instances: {Instance}): Instance?
 	if #instances == 0 then
 		return nil
@@ -1356,7 +1366,9 @@ function Manager.isInstanceExcluded(g)
 	local state = Manager.WidgetState
 	local isincoregui = g:IsDescendantOf(game:GetService("CoreGui"))
 	return 
-		g:HasTag("JEXP_Widget") or isDescendantOfJexpWidget(g) 
+		g:HasTag("_JexplorerIgnore")
+	--or	g == Manager.Storage.self
+	or	g:HasTag("JEXP_Widget") or isDescendantOfJexpWidget(g) 
 	or	(isincoregui and g:FindFirstAncestor("DraggerUI") ~= nil)
 	or	(isincoregui and g.Name == "DraggerUI")
 end
@@ -4342,11 +4354,16 @@ function Manager.init(connections, jexplorerWidget)
 	local instanceTree = jexplorerUi.InstanceTree :: GuiObject
 	local treeScroller = (instanceTree :: any).TreeScroller :: ScrollingFrame
 	
-	local storage = findOrCreateInstance(game:GetService("ServerStorage"), "jexplorer_instance_storage", "Folder")
+	local ServerStorage = game:GetService("ServerStorage")
+	local storage = 
+		ServerStorage:FindFirstChild("jexplorer_instance_storage") -- Compatibility purposes
+		or findOrCreateInstanceWithTag(ServerStorage, "jexplorer_instance_storage", "Folder") -- New
+	
+	storage:AddTag("_JexplorerIgnore")
 	Manager.Storage = {
 		repoRoots = findOrCreateInstance(storage, "repo_roots", "Folder"),
 		idObjects = findOrCreateInstance(storage, "jexplorer_ids", "Folder"),
-		--pluginActions = findOrCreateInstance(storage, "plugin_actions", "Folder")
+		self = storage
 	}
 	
 	local world = Jecs.world()

@@ -478,7 +478,7 @@ export type Manager = {
 	Storage: {
 		repoRoots: Instance,
 		idObjects: Instance,
-		--pluginActions: Instance
+		self: Instance
 	},
 	
 	TabChanged: Signal<Tab, Tab?>,

@@ -599,7 +599,7 @@ function StyleEditor.init(Manager)
 		task.spawn(function()
 			local tokens = {}
 			for k, v in sheet.Tokens do
-				local defaultValue = v
+				local defaultValue = v.RawValue
 				local defaultStr = UDF.to(v.RawValue)
 
 				table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr, not v:HasTag(Constants.DefaultTokenTag)).Instance)

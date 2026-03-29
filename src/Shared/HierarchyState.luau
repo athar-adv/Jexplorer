@@ -8,6 +8,7 @@ local Jecs = require("../Jecs")
 local RawInst = require("./Small/RawInst")
 local JexpTags = require("./Small/JexpTags")
 local Constants = require("../Constants")
+local JQL = require("./JQL")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -44,6 +45,7 @@ local hierarchyCache = {
 	childrenMap = {} :: {[ExplorerEntity]: {ExplorerEntity}},
 	roots = {} :: {ExplorerEntity},
 }
+local currentSelection = {}
 local classPriorityCache = {}
 --local lastCacheVersion = -1
 local lastPriorityVersion = -1
@@ -449,14 +451,11 @@ function HierarchyState.flushOnChildAddedQueue(Manager)
 
 			local frame = world:get(newParent, components.Frame)
 			if not frame then continue end
-			local frameInst = Manager.frameOf(frame)
-			if frameInst then 
-				local main = frameInst:FindFirstChild("Main")
-				if main then
-					-- If a child is added, the entity always has atleast 1 child so just set to true always
-					--main.Arrow.Visible = #instance:GetChildren() > 0
-					main.Arrow.Visible = true
-				end
+			local frameState = state.FrameWorld:get(frame, components.FrameState)
+			if frameState then 
+				-- If a child is added, the entity always has atleast 1 child so just set to true always
+				--main.Arrow.Visible = #instance:GetChildren() > 0
+				frameState.arrow.Visible = true
 			end
 			HierarchyState.updateEntityOrder(Manager, childEntity)
 		end
@@ -513,11 +512,11 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 			if frame then
 				local frameInst = Manager.frameOf(frame)
 				if frameInst then
-					local main = frameInst:FindFirstChild("Main")
-					if main then
+					local frameState = state.FrameWorld:get(frame, components.FrameState)
+					if frameState then
 						local parentInstance = world:get(oldParent, components.Instance)
-						-- Check if OLD parent still has remaining children
-						main.Arrow.Visible = parentInstance and #parentInstance:GetChildren() > 0
+						--- Check if OLD parent still has remaining children
+						frameState.arrow.Visible = if parentInstance then #parentInstance:GetChildren() > 0 else false
 					end
 				end
 			end
@@ -645,24 +644,21 @@ local function onChangeRunContext(world: World, components: Types.Components, Ma
 end
 
 local function onChanged(
-	world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance,
+	world: World, frameWorld: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance,
 	handlers: {[string]: () -> ()}, nameCache: {[ExplorerEntity]: string}, classNameCache: {[ExplorerEntity]: string}, prop: string
 )
 	if prop == "Name" then
 		nameCache[ent] = instance.Name
 		local frame = world:get(ent, components.Frame)
 		if frame then
-			local frameInst = Manager.frameOf(frame)
-			if frameInst then
-				local main = frameInst:FindFirstChild("Main")
-				if main and main:FindFirstChild("InstanceName") and main.InstanceName.Text ~= instance.Name then
-					local instanceName = main.InstanceName
-					instanceName.Text = instance.Name
-					local bounds: Vector2 = rawindex(instanceName, "TextBounds")
-					local x = instanceName:GetStyled("Position").X.Offset + bounds.X
-					main.Insert.Position = UDim2.new(0, x + 10, 0.5)
-					main.PendingChanges.Position = UDim2.new(0, x + 26, 0.5)
-				end
+			local frameState = frameWorld:get(frame, components.FrameState)
+			if frameState and frameState.instanceName.Text ~= instance.Name then
+				local instanceName = frameState.instanceName
+				instanceName.Text = instance.Name
+				local bounds: Vector2 = rawindex(instanceName, "TextBounds")
+				local x = instanceName:GetStyled("Position").X.Offset + bounds.X
+				frameState.insertInstanceButton.Position = UDim2.new(0, x + 10, 0.5)
+				frameState.pendingChanges.Position = UDim2.new(0, x + 26, 0.5)
 			end
 		end
 	elseif prop == "ClassName" then
@@ -713,6 +709,11 @@ local function onParentChanged(Manager: Manager, ent: ExplorerEntity, instance: 
 		HierarchyState.cleanupEntity(Manager, ent)
 		Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 	end
+end
+
+local function onDestroying(Manager: Manager, ent: ExplorerEntity)
+	HierarchyState.cleanupEntity(Manager, ent)
+	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 end
 
 local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance, currentAttributes: {[string]: any}, attrName: string)
@@ -801,6 +802,10 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 
 		if ticketData.ty ~= "instance" then continue end
 		
+		if table.find(currentSelection, instance) then
+			world:add(ent, components.Selected)
+		end
+		
 		local currentAttributes = {}
 		local oldValueCache = {}
 		local handlers = {}
@@ -848,7 +853,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		
 		local n = #connections.items
 		connections.items[n+1] = rbxconnect(rawindex(instance, "Changed"), function(prop: string)
-			onChanged(world, components, Manager, ent, instance, handlers, nameCache, classNameCache, prop)
+			onChanged(world, Manager.WidgetState.FrameWorld, components, Manager, ent, instance, handlers, nameCache, classNameCache, prop)
 		end)
 		connections.items[n+2] = rbxconnect(rawindex(instance, "ChildAdded"), function(child: Instance)
 			if rawindex(child, "ClassName") == "PackageLink" then
@@ -868,6 +873,9 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		end)
 		connections.items[n+5] = rbxconnect(rawindex(instance, "AttributeChanged"), function(attrName: string)
 			onAttributeChanged(Manager, ent, instance, currentAttributes, attrName)
+		end)
+		connections.items[n+6] = rbxconnect(rawindex(instance, "Destroying"), function()
+			onDestroying(Manager, ent)
 		end)
 
 		Manager.refreshQueryAttributes(ent, nil)
@@ -1113,6 +1121,11 @@ function HierarchyState.invalidateEntityStateCache(entity: ExplorerEntity)
 	entityStateCache[entity] = nil
 	flatCache.version += 1
 	flatCache.flattenedEntities = nil
+	JQL.clearParentTreeCache()  -- hierarchy changed, ancestor chains are stale
 end
+
+game:GetService("Selection").SelectionChanged:Connect(function()
+	currentSelection = game:GetService("Selection"):Get()
+end)
 
 return HierarchyState
