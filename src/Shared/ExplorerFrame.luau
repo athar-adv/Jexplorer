@@ -125,12 +125,11 @@ local function onSelectExplorerFrame(
 	end
 	if input.UserInputType == Enum.UserInputType.MouseMovement then
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		state.ContextTarget = entity
 		-- If this entity is already selected don't set selection so any other selected instances dont get deselected
 		if not world:has(entity, components.Selected) then
 			Manager.setExplorerEntitiesAsSelection({entity}, true)
 		end
-
+		
 		local chosenMenus = {}
 		for _, info in state.InstanceContextMenus do
 			local pass = info.Condition(Manager, entity, instance)
@@ -140,7 +139,9 @@ local function onSelectExplorerFrame(
 			table.sort(chosenMenus, function(a, b)
 				return a.Priority > b.Priority
 			end)
-			chosenMenus[1].Menu.Menu:ShowAsync()
+			
+			state.ContextTarget = entity
+			chosenMenus[1].Menu:ShowAsync()
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 		profilebegin("InstanceFrame::onInput::LMB (click)")

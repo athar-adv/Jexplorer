@@ -184,11 +184,14 @@ export type StudioIconResult = {
 	ImageRectSize: Vector2
 }
 export type ContextMenu = {
-	Actions: {PluginAction},
 	Menu: PluginMenu,
 	SubMenus: {ContextMenu},
-	UnprocessedContents: {any},
-	Id: string
+	Contents: {any},
+	Id: string,
+	Actions: {PluginAction},
+	
+	ShowAsync: (self: ContextMenu, targetOverride: any?) -> (),
+	Instantiate: (self: ContextMenu) -> ()
 }
 export type Tab = {
 	TabFrame: GuiObject,
@@ -469,6 +472,14 @@ export type SharedTabState = {
 	contextTargetTab: Tab?
 }
 
+export type ActionInfos = {[string]: {
+	Id: string,
+	Text: string,
+	Desc: string?,
+	Icon: (() -> string)?,
+	Triggered: ((target: any) -> ())?
+}}
+
 export type Manager = {
 	CleanupFns: typeof(ItemGroup.cleanup),
 	WidgetState: WidgetState,
@@ -480,6 +491,8 @@ export type Manager = {
 		idObjects: Instance,
 		self: Instance
 	},
+	
+	CurrentTheme: string,
 	
 	TabChanged: Signal<Tab, Tab?>,
 	SelectionChanged: Signal<{ExplorerEntity}>,
@@ -500,8 +513,9 @@ export type Manager = {
 	ClassSelectionMenu: ClassSelectionMenu,
 	DeferredTaskScheduler: DeferredTaskScheduler,
 
-	PluginActions: {[string]: PluginAction},
-
+	ActionInfos: ActionInfos,
+	BindableActions: {[string]: PluginAction},
+	
 	ItemLists: {
 		InsertInstance: PluginUI.ItemList
 	},
@@ -525,7 +539,7 @@ export type Manager = {
 
 	TabFrameToTab: {[Instance]: Tab},
 
-	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string) -> PluginAction,
+	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string?) -> PluginAction,
 	takeContextTarget: () -> ExplorerEntity,
 
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
@@ -542,7 +556,7 @@ export type Manager = {
 	triggerDeleteTarget: () -> (),
 	triggerEscapeTarget: () -> (),
 
-	createContextMenu: (id: string, contents: {any}, title: string?, icon: string?) -> ContextMenu,
+	createContextMenu: (id: string, contents: {any}, title: string?, icon: (() -> string)?) -> ContextMenu,
 	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
 
 	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, ExplorerEntity?, Tab?),

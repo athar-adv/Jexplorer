@@ -539,7 +539,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					AnchorPoint = Vector2.new(1, 0.5),
 					Size = UDim2.new(0, 16, 0, 16),
 					ZIndex = 3,
-					Image = "rbxassetid://136962996761231",
+					Image = var "'rbxasset://studio_svg_textures/Shared/DraggerTools/![$Theme]/Standard/Scale@2x.png'",
 					
 					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
 						AspectRatio = "$Icon16x16AspectRatio"
@@ -566,6 +566,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				ImageColor3 = "$SelectedMonochromeColor"
 			}),
 			rule("ReclassButtonStyle", "> #Main > #Reclass ImageButton", 10, {
+				Image = var "'rbxasset://studio_svg_textures/Shared/DraggerTools/![$SelectedTheme]/Standard/Scale@2x.png'",
 				ImageColor3 = "$SelectedMonochromeColor"
 			})
 		}),

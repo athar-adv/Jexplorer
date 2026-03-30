@@ -14,6 +14,7 @@ local RunService = game:GetService("RunService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 local TextService = game:GetService("TextService")
 local Selection = game:GetService("Selection")
+local GeometryService = game:GetService("GeometryService")
 
 local Jecs = require("./Jecs")
 local Types = require("./Types")
@@ -222,6 +223,28 @@ local function copySelection(world: World)
 			SerializationService:SerializeInstancesAsync(instances)
 		)
 	)
+end
+
+local function RBXASSET_SH(namespace: string, file: string, invertTheme: boolean?)
+	return function()
+		if invertTheme then
+			return `rbxasset://studio_svg_textures/Shared/{namespace}/{Manager.CurrentTheme == "Light" and "Dark" or "Light"}/Standard/{file}`
+		else
+			return `rbxasset://studio_svg_textures/Shared/{namespace}/{Manager.CurrentTheme}/Standard/{file}`
+		end
+	end
+end
+
+local function RBXASSET_ID(id: number)
+	return function()
+		return `rbxassetid://{id}`
+	end
+end
+
+local function RBXASSET_IDLD(lightmodeid: number, darkmodeid: number)
+	return function()
+		return if Manager.CurrentTheme == "Light" then `rbxassetid://{lightmodeid}` else `rbxassetid://{darkmodeid}`
+	end
 end
 
 local function pasteCopiedInstances(world: World)
@@ -647,7 +670,7 @@ local function getPropertyCt(world: World, propName: string)
 	return ct
 end
 
-local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?)
+local function createPluginAction(actionId: string, text: string, statusTip: string, iconId: string?, fn: (() -> ())?): PluginAction
 	local success
 	local action: PluginAction
 	
@@ -660,7 +683,9 @@ local function createPluginAction(actionId: string, text: string, statusTip: str
 		task.wait(0.5)
 	end
 	action.Name = actionId
-	--action.Parent = Manager.Storage.pluginActions
+	if fn then
+		action.Triggered:Connect(fn)
+	end
 	return action
 end
 
@@ -1271,12 +1296,48 @@ function Manager.registerRightClickContextMenu(menu, condition, priority)
 	}
 end
 
-function Manager.createContextMenu(id, actions, title, icon)
-	local menu = plugin:CreatePluginMenu(id, title, icon)
-	local pluginActions = {}
-	local subMenus = {}
+local function instantiatePluginActions()
+	for _, v in Manager.BindableActions do
+		v:Destroy()
+	end
+	table.clear(Manager.BindableActions)
+	
+	for name, info in Manager.ActionInfos do
+		local icon
+		if info.Icon then
+			icon = info.Icon()
+		end
+		local action = createPluginAction(
+			info.Id,
+			info.Text,
+			info.Desc or "",
+			icon,
+			if info.Triggered then
+				function()
+					info.Triggered(Manager.takeContextTarget())
+				end
+				else nil
+		)
+		Manager.BindableActions[name] = action
+	end
+end
 
-	for _, name: any in actions do
+local function ContextMenu_ShowAsync(self: Types.ContextMenu, targetOverride: any?)
+	self.Menu:ShowAsync()
+end
+
+local function ContextMenu_Instantiate(self: Types.ContextMenu)
+	local submenus = {}
+	local actionMap: {PluginAction} = {}
+	
+	for _, v in self.SubMenus do
+		v.Menu:Destroy()
+	end
+	
+	local menu = self.Menu
+	menu:Clear()
+	
+	for _, name: any in self.Contents do
 		if name == "---" then
 			menu:AddSeparator()
 			continue
@@ -1290,24 +1351,38 @@ function Manager.createContextMenu(id, actions, title, icon)
 				getId(name.Id, true), name[1], name.Title, name.Icon
 			)
 			menu:AddMenu(submenu.Menu)
-			table.insert(subMenus, submenu)
+			
+			table.insert(submenus, submenu)
 			continue
 		end
+		
+		local action = Manager.BindableActions[name]
+		assert(action, `PluginAction '{name}' not found for context menu creation. Has it been instantiated?`)
 
-		local pluginAction = Manager.PluginActions[name]
-		assert(pluginAction, `PluginAction '{name}' not found for context menu creation`)
-
-		menu:AddAction(pluginAction)
-		table.insert(pluginActions, pluginAction)
+		menu:AddAction(action)
+		table.insert(actionMap, action)
 	end
+	self.SubMenus = submenus
+	self.Actions = actionMap
+end
 
-	return table.freeze {
-		Actions = pluginActions,
-		SubMenus = subMenus,
+function Manager.createContextMenu(id, actions, title, icon)
+	local menu = plugin:CreatePluginMenu(id, title, if icon then icon() else nil)
+	
+	local contextMenu = {
+		SubMenus = {},
+		Actions = {},
 		Menu = menu,
 		Id = id,
-		UnprocessedContents = table.clone(actions)
+		Contents = table.clone(actions),
+		
+		ShowAsync = ContextMenu_ShowAsync,
+		Instantiate = ContextMenu_Instantiate
 	}
+	
+	contextMenu:Instantiate()
+	
+	return contextMenu
 end
 
 function Manager.startDraggingSelected()
@@ -1738,9 +1813,9 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 
 			sharedTabState.contextTargetTab = tab
 			if tab == Manager.AllTab then
-				state.MiscContextMenus.AllTab.Menu:ShowAsync()
+				state.MiscContextMenus.AllTab:ShowAsync(tab)
 			else
-				state.MiscContextMenus.Tab.Menu:ShowAsync()
+				state.MiscContextMenus.Tab:ShowAsync(tab)
 			end
 		end),
 		button.MouseEnter:Connect(function()
@@ -2085,158 +2160,7 @@ local function initRegisterPluginMenusAndActions(
 	local connections = state.Connections
 	local jexplorerUi = state.JExplorerUI
 	local topbar = jexplorerUi.Topbar
-
-	local tabEditName do
-		tabEditName = createPluginAction(
-			"TabEditName", "Edit Name", "Edits the name of a tab."
-		)
-
-		tabEditName.Triggered:Connect(function()
-			if not sharedTabState.contextTargetTab then return end
-
-			local box: TextBox = sharedTabState.contextTargetTab.NameBox
-			box:CaptureFocus()
-		end)
-	end
-
-	local tabEditLayoutOrder do
-		tabEditLayoutOrder = createPluginAction(
-			"TabEditLayoutOrder", "Edit Layout Order", "Edits the layout order of this tab."
-		)
-
-		tabEditLayoutOrder.Triggered:Connect(function()
-			local tab = sharedTabState.contextTargetTab
-			if not tab then return end
-			
-			local orderBox = PluginUI.createAttributeBox(nil, "Layout Order", tab.TabFrame.LayoutOrder)
-			local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", {
-				orderBox
-			})
-			Manager.Style:Link(widget)
-			
-			cancel:OnTrigger(function()
-				close()
-			end)
-			confirm:OnTrigger(function()
-				tab.TabFrame.LayoutOrder = assert(tonumber(orderBox:Get()), "LayoutOrder for tab must be a number")
-				close()
-			end)
-		end)
-	end
-
-	local tabDelete do
-		tabDelete = createPluginAction(
-			"TabDelete", "Delete Tab", "Deletes this tab."
-		)
-		
-		tabDelete.Triggered:Connect(function()
-			local tab = sharedTabState.contextTargetTab
-			if not tab then return end
-			
-			tab.Remove()
-		end)
-	end
 	
-	local tabInsert do
-		tabInsert = createPluginAction(
-			"InsertTabRoots", "Insert Roots", "Prompts user to insert tab roots."
-		)
-		
-		tabInsert.Triggered:Connect(function()
-			local tab = sharedTabState.contextTargetTab
-			if not tab then return end
-			if sharedTabState.currentlyPickingTabRoots then
-				cancelTabPickingRoots(false)
-			end
-			if sharedTabState.currentlyOpenTab ~= Manager.AllTab then
-				Manager.AllTab.Toggle()
-			end
-			
-			local tabFrame = tab.TabFrame
-			tabFrame:AddTag("JEXP_SelectingRoots")
-			
-			state.OverridePathBarText = "Press [Enter] to confirm selection, [Escape] to cancel."
-			refreshPathBar({}, state, components)
-			
-			sharedTabState.currentlyPickingTabRoots = tab
-			sharedTabState.tabInsertListener = Manager.connectInputBegan(function(input)
-				if input.UserInputState ~= Enum.UserInputState.Begin then return end
-
-				local sink = false
-				if input.KeyCode == Enum.KeyCode.Escape then
-					-- Do nothing, let toggle back to this tab
-					sink = true
-				elseif input.KeyCode == Enum.KeyCode.Return then
-					for _, v in state.CurrentSelection do
-						local parentTabs = world:get(v, components.ParentTabs)
-						assert(parentTabs)
-						if parentTabs[tab] then continue end
-
-						table.insert(tab.Roots, v)
-						parentTabs[tab] = true
-					end
-					sink = true
-				end
-				if sink then
-					cancelTabPickingRoots(true)
-					Manager.setExplorerEntitiesAsSelection({}, true)
-					tab.Toggle()
-				end
-			end)
-			
-			switchTabIcon(tab)
-		end)
-	end
-	
-	local tabEditIcon do
-		tabEditIcon = createPluginAction(
-			"EditIcon", "Edit Icon", "Edits the icon of a tab."
-		)
-
-		tabEditIcon.Triggered:Connect(function()
-			local tab = sharedTabState.contextTargetTab
-			if not tab then return end
-			
-			local colorBox = PluginUI.createAttributeBox(nil, "Icon Color", `{truncate(tab.IconColor.R * 255)}, {truncate(tab.IconColor.G * 255)}, {truncate(tab.IconColor.B * 255)}`)
-			local iconBox = PluginUI.createAttributeBox(nil, "Icon Image", tab.Icon)
-			
-			local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", {
-				iconBox, colorBox
-			})
-			Manager.Style:Link(widget)
-			
-			cancel:OnTrigger(function()
-				close()
-			end)
-			confirm:OnTrigger(function()
-				local icon: string = iconBox:Get()
-				local r, g, b = xyz(colorBox:Get())
-				local color = Color3.fromRGB(
-					asnumber(r),
-					asnumber(g),
-					asnumber(b)
-				)
-				local rbxclass = icon:match("@rbxclass%((.-)%)")
-				if rbxclass then
-					local result = ClassIcon.getIcon(rbxclass)
-					if not result then
-						warn(`'@rbxclass({rbxclass})' is not a valid Roblox Class`)
-					else
-						icon = getTabImageIcon(tab, result.Image)
-					end
-				end
-				
-				tab.IconLabel.Image = icon
-				tab.Icon = icon
-				
-				tab.IconLabel.ImageColor3 = color
-				tab.IconColor = color
-				
-				close()
-			end)
-		end)
-	end
-
 	local tabBar = topbar.TabBar
 
 	do
@@ -2245,988 +2169,1328 @@ local function initRegisterPluginMenusAndActions(
 		end)
 		insertButton.Name = "InsertTabButton"
 	end
-
-	local renameAction do
-		renameAction = createPluginAction(
-			"Rename", "Rename", "Rename selected instance."
-		) :: PluginAction
-		renameAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local frame = world:get(entity, components.Frame)
-				if not frame then continue end
-
-				local frameInst = Manager.frameOf(frame)
-				if not frameInst then continue end
-
-				local n = frameInst.Main.InstanceName
-
-				n.TextEditable = true
-				n.Interactable = true
-				n:CaptureFocus()
-			end
-		end)
-	end
-
-	local insertFromFileAction do
-		insertFromFileAction = createPluginAction(
-			"InsertFromFile", "Insert from File...", "Inserts a file into an Instance.", "rbxasset://textures/StudioSharedUI/import@2x.png"
-		)
-		insertFromFileAction.Triggered:Connect(function()
-			local entity = Manager.takeContextTarget()
-			if not entity then return end
-
-			local instance = world:get(entity, components.Instance)
-			if not instance then return end
-
-			local file = StudioService:PromptImportFile({"lua", "luau", "txt", "rbxm", "rbxmx"}) :: File?
-			if not file then return end
-
-			local success, instances = pcall(game.GetObjects, game, file:GetTemporaryId())
-			if not success then
-				-- File is a text file
-				local src = file:GetBinaryContents()
-				local luaSourceContainer = Instance.new("Script")
-				luaSourceContainer.Source = src
-				luaSourceContainer.Name = file.Name
-
-				instances = {luaSourceContainer}
-			end
-			
-			recordChanges("Insert From File", function(cancel)
-				for _, v in instances do
-					local success, err = pcall(function()
-						v.Parent = instance
-					end)
-					if not success then
-						warn(err)
-						cancel()
-						state.CurrentlyInserting = nil
-						return
-					end
-					HierarchyState.queueForOnChildAdded(Manager, entity, v)
-				end
-			end)
-			Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
-		end)
-	end
 	
-	local insertObjectAction do
-		insertObjectAction = createPluginAction(
-			"InsertObject", "Insert Object...", "Inserts a chosen Instance into an Instance.", (ClassIcon.getIcon("Part")::any).Image
-		)
-		insertObjectAction.Triggered:Connect(function()
-			local entity = Manager.takeContextTarget()
-			if not entity then return end
-			local mousePos = state.Widget:GetRelativeMousePosition()
+	local function groupAs(className: string)
+		local pathArray = {}
+		local pathMap = {}
+		local entities = {}
+		
+		for _, ent in state.CurrentSelection do
+			local inst = world:get(ent, components.Instance)
+			if not inst then continue end
 			
-			local inst = Manager.instanceOf(entity)
-			if inst then
-				local current = inst
-				while current.Parent ~= game and current.Parent do
-					current = current.Parent
-				end
-				ClassSelectionMenu.menuInfo.setScope(
-					Constants.InsertScopeFormat:format(current.ClassName)
-				)
-			end
+			table.insert(entities, ent)
 			
-			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
-				Manager.insertClassInto(entity, class)
-			end)
-		end)
-	end
-
-	local selectChildrenAction do
-		selectChildrenAction = createPluginAction(
-			"SelectChildren", "Select Children", "Selects all children of an Instance."
-		)
-		selectChildrenAction.Triggered:Connect(function()
-			for _, target in state.CurrentSelection do
-				local children = {}
-				for _, child in HierarchyState.getChildren(target) do
-					table.insert(children, child)
-				end
-
-				if not world:has(target, components.Expanded) then
-					--toggleExpand(world, target, true, true)
-					world:add(target, components.Expanded)
-					
-					HierarchyState.invalidateEntityStateCache(target)
-					ExplorerFrame.updateExpandedVisuals(Manager)
-					VirtualScroller.update(Manager, false, true)
-				end
-				Manager.addExplorerEntitiesToSelection(children, true)
-			end
-		end)
-	end
-
-	local saveToFileAction do
-		saveToFileAction = createPluginAction(
-			"SaveToFile", "Save to File...", "Saves an Instance as a local file."
-		)
-		saveToFileAction.Triggered:Connect(function()
-			local target = Manager.takeContextTarget()
-			local name = "Instance"
-			if target then name = Manager.NameCache[target] end
-
-			Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
-			plugin:PromptSaveSelection(name)
-		end)
-	end
-
-	local saveToRobloxAction do
-		saveToRobloxAction = createPluginAction(
-			"SaveToRoblox", "Save to Roblox...", "Saves an Instance to Roblox."
-		)
-		saveToRobloxAction.Triggered:Connect(function()
-			Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
-			plugin:SaveSelectedToRoblox()
-		end)
-	end
-
-	local copyAction do
-		copyAction = createPluginAction(
-			"Copy", "Copy", "Copies all Instances to your clipboard."
-		)
-		copyAction.Triggered:Connect(function()
-			copySelection(world)
-		end)
-	end
-
-	local pasteIntoAction do
-		pasteIntoAction = createPluginAction(
-			"PasteInto", "Paste Into", "Pastes all copied Instances into the first currently selected Instance."
-		)
-		pasteIntoAction.Triggered:Connect(function()
-			pasteCopiedInstances(world)
-		end)
-	end
-
-	local collapseAllAction do
-		collapseAllAction = createPluginAction(
-			"CollapseAll", "Collapse All", "Collapses all expanded descendants."
-		)
-		collapseAllAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance)
-				if not inst then return end
-
-				for _, v in inst:GetDescendants() do
-					local child = Manager.InstanceToEntity[v]
-					if not child then continue end
-					if not Manager.isExplorerEntityExpanded(child) then continue end
-
-					world:remove(child, components.Expanded)
-					world:remove(child, components.QueryExpanded)
-					HierarchyState.invalidateEntityStateCache(child)
-					ExplorerFrame.updateCollapsedVisuals(Manager)
-				end
-				--toggleExpand(world, entity, false, false)
-				world:remove(entity, components.Expanded)
-				world:remove(entity, components.QueryExpanded)
-				HierarchyState.invalidateEntityStateCache(entity)
-				ExplorerFrame.updateCollapsedVisuals(Manager)
-			end
-			VirtualScroller.update(Manager, false, true)
-		end)
-	end
-	
-	local hideClassAction do
-		hideClassAction = createPluginAction(
-			"HideClass", "Hide Class", "Hides all Instances with the ClassName of the selected Instance."
-		)
-		hideClassAction.Triggered:Connect(function()
-			for _, v in state.CurrentSelection do
-				local className = Manager.ClassNameCache[v]
-				if not className then continue end
-
-				InstanceVisibilityEditor.setInvisible(className, true)
-				VirtualScroller.rebuildAndUpdate(Manager, false)
-			end
-		end)
-	end
-
-	local deleteAction do
-		deleteAction = createPluginAction(
-			"Delete", "Delete", "Deletes this Instance."
-		)
-		deleteAction.Triggered:Connect(Manager.triggerDeleteTarget)
-	end
-
-	local escapeAction do
-		escapeAction = createPluginAction(
-			"Escape", "Escape", "Escapes this Instance."
-		)
-		escapeAction.Triggered:Connect(Manager.triggerEscapeTarget)
-	end
-
-	local duplicateAction do
-		duplicateAction = createPluginAction(
-			"Duplicate", "Duplicate", "Duplicates this Instance."
-		)
-		duplicateAction.Triggered:Connect(function()
-			(Manager.getSetting("NormalDuplicateIncrementsName") and Manager.triggerDuplicateTargetWithIncrementName or Manager.triggerDuplicateTarget)()
-		end)
-	end
-	local openVersionHistoryAction do
-		openVersionHistoryAction = createPluginAction(
-			"OpenVersionHistory", "Open Version History", "Opens the version history viewer."
-		)
-		openVersionHistoryAction.Triggered:Connect(function()
-			local target = Manager.takeContextTarget()
-			if not target then return end
-
-			local inst = world:get(target, components.Instance)
-			if not inst then return end
-
-			VersionControl.showInstanceHistoryWidget(inst)
-		end)
-	end
-
-	local appendAction do
-		appendAction = createPluginAction(
-			"Append", "Append Changes", "Saves pending changes made to this Instance, appends to the latest version."
-		)
-		appendAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance) :: Instance
-				VersionControl.appendPendingChanges(inst)
-			end
-		end)
-	end
-
-	local commitAction do
-		commitAction = createPluginAction(
-			"Commit", "Commit Changes", "Commits pending changes made to this Instance, saves as a new version."
-		)
-		commitAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance) :: Instance
-				VersionControl.createPendingChanges(inst)
-			end
-		end)
-	end
-	
-	local discardAction do
-		discardAction = createPluginAction(
-			"Discard", "Discard Changes", "Discard pending changes made to this Instance."
-		)
-		discardAction.Triggered:Connect(function()
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance) :: Instance
-				VersionControl.discardPendingChanges(inst)
-			end
-		end)
-	end
-
-	local removeFromTabAction do
-		removeFromTabAction = createPluginAction(
-			"RemoveFromTab", "Remove from Tab", "Removes this instance from this tab. Can be readded via the tabs + menu"
-		)
-		removeFromTabAction.Triggered:Connect(function()
-			local currentlyOpenTab = sharedTabState.currentlyOpenTab
-			if not currentlyOpenTab then return end
-			if currentlyOpenTab == Manager.AllTab then return end
-			local stored = currentlyOpenTab.Roots
-
-			local selection = state.CurrentSelection
-			for _, ent in selection do
-				local parentTabs = world:get(ent, components.ParentTabs)
-				assert(parentTabs)
-
-				parentTabs[currentlyOpenTab] = nil
-				world:remove(ent, components.DisplayTopLevel)
-				if not world:has(ent, ChildOf(Jecs.Wildcard)) then
-					world:add(ent, components.Invisible)
-					HierarchyState.invalidateEntityStateCache(ent)
-				end
-
-				local frame = world:get(ent, components.Frame)
-				if frame then ExplorerFrame.queueForExplorerFrameReuse(Manager, frame) end
-				local idx = table.find(stored, ent)
-				if idx then
-					table.remove(stored, idx)
-				end
-
-				--updateEntityOrder(world, ent, world:parent(ent))
+			local path = inst:GetFullName()
+			
+			table.insert(pathArray, path)
+			
+			pathMap[path] = ent
+		end
+		
+		table.sort(pathArray)
+		
+		local shortest = pathArray[1]
+		if not shortest then return end
+		
+		local targetParentEnt = world:parent(pathMap[shortest])
+		assert(targetParentEnt)
+		
+		local targetParent = world:get(targetParentEnt, components.Instance)
+		assert(targetParent)
+		
+		recordChanges("Group As", function(cancel)
+			local container = Instance.new(className)
+			container.Parent = targetParent
+			
+			local containerEntity = HierarchyState.getOrCreateInstanceEntity(Manager, container, targetParentEnt)
+			assert(containerEntity)
+			
+			world:add(containerEntity, components.AncestryLocked)
+			
+			for _, ent in entities do
+				world:add(ent, components.AncestryLocked)
 			end
 			
-			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
-			Manager.DeferredTaskScheduler.ChildGraphDirty = true
-		end)
-	end
-
-	local groupAsFolderAction, groupAsModelAction do
-		local function groupAs(className: string)
-			local pathArray = {}
-			local pathMap = {}
-			local entities = {}
-
-			for _, ent in state.CurrentSelection do
+			for _, ent in entities do
 				local inst = world:get(ent, components.Instance)
 				if not inst then continue end
-
-				table.insert(entities, ent)
-
-				local path = inst:GetFullName()
-				table.insert(pathArray, path)
-				pathMap[path] = ent
+				local suc, err = (pcall :: any)(rawnewindex, inst, "Parent", container)
+				if not suc then
+					warn(`Could not group '{inst.Name}' as '{className}' with error: '{err}'`)
+					cancel()
+					return
+				end
+				Manager.updateParent(ent, containerEntity)
+				local frame = world:get(ent, components.Frame)
+				if frame then
+					ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
+				end
 			end
-			table.sort(pathArray)
-			local shortest = pathArray[1]
-			if not shortest then return end
-
-			local targetParentEnt = world:parent(pathMap[shortest])
-			assert(targetParentEnt)
-			local targetParent = world:get(targetParentEnt, components.Instance)
-			assert(targetParent)
 			
-			recordChanges("Group As", function(cancel)
-				local container = Instance.new(className)
-				container.Parent = targetParent
+			for _, ent in entities do
+				world:remove(ent, components.AncestryLocked)
+			end
+			
+			world:remove(containerEntity, components.AncestryLocked)
+			
+			Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
+			Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+			Manager.DeferredTaskScheduler.ChildGraphDirty = true
+			
+			task.delay(0.1, function() Selection:Set({container}) end)
+		end)
+	end
 
-				local containerEntity = HierarchyState.getOrCreateInstanceEntity(Manager, container, targetParentEnt)
-
-				assert(containerEntity)
-				world:add(containerEntity, components.AncestryLocked)
-
-				for _, ent in entities do
-					world:add(ent, components.AncestryLocked)
-				end
-
-				for _, ent in entities do
-					local inst = world:get(ent, components.Instance)
-					if not inst then continue end
-					
-					local suc, err = (pcall :: any)(rawnewindex, inst, "Parent", container)
-					if not suc then
-						warn(`Could not group '{inst.Name}' as '{className}' with error: '{err}'`)
-						cancel()
-						return
-					end
-					Manager.updateParent(ent, containerEntity)
-
-					local frame = world:get(ent, components.Frame)
-					if frame then
-						ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
-					end
-				end
-
-				for _, ent in entities do
-					world:remove(ent, components.AncestryLocked)
-				end
-
-				world:remove(containerEntity, components.AncestryLocked)
-
-				Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
-				Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
-				Manager.DeferredTaskScheduler.ChildGraphDirty = true
-
-				task.delay(0.1, function()
-					Selection:Set({container})
+	local function isInstanceCSGAble(inst: Instance)
+		return inst:IsA("PartOperation") or inst:IsA("FormFactorPart") or inst:IsA("CornerWedgePart")
+	end
+	
+	Manager.ActionInfos = {
+		-- Tab actions
+		Tab_EditName = {
+			Id = "TabEditName",
+			Text = "Edit Name",
+			Desc = "Edits the name of a tab.",
+			Icon = RBXASSET_SH("GenerativeAI", "EditMessage@3x.png"),
+			Triggered = function(target: Tab)
+				local box: TextBox = target.NameBox
+				box:CaptureFocus()
+			end
+		},
+		Tab_EditLayoutOrder = {
+			Id = "TabEditLayoutOrder",
+			Text = "Edit Layout Order",
+			Desc = "Edits the layout order of this tab.",
+			Icon = RBXASSET_SH("InsertableObjects", "UIListLayout.png"),
+			Triggered = function(tab: Tab)
+				local orderBox = PluginUI.createAttributeBox(nil, "Layout Order", tab.TabFrame.LayoutOrder)
+				local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", { orderBox })
+				Manager.Style:Link(widget)
+				cancel:OnTrigger(function() close() end)
+				confirm:OnTrigger(function()
+					tab.TabFrame.LayoutOrder = assert(tonumber(orderBox:Get()), "LayoutOrder for tab must be a number")
+					close()
 				end)
-			end)
-		end
-		groupAsFolderAction = createPluginAction(
-			"GroupAsFolder", "Group as Folder", "Groups the selected Instances inside 1 Folder.",
-			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Folder.png"
-		)
-		groupAsModelAction = createPluginAction(
-			"GroupAsModel", "Group as Model", "Groups the selected Instances inside 1 Model.",
-			"rbxasset://studio_svg_textures/Shared/InsertableObjects/Dark/Standard/Model.png"
-		)
-		groupAsFolderAction.Triggered:Connect(function()
-			groupAs("Folder")
-		end)
-		groupAsModelAction.Triggered:Connect(function()
-			groupAs("Model")
-		end)
-	end
-
-	local ungroupAction do
-		ungroupAction = createPluginAction(
-			"Ungroup", "Ungroup", "Ungroups the selected Instances."
-		)
-		ungroupAction.Triggered:Connect(function()
-			local target = Manager.takeContextTarget()
-			if not target then return end
-
-			local entities = {}
-
-			local parent = Manager.parentOf(target)
-			local targetInst = Manager.instanceOf(target)
-			if not parent then return end
-			if not targetInst then return end
-
-			local children = HierarchyState.getChildren(target)
-			if not children then return end
-			
-			recordChanges("Ungroup", function()
-				for _, child in children do
-					world:add(child, components.AncestryLocked)
-				end
-				for _, child in children do
-					local inst = Manager.instanceOf(child)
-					if not inst then continue end
-
-					Manager.updateParent(child, parent)
-					inst.Parent = Manager.instanceOf(parent)
-					table.insert(entities, child)
-				end
-
-				targetInst.Parent = nil
-				Manager.updateParent(target, nil)
-
-				VirtualScroller.rebuildAndUpdate(Manager, false)
-				Manager.setExplorerEntitiesAsSelection(entities, true)
-
-				for _, child in children do
-					world:remove(child, components.AncestryLocked)
-				end
-			end)
-		end)
-	end
-	
-	local convertSelectionAction do
-		convertSelectionAction = createPluginAction(
-			"ConvertSelection", "Convert Selection", "Turns selected instances into specified class.."
-		)
-		convertSelectionAction.Triggered:Connect(function()
-			local mousePos = state.Widget:GetRelativeMousePosition()
-			ClassSelectionMenu.menuInfo.setScope("Default")
-			ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
-				Manager.convertEntitiesInto(state.CurrentSelection, class)
-			end)
-		end)
-	end
-
-	local helpAction do
-		helpAction = createPluginAction(
-			"Help", "Open Documentation", "Opens the API wiki page for this Instance."
-		)
-		helpAction.Triggered:Connect(function()
-			local target = Manager.takeContextTarget()
-			if not target then return end
-
-			local inst = Manager.instanceOf(target)
-			if not inst then return end
-			
-			local Localization = game:GetService("LocalizationService")
-			local localeId
-			local lang = Manager.getSetting("DocumentationLanguage")
-			if lang == "Roblox" then
-				localeId = Localization.RobloxLocaleId
-			elseif lang == "System" then
-				localeId = Localization.SystemLocaleId
-			else
-				localeId = lang
 			end
-			plugin:OpenWikiPage(`{localeId}/api-reference/class/{inst.ClassName}`)
-		end)
-	end
-
-	local dragAction do
-		dragAction = createPluginAction(
-			"Drag", "Start Dragging", "Starts dragging selected Instances."
-		)
-		dragAction.Triggered:Connect(Manager.startDraggingSelected)
-	end
-	
-	local changeIconColorAction do
-		changeIconColorAction = createPluginAction(
-			"ChangeIconColor",
-			"Change Icon Color",
-			"Prompts to change the icon color of selected Instances."
-		)
-		
-		changeIconColorAction.Triggered:Connect(function()
-			local currentColor = Color3.fromRGB(255, 255, 255)
-
-			local box = PluginUI.createAttributeBox(nil, "Custom Icon Color", "")
-			local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
-			chooseColorButton:AddTag("JEXP_Border")
-			chooseColorButton.BackgroundColor3 = currentColor
-
-			local toggleUseColor
-			local function refreshFromSelection()
-				local sel = state.CurrentSelection
-				if not sel or #sel == 0 then return end
-
-				local entity = sel[1]
-				local iconColor = world:get(entity, components.FrameIconColor)
-				if iconColor then
-					currentColor = iconColor
-					chooseColorButton.BackgroundColor3 = currentColor
-				end
-
-				-- sync checkbox: enabled = component exists (not nil)
-				local allSameEnabled = true
-				local firstEnabled = nil
-				for _, ent in sel do
-					local ic = world:get(ent, components.FrameIconColor)
-					local enabled = ic ~= nil
-					if firstEnabled == nil then
-						firstEnabled = enabled
-					elseif firstEnabled ~= enabled then
-						allSameEnabled = false
-						break
-					end
-				end
-				toggleUseColor:Set(allSameEnabled and (firstEnabled or false))
+		},
+		Tab_Delete = {
+			Id = "TabDelete",
+			Text = "Delete Tab",
+			Desc = "Deletes this tab.",
+			Icon = RBXASSET_ID(3090651719),
+			Triggered = function(tab: Tab)
+				tab.Remove()
 			end
+		},
+		Tab_InsertRoots = {
+			Id = "InsertTabRoots",
+			Text = "Insert Roots",
+			Desc = "Prompts user to insert tab roots.",
+			Icon = RBXASSET_SH("InsertableObjects", "Part.png"),
+			Triggered = function(tab: Tab)
+				if sharedTabState.currentlyPickingTabRoots then
+					cancelTabPickingRoots(false)
+				end
+				if sharedTabState.currentlyOpenTab ~= Manager.AllTab then
+					Manager.AllTab.Toggle()
+				end
 
-			toggleUseColor = PluginUI.createCheckBox(nil, "Use Custom Icon Color", false, function(enabled)
-				if enabled then
-					for _, entity in state.CurrentSelection do
-						world:set(entity, components.FrameIconColor, currentColor)
-						local frame = world:get(entity, components.Frame)
-						if frame then
-							ExplorerFrame.setExplorerFrameIconColor(Manager, frame, currentColor)
+				local tabFrame = tab.TabFrame
+				tabFrame:AddTag("JEXP_SelectingRoots")
+
+				state.OverridePathBarText = "Press [Enter] to confirm selection, [Escape] to cancel."
+				refreshPathBar({}, state, components)
+
+				sharedTabState.currentlyPickingTabRoots = tab
+				sharedTabState.tabInsertListener = Manager.connectInputBegan(function(input)
+					if input.UserInputState ~= Enum.UserInputState.Begin then return end
+
+					local sink = false
+					if input.KeyCode == Enum.KeyCode.Escape then
+						sink = true
+					elseif input.KeyCode == Enum.KeyCode.Return then
+						for _, v in state.CurrentSelection do
+							local parentTabs = world:get(v, components.ParentTabs)
+							assert(parentTabs)
+							if parentTabs[tab] then continue end
+							table.insert(tab.Roots, v)
+							parentTabs[tab] = true
 						end
+						sink = true
 					end
-				else
-					for _, entity in state.CurrentSelection do
-						world:remove(entity, components.FrameIconColor)
-						local frame = world:get(entity, components.Frame)
-						if frame then
-							ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil)
-						end
-					end
-				end
-			end)
-
-			local widget, destroy = PluginUI.createPopupWidget("Change Icon Color", { box, toggleUseColor })
-			Manager.Style:Link(widget)
-
-			local picker
-			local activatedConn = chooseColorButton.Activated:Connect(function()
-				if picker then
-					picker:Close()
-					picker:Destroy()
-				end
-
-				picker = ColorPicker.new(plugin, getId("PropertyColorPicker", true))
-				picker:Show()
-				picker:Set(currentColor)
-
-				-- snapshot: nil means disabled, Color3 means enabled+color
-				local originalStates = {}
-				for _, entity in state.CurrentSelection do
-					originalStates[entity] = world:get(entity, components.FrameIconColor) -- Color3 or nil
-				end
-
-				picker:BindToChange(function(newColor)
-					currentColor = newColor
-					chooseColorButton.BackgroundColor3 = newColor
-					box:SetText(`{truncate(newColor.R * 255)}, {truncate(newColor.G * 255)}, {truncate(newColor.B * 255)}`)
-					for _, entity in state.CurrentSelection do
-						if originalStates[entity] ~= nil then
-							world:set(entity, components.FrameIconColor, newColor)
-							local frame = world:get(entity, components.Frame)
-							if frame then
-								ExplorerFrame.setExplorerFrameIconColor(Manager, frame, newColor)
-							end
-						end
+					if sink then
+						cancelTabPickingRoots(true)
+						Manager.setExplorerEntitiesAsSelection({}, true)
+						tab.Toggle()
 					end
 				end)
 
-				picker:BindToCancel(function()
-					for _, entity in state.CurrentSelection do
-						local original = originalStates[entity]
-						local frame = world:get(entity, components.Frame)
-						if original ~= nil then
-							world:set(entity, components.FrameIconColor, original)
-							if frame then
-								ExplorerFrame.setExplorerFrameIconColor(Manager, frame, original)
-							end
+				switchTabIcon(tab)
+			end
+		},
+		Tab_EditIcon = {
+			Id = "EditIcon",
+			Text = "Edit Icon",
+			Desc = "Edits the icon of a tab.",
+			Icon = RBXASSET_SH("InsertableObjects", "ImageLabel.png"),
+			Triggered = function(tab: Tab)
+				local colorBox = PluginUI.createAttributeBox(nil, "Icon Color", `{truncate(tab.IconColor.R * 255)}, {truncate(tab.IconColor.G * 255)}, {truncate(tab.IconColor.B * 255)}`)
+				local iconBox = PluginUI.createAttributeBox(nil, "Icon Image", tab.Icon)
+				local widget, cancel, confirm, close = PluginUI.createCreatorWidget("Edit Tab Icon", { iconBox, colorBox })
+				Manager.Style:Link(widget)
+
+				cancel:OnTrigger(function() close() end)
+				confirm:OnTrigger(function()
+					local icon: string = iconBox:Get()
+					local r, g, b = xyz(colorBox:Get())
+					local color = Color3.fromRGB(asnumber(r), asnumber(g), asnumber(b))
+					local rbxclass = icon:match("@rbxclass%((.-)%)")
+					if rbxclass then
+						local result = ClassIcon.getIcon(rbxclass)
+						if not result then
+							warn(`'@rbxclass({rbxclass})' is not a valid Roblox Class`)
 						else
-							world:remove(entity, components.FrameIconColor)
-							if frame then
-								ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil)
-							end
+							icon = getTabImageIcon(tab, result.Image)
 						end
 					end
-					-- restore button to whatever the first entity had
-					currentColor = originalStates[state.CurrentSelection[1]] or currentColor
-					chooseColorButton.BackgroundColor3 = currentColor
-					picker:Close()
-					picker:Destroy()
+					tab.IconLabel.Image = icon
+					tab.Icon = icon
+					tab.IconLabel.ImageColor3 = color
+					tab.IconColor = color
+					close()
 				end)
-
-				picker:BindToConfirm(function()
-					picker:Close()
-					picker:Destroy()
-				end)
-			end)
-
-			local selectionChangedConn = Selection.SelectionChanged:Connect(function()
-				refreshFromSelection()
-			end)
-
-			box:OnChange(function(newValue)
-				local x, y, z = xyz(newValue)
-				local color = Color3.fromRGB(asnumber(x), asnumber(y), asnumber(z))
-				currentColor = color
-				chooseColorButton.BackgroundColor3 = color
-				for _, entity in state.CurrentSelection do
-					-- only update entities that have color enabled
-					if world:get(entity, components.FrameIconColor) ~= nil then
-						world:set(entity, components.FrameIconColor, color)
-					end
-				end
-			end)
-			refreshFromSelection()
-			
-			local function cleanupUi()
-				if picker then
-					picker:Destroy()
-				end
-				selectionChangedConn:Disconnect()
-				activatedConn:Disconnect()
-				widget:Destroy()
-				--destroy()
 			end
-			local childConnections = connections:extend(cleanup.call, {cleanupUi})
-			widget:BindToClose(function()
-				childConnections:free()
-			end)
-		end)
-	end
-	
-	local saveAsObjAction do
-		saveAsObjAction = createPluginAction(
-			"SaveAsObj",
-			"Export as .obj...",
-			"Prompts to save selection as .obj file."
-		)
-		
-		saveAsObjAction.Triggered:Connect(function()
-			PluginManager:ExportSelection("Object")
-		end)
-	end
-	
-	local goToPartAction do
-		goToPartAction = createPluginAction(
-			"GoToPart",
-			"Go To Part",
-			"Teleports the Workspace.CurrentCamera to the selected Part."
-		)
-		
-		goToPartAction.Triggered:Connect(function()
-			local target = Manager.takeContextTarget()
-			local part = Manager.instanceOf(target)
-			if not part then return end
-			if not part:IsA("PVInstance") then return end
-
-			local camera = workspace.CurrentCamera
-			if not camera then return end
-
-			local partCf = part:GetPivot()
-			local partSize
-			if part:IsA("BasePart") then
-				partSize = part.Size
-			elseif part:IsA("Model") then
-				partSize = part:GetExtentsSize()
-			else
-				error("Options exhausted for getting part size")
-			end
-
-			local dist = partSize.Magnitude + 4
-			local camPos = partCf.Position + Vector3.new(dist * 0.6, dist * 0.4, dist * 0.6)
-
-			camera.CFrame = CFrame.lookAt(camPos, partCf.Position)
-			camera.Focus = partCf
-		end)
-	end
-	
-	local weldTogetherAction do
-		weldTogetherAction = createPluginAction(
-			"WeldTogetherPart",
-			"Weld Together",
-			"Prompts to weld all selected BaseParts to eachother."
-		)
-		
-		weldTogetherAction.Triggered:Connect(function()
-			local models = {}
-			local parts = {}
-
-			for _, entity in state.CurrentSelection do
-				local inst = world:get(entity, components.Instance)
-				if not inst then continue end
-
-				if inst:IsA("Model") then
-					table.insert(models, inst)
-				elseif inst:IsA("BasePart") then
-					table.insert(parts, inst)
-				end
-			end
-
-			local function weldTo(primary, targets)
-				for _, part in targets do
-					if part == primary then continue end
-					local weld = Instance.new("WeldConstraint")
-					weld.Part0 = primary
-					weld.Part1 = part
-					weld.Parent = primary
-				end
-			end
-
-			local function getPrimaryPart(model: Model)
-				return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-			end
-
-			recordChanges("Weld Together", function()
-				if #models == 1 and #parts > 0 then
-					-- 1 model + multiple baseparts: weld all parts to model's primary
-					local primary = getPrimaryPart(models[1])
-					if primary then
-						weldTo(primary, parts)
-					else
-						-- No primary, weld parts to each other
-						weldTo(parts[1], { table.unpack(parts, 2) })
-					end
-
-				elseif #models > 1 then
-					-- Multiple models: weld their primary parts to each other
-					local primaries = {}
-					for _, model in models do
-						local primary = getPrimaryPart(model)
-						if primary then
-							table.insert(primaries, primary)
-						end
-						
-					end
-					weldTo(primaries[1], { table.unpack(primaries, 2) })
-
-				elseif #parts > 1 then
-					-- Only baseparts: weld to each other
-					weldTo(parts[1], { table.unpack(parts, 2) })
-				end
-			end)
-		end)
-	end
-
-	Manager.PluginActions = {
-		OpenVersionHistory = openVersionHistoryAction,
-		Append = appendAction,
-		Commit = commitAction,
-		Discard = discardAction,
-
-		Copy = copyAction,
-		PasteInto = pasteIntoAction,
-		Escape = escapeAction,
-		Duplicate = duplicateAction,
-		Delete = deleteAction,
-		Rename = renameAction,
-		Drag = dragAction,
-
-		Help = helpAction,
-
-		HideClass = hideClassAction,
-
-		SelectChildren = selectChildrenAction,
-		CollapseAll = collapseAllAction,
-
-		InsertFromFile = insertFromFileAction,
-		InsertObject = insertObjectAction,
-
-		SaveToFile = saveToFileAction,
-		SaveToRoblox = saveToRobloxAction,
-		ExportAsObj = saveAsObjAction,
-		
-		RemoveFromTab = removeFromTabAction,
-
-		GroupAsModel = groupAsModelAction,
-		GroupAsFolder = groupAsFolderAction,
-
-		ConvertInto = convertSelectionAction,
-
-		Ungroup = ungroupAction,
-		ChangeIconColor = changeIconColorAction,
-		
-		Part_WeldTogether = weldTogetherAction,
-		Part_GoToPart = goToPartAction,
-
-		Tab_EditName = tabEditName,
-		Tab_EditIcon = tabEditIcon,
-		Tab_Delete = tabDelete,
-		Tab_InsertRoots = tabInsert,
-		Tab_EditLayoutOrder = tabEditLayoutOrder
-	}
-
-	state.DefaultInstanceActionsArray = {
-		{
-			Id = "Menu.VersionControl",
-			Title = "Version Control",
-			{
-				"OpenVersionHistory",
-				"Append",
-				"Commit",
-				"Discard"
-			}
 		},
 
-		"---",
+		-- Basic instance actions
+		Rename = {
+			Id = "Rename",
+			Text = "Rename",
+			Desc = "Rename selected instance.",
+			Icon = RBXASSET_SH("GenerativeAI", "EditMessage@3x.png", true),
+			Triggered = function()
+				for _, entity in state.CurrentSelection do
+					local frame = world:get(entity, components.Frame)
+					if not frame then continue end
+					
+					local frameInst = Manager.frameOf(frame)
+					if not frameInst then continue end
+					
+					local n = frameInst.Main.InstanceName
+					n.TextEditable = true
+					n.Interactable = true
+					n:CaptureFocus()
+				end
+			end
+		},
+		InsertFromFile = {
+			Id = "InsertFromFile",
+			Text = "Insert from File...",
+			Desc = "Inserts a file into an Instance.",
+			Icon = RBXASSET_SH("InsertableObjects", "File.png"),
+			Triggered = function(entity: ExplorerEntity)
+				local instance = world:get(entity, components.Instance)
+				if not instance then return end
 
+				local file = StudioService:PromptImportFile({"lua", "luau", "txt", "rbxm", "rbxmx"}) :: File?
+				if not file then return end
+
+				local success, instances = pcall(game.GetObjects, game, file:GetTemporaryId())
+				if not success then
+					local src = file:GetBinaryContents()
+					local luaSourceContainer = Instance.new("Script")
+					luaSourceContainer.Source = src
+					luaSourceContainer.Name = file.Name
+					instances = {luaSourceContainer}
+				end
+
+				recordChanges("Insert From File", function(cancel)
+					for _, v in instances do
+						local success, err = pcall(function()
+							v.Parent = instance
+						end)
+						if not success then
+							warn(err)
+							cancel()
+							state.CurrentlyInserting = nil
+							return
+						end
+						HierarchyState.queueForOnChildAdded(Manager, entity, v)
+					end
+				end)
+				Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
+			end
+		},
+		InsertObject = {
+			Id = "InsertObject",
+			Text = "Insert Object...",
+			Desc = "Inserts a chosen Instance into an Instance.",
+			Icon = RBXASSET_SH("WidgetIcons", "InsertObject@2x.png"),
+			Triggered = function(entity: ExplorerEntity)
+				local mousePos = state.Widget:GetRelativeMousePosition()
+
+				local inst = Manager.instanceOf(entity)
+				if inst then
+					local current = inst
+					while current.Parent ~= game and current.Parent do
+						current = current.Parent
+					end
+					ClassSelectionMenu.menuInfo.setScope(Constants.InsertScopeFormat:format(current.ClassName))
+				end
+
+				ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
+					Manager.insertClassInto(entity, class)
+				end)
+			end
+		},
+		SelectChildren = {
+			Id = "SelectChildren",
+			Text = "Select Children",
+			Desc = "Selects all children of an Instance.",
+			Icon = RBXASSET_SH("Navigation", "More@2x.png"),
+			Triggered = function()
+				for _, target in state.CurrentSelection do
+					local children = {}
+					
+					for _, child in HierarchyState.getChildren(target) do
+						table.insert(children, child)
+					end
+					
+					if not world:has(target, components.Expanded) then
+						world:add(target, components.Expanded)
+						
+						HierarchyState.invalidateEntityStateCache(target)
+						
+						ExplorerFrame.updateExpandedVisuals(Manager)
+						VirtualScroller.update(Manager, false, true)
+					end
+					
+					Manager.addExplorerEntitiesToSelection(children, true)
+				end
+			end
+		},
+		SaveToFile = {
+			Id = "SaveToFile",
+			Text = "Save to File...",
+			Desc = "Saves an Instance as a local file.",
+			Icon = RBXASSET_SH("InsertableObjects", "File.png"),
+			Triggered = function(target: ExplorerEntity)
+				local name = "Instance"
+				if target then name = Manager.NameCache[target] end
+				
+				Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
+				plugin:PromptSaveSelectionAsync(name)
+			end
+		},
+		SaveToRoblox = {
+			Id = "SaveToRoblox",
+			Text = "Save to Roblox...",
+			Desc = "Saves an Instance to Roblox.",
+			Icon = RBXASSET_SH("Ribbon", "RibbonUpdateSmall@2x.png"),
+			Triggered = function()
+				Manager.setExplorerEntitiesAsSelection(state.CurrentSelection, true)
+				plugin:SaveSelectedToRoblox()
+			end
+		},
+		Copy = {
+			Id = "Copy",
+			Text = "Copy",
+			Desc = "Copies all Instances to your clipboard.",
+			Icon = RBXASSET_SH("Clipboard", "Copy@2x.png"),
+			Triggered = function()
+				copySelection(world)
+			end
+		},
+		PasteInto = {
+			Id = "PasteInto",
+			Text = "Paste Into",
+			Desc = "Pastes all copied Instances into the first currently selected Instance.",
+			Icon = RBXASSET_SH("Clipboard", "Paste@2x.png"),
+			Triggered = function()
+				pasteCopiedInstances(world)
+			end
+		},
+		CollapseAll = {
+			Id = "CollapseAll",
+			Text = "Collapse All",
+			Desc = "Collapses all expanded descendants.",
+			Icon = RBXASSET_SH("Navigation", "Collapse@2x.png"),
+			Triggered = function()
+				for _, entity in state.CurrentSelection do
+					local inst = world:get(entity, components.Instance)
+					if not inst then continue end
+					
+					for _, v in inst:GetDescendants() do
+						local child = Manager.InstanceToEntity[v]
+						if not child then continue end
+						if not Manager.isExplorerEntityExpanded(child) then continue end
+						
+						world:remove(child, components.Expanded)
+						world:remove(child, components.QueryExpanded)
+						
+						HierarchyState.invalidateEntityStateCache(child)
+						ExplorerFrame.updateCollapsedVisuals(Manager)
+					end
+					
+					world:remove(entity, components.Expanded)
+					world:remove(entity, components.QueryExpanded)
+					
+					HierarchyState.invalidateEntityStateCache(entity)
+					ExplorerFrame.updateCollapsedVisuals(Manager)
+				end
+				VirtualScroller.update(Manager, false, true)
+			end
+		},
+		HideClass = {
+			Id = "HideClass",
+			Text = "Hide Class",
+			Desc = "Hides all Instances with the ClassName of the selected Instance.",
+			Icon = RBXASSET_SH("Placeholder", "Placeholder@2x.png"),
+			Triggered = function()
+				for _, v in state.CurrentSelection do
+					local className = Manager.ClassNameCache[v]
+					if not className then continue end
+					
+					InstanceVisibilityEditor.setInvisible(className, true)
+					VirtualScroller.rebuildAndUpdate(Manager, false)
+				end
+			end
+		},
+		Delete = {
+			Id = "Delete",
+			Text = "Delete",
+			Desc = "Deletes this Instance.",
+			Icon = RBXASSET_ID(18155713435),
+			Triggered = Manager.triggerDeleteTarget
+		},
+		Escape = {
+			Id = "Escape",
+			Text = "Escape",
+			Desc = "Escapes this Instance.",
+			Icon = nil,
+			Triggered = Manager.triggerEscapeTarget
+		},
+		Duplicate = {
+			Id = "Duplicate",
+			Text = "Duplicate",
+			Desc = "Duplicates this Instance.",
+			Icon = RBXASSET_SH("Clipboard", "Duplicate@2x.png"),
+			Triggered = function()
+				(Manager.getSetting("NormalDuplicateIncrementsName")
+					and Manager.triggerDuplicateTargetWithIncrementName
+					or Manager.triggerDuplicateTarget)()
+			end
+		},
+
+		-- Version control
+		OpenVersionHistory = {
+			Id = "OpenVersionHistory",
+			Text = "Open Version History",
+			Desc = "Opens the version history viewer.",
+			Icon = RBXASSET_SH("Alerts", "Information@2x.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = world:get(target, components.Instance)
+				if not inst then return end
+				VersionControl.showInstanceHistoryWidget(inst)
+			end
+		},
+		Append = {
+			Id = "Append",
+			Text = "Append Changes",
+			Desc = "Saves pending changes made to this Instance, appends to the latest version.",
+			Icon = RBXASSET_SH("Alerts", "Success@2x.png"),
+			Triggered = function()
+				for _, entity in state.CurrentSelection do
+					local inst = world:get(entity, components.Instance) :: Instance
+					VersionControl.appendPendingChanges(inst)
+				end
+			end
+		},
+		Commit = {
+			Id = "Commit",
+			Text = "Commit Changes",
+			Desc = "Commits pending changes made to this Instance, saves as a new version.",
+			Icon = RBXASSET_SH("Alerts", "Success@2x.png"),
+			Triggered = function()
+				for _, entity in state.CurrentSelection do
+					local inst = world:get(entity, components.Instance) :: Instance
+					VersionControl.createPendingChanges(inst)
+				end
+			end
+		},
+		Discard = {
+			Id = "Discard",
+			Text = "Discard Changes",
+			Desc = "Discard pending changes made to this Instance.",
+			Icon = RBXASSET_SH("Alerts", "Error@2x.png"),
+			Triggered = function()
+				for _, entity in state.CurrentSelection do
+					local inst = world:get(entity, components.Instance) :: Instance
+					VersionControl.discardPendingChanges(inst)
+				end
+			end
+		},
+
+		-- Explorer frame
+		RemoveFromTab = {
+			Id = "RemoveFromTab",
+			Text = "Remove from Tab",
+			Desc = "Removes this instance from this tab. Can be readded via the tabs + menu",
+			Icon = nil,
+			Triggered = function()
+				local currentlyOpenTab = sharedTabState.currentlyOpenTab
+				
+				if not currentlyOpenTab then return end
+				if currentlyOpenTab == Manager.AllTab then return end
+				
+				local stored = currentlyOpenTab.Roots
+				local selection = state.CurrentSelection
+				
+				for _, ent in selection do
+					local parentTabs = world:get(ent, components.ParentTabs)
+					assert(parentTabs)
+					
+					parentTabs[currentlyOpenTab] = nil
+					world:remove(ent, components.DisplayTopLevel)
+					
+					if not world:has(ent, ChildOf(Jecs.Wildcard)) then
+						world:add(ent, components.Invisible)
+						HierarchyState.invalidateEntityStateCache(ent)
+					end
+					
+					local frame = world:get(ent, components.Frame)
+					if frame then ExplorerFrame.queueForExplorerFrameReuse(Manager, frame) end
+					
+					local idx = table.find(stored, ent)
+					if idx then table.remove(stored, idx) end
+				end
+				Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
+				Manager.DeferredTaskScheduler.ChildGraphDirty = true
+			end
+		},
+		ChangeIconColor = {
+			Id = "ChangeIconColor",
+			Text = "Change Icon Color",
+			Desc = "Prompts to change the icon color of selected Instances.",
+			Icon = RBXASSET_ID(140014181975417),
+			Triggered = function()
+				local currentColor = Color3.fromRGB(255, 255, 255)
+				local box = PluginUI.createAttributeBox(nil, "Custom Icon Color", "")
+				local chooseColorButton = PluginUI.createSideButtonImage("", Vector2.zero, Vector2.zero, box.Instance.ValueBox)
+				
+				chooseColorButton:AddTag("JEXP_Border")
+				chooseColorButton.BackgroundColor3 = currentColor
+
+				local toggleUseColor
+				local function refreshFromSelection()
+					local sel = state.CurrentSelection
+					if not sel or #sel == 0 then return end
+					local entity = sel[1]
+					local iconColor = world:get(entity, components.FrameIconColor)
+					if iconColor then
+						currentColor = iconColor
+						chooseColorButton.BackgroundColor3 = currentColor
+					end
+					local allSameEnabled = true
+					local firstEnabled = nil
+					for _, ent in sel do
+						local ic = world:get(ent, components.FrameIconColor)
+						local enabled = ic ~= nil
+						if firstEnabled == nil then
+							firstEnabled = enabled
+						elseif firstEnabled ~= enabled then
+							allSameEnabled = false
+							break
+						end
+					end
+					toggleUseColor:Set(allSameEnabled and (firstEnabled or false))
+				end
+
+				toggleUseColor = PluginUI.createCheckBox(nil, "Use Custom Icon Color", false, function(enabled)
+					if enabled then
+						for _, entity in state.CurrentSelection do
+							world:set(entity, components.FrameIconColor, currentColor)
+							local frame = world:get(entity, components.Frame)
+							if frame then ExplorerFrame.setExplorerFrameIconColor(Manager, frame, currentColor) end
+						end
+					else
+						for _, entity in state.CurrentSelection do
+							world:remove(entity, components.FrameIconColor)
+							local frame = world:get(entity, components.Frame)
+							if frame then ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil) end
+						end
+					end
+				end)
+
+				local widget, destroy = PluginUI.createPopupWidget("Change Icon Color", { box, toggleUseColor })
+				Manager.Style:Link(widget)
+
+				local picker
+				local activatedConn = chooseColorButton.Activated:Connect(function()
+					if picker then picker:Close() picker:Destroy() end
+					
+					picker = ColorPicker.new(plugin, getId("PropertyColorPicker", true))
+					picker:Show()
+					picker:Set(currentColor)
+					
+					local originalStates = {}
+					for _, entity in state.CurrentSelection do
+						originalStates[entity] = world:get(entity, components.FrameIconColor)
+					end
+					picker:BindToChange(function(newColor)
+						currentColor = newColor
+						chooseColorButton.BackgroundColor3 = newColor
+						box:SetText(`{truncate(newColor.R * 255)}, {truncate(newColor.G * 255)}, {truncate(newColor.B * 255)}`)
+						
+						for _, entity in state.CurrentSelection do
+							if originalStates[entity] ~= nil then
+								world:set(entity, components.FrameIconColor, newColor)
+								local frame = world:get(entity, components.Frame)
+								if frame then ExplorerFrame.setExplorerFrameIconColor(Manager, frame, newColor) end
+							end
+						end
+					end)
+					picker:BindToCancel(function()
+						for _, entity in state.CurrentSelection do
+							local original = originalStates[entity]
+							local frame = world:get(entity, components.Frame)
+							if original ~= nil then
+								world:set(entity, components.FrameIconColor, original)
+								if frame then ExplorerFrame.setExplorerFrameIconColor(Manager, frame, original) end
+							else
+								world:remove(entity, components.FrameIconColor)
+								if frame then ExplorerFrame.setExplorerFrameIconColor(Manager, frame, nil) end
+							end
+						end
+						currentColor = originalStates[state.CurrentSelection[1]] or currentColor
+						chooseColorButton.BackgroundColor3 = currentColor
+						picker:Close()
+						picker:Destroy()
+					end)
+					picker:BindToConfirm(function()
+						picker:Close()
+						picker:Destroy()
+					end)
+				end)
+
+				local selectionChangedConn = Selection.SelectionChanged:Connect(refreshFromSelection)
+
+				box:OnChange(function(newValue)
+					local x, y, z = xyz(newValue)
+					local color = Color3.fromRGB(asnumber(x), asnumber(y), asnumber(z))
+					currentColor = color
+					chooseColorButton.BackgroundColor3 = color
+					for _, entity in state.CurrentSelection do
+						if world:get(entity, components.FrameIconColor) ~= nil then
+							world:set(entity, components.FrameIconColor, color)
+						end
+					end
+				end)
+				refreshFromSelection()
+
+				local function cleanupUi()
+					if picker then picker:Destroy() end
+					selectionChangedConn:Disconnect()
+					activatedConn:Disconnect()
+					widget:Destroy()
+				end
+				local childConnections = connections:extend(cleanup.call, {cleanupUi})
+				widget:BindToClose(function() childConnections:free() end)
+			end
+		},
+
+		-- Misc
+		Help = {
+			Id = "Help",
+			Text = "Open Documentation",
+			Desc = "Opens the API wiki page for this Instance.",
+			Icon = RBXASSET_SH("Alerts", "Question@2x.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst then return end
+				
+				local Localization = game:GetService("LocalizationService")
+				local localeId
+				local lang = Manager.getSetting("DocumentationLanguage")
+				if lang == "Roblox" then
+					localeId = Localization.RobloxLocaleId
+				elseif lang == "System" then
+					localeId = Localization.SystemLocaleId
+				else
+					localeId = lang
+				end
+				
+				plugin:OpenWikiPage(`{localeId}/api-reference/class/{inst.ClassName}`)
+			end
+		},
+		Drag = {
+			Id = "Drag",
+			Text = "Start Dragging",
+			Desc = "Starts dragging selected Instances.",
+			Icon = nil,
+			Triggered = Manager.startDraggingSelected
+		},
+
+		-- PVInstance
+		PVInstance_FocusOn = {
+			Id = "GoToPvInstance",
+			Text = "Focus On Pivot",
+			Desc = "Teleports the Workspace.CurrentCamera to the selected PVInstance.",
+			Icon = RBXASSET_SH("Utility", "TwoArrowsToCenter@2x.png"),
+			Triggered = function(target: ExplorerEntity)
+				local part = Manager.instanceOf(target)
+				if not part then return end
+				if not part:IsA("PVInstance") then return end
+				
+				local camera = workspace.CurrentCamera
+				if not camera then return end
+				
+				local partCf = part:GetPivot()
+				local partSize
+				if part:IsA("BasePart") then
+					partSize = part.Size
+				elseif part:IsA("Model") then
+					partSize = part:GetExtentsSize()
+				else
+					error("Options exhausted for getting part size")
+				end
+				
+				local dist = partSize.Magnitude + 1
+				local camPos = partCf.Position + Vector3.new(dist * 0.6, dist * 0.4, dist * 0.6)
+				
+				camera.CFrame = CFrame.lookAt(camPos, partCf.Position)
+				camera.Focus = partCf
+			end
+		},
+
+		-- Grouping
+		GroupAsFolder = {
+			Id = "GroupAsFolder",
+			Text = "Group as Folder",
+			Desc = "Groups the selected Instances inside 1 Folder.",
+			Icon = RBXASSET_SH("InsertableObjects", "Folder.png"),
+			Triggered = function() groupAs("Folder") end
+		},
+		GroupAsModel = {
+			Id = "GroupAsModel",
+			Text = "Group as Model",
+			Desc = "Groups the selected Instances inside 1 Model.",
+			Icon = RBXASSET_SH("InsertableObjects", "Model.png"),
+			Triggered = function() groupAs("Model") end
+		},
+		Ungroup = {
+			Id = "Ungroup",
+			Text = "Ungroup",
+			Desc = "Ungroups the selected Instances.",
+			Icon = nil,
+			Triggered = function(target: ExplorerEntity)
+				local entities = {}
+				local parent = Manager.parentOf(target)
+				local targetInst = Manager.instanceOf(target)
+				
+				if not parent then return end
+				if not targetInst then return end
+				
+				local children = HierarchyState.getChildren(target)
+				if not children then return end
+				
+				recordChanges("Ungroup", function()
+					for _, child in children do
+						world:add(child, components.AncestryLocked)
+					end
+					for _, child in children do
+						local inst = Manager.instanceOf(child)
+						if not inst then continue end
+						
+						Manager.updateParent(child, parent)
+						
+						inst.Parent = Manager.instanceOf(parent)
+						table.insert(entities, child)
+					end
+					
+					targetInst.Parent = nil
+					
+					Manager.updateParent(target, nil)
+					VirtualScroller.rebuildAndUpdate(Manager, false)
+					Manager.setExplorerEntitiesAsSelection(entities, true)
+					
+					for _, child in children do
+						world:remove(child, components.AncestryLocked)
+					end
+				end)
+			end
+		},
+		ConvertInto = {
+			Id = "ConvertSelection",
+			Text = "Convert Selection",
+			Desc = "Turns selected instances into specified class.",
+			Icon = RBXASSET_SH("DraggerTools", "Scale@2x.png"),
+			Triggered = function()
+				local mousePos = state.Widget:GetRelativeMousePosition()
+				ClassSelectionMenu.menuInfo.setScope("Default")
+				ClassSelectionMenu.show(Manager, mousePos, Vector2.zero, function(class)
+					Manager.convertEntitiesInto(state.CurrentSelection, class)
+				end)
+			end
+		},
+
+		-- Part / CSG
+		Part_WeldTogether = {
+			Id = "WeldTogetherPart",
+			Text = "Weld Together",
+			Desc = "Prompts to weld all selected BaseParts to eachother.",
+			Icon = RBXASSET_SH("InsertableObjects", "WeldConstraint.png"),
+			Triggered = function()
+				local models, parts = {}, {}
+				for _, entity in state.CurrentSelection do
+					local inst = world:get(entity, components.Instance)
+					if not inst then continue end
+					if inst:IsA("Model") then
+						table.insert(models, inst)
+					elseif inst:IsA("BasePart") then
+						table.insert(parts, inst)
+					end
+				end
+				local function weldTo(primary, targets)
+					for _, part in targets do
+						if part == primary then continue end
+						local weld = Instance.new("WeldConstraint")
+						weld.Part0 = primary
+						weld.Part1 = part
+						weld.Parent = primary
+					end
+				end
+				local function getPrimaryPart(model: Model)
+					return model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+				end
+				recordChanges("Weld Together", function()
+					if #models == 1 and #parts > 0 then
+						local primary = getPrimaryPart(models[1])
+						if primary then weldTo(primary, parts)
+						else weldTo(parts[1], { table.unpack(parts, 2) }) end
+					elseif #models > 1 then
+						local primaries = {}
+						for _, model in models do
+							local primary = getPrimaryPart(model)
+							if primary then table.insert(primaries, primary) end
+						end
+						weldTo(primaries[1], { table.unpack(primaries, 2) })
+					elseif #parts > 1 then
+						weldTo(parts[1], { table.unpack(parts, 2) })
+					end
+				end)
+			end
+		},
+		Part_Union = {
+			Id = "UnionSelection",
+			Text = "Union",
+			Desc = "Performs union CSG operation on selected parts.",
+			Icon = RBXASSET_SH("InsertableObjects", "UnionOperation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst or not isInstanceCSGAble(inst) then return end
+				
+				local items = {inst}
+				
+				for _, v in Selection:Get() do
+					if v == inst then continue end
+					if not isInstanceCSGAble(v) then continue end
+					
+					table.insert(items, v)
+				end
+				recordChanges("Union", function()
+					local union = plugin:Union(items)
+					task.delay(0.1, function()
+						Selection:Set({union})
+					end)
+				end)
+			end
+		},
+		Part_Intersect = {
+			Id = "IntersectSelection",
+			Text = "Intersect",
+			Desc = "Performs intersect CSG operation on selected parts.",
+			Icon = RBXASSET_SH("InsertableObjects", "IntersectOperation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst or not isInstanceCSGAble(inst) then return end
+
+				local items = {inst}
+
+				for _, v in Selection:Get() do
+					if v == inst then continue end
+					if not isInstanceCSGAble(v) then continue end
+
+					table.insert(items, v)
+				end
+				recordChanges("Intersect", function()
+					local intersection = plugin:Intersect(items)
+					task.delay(0.1, function()
+						Selection:Set({intersection})
+					end)
+				end)
+			end
+		},
+		Part_Negate = {
+			Id = "NegateSelection",
+			Text = "Negate",
+			Desc = "Performs negate CSG operation on selected parts.",
+			Icon = RBXASSET_SH("InsertableObjects", "NegateOperation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst or not isInstanceCSGAble(inst) then return end
+
+				local items = {inst}
+
+				for _, v in Selection:Get() do
+					if v == inst then continue end
+					if not isInstanceCSGAble(v) then continue end
+
+					table.insert(items, v)
+				end
+				recordChanges("Negate", function()
+					local negations = plugin:Negate(items)
+					task.delay(0.1, function()
+						Selection:Set(negations)
+					end)
+				end)
+			end
+		},
+		Part_Subtract = {
+			Id = "SubtractSelection",
+			Text = "Subtract",
+			Desc = "Performs subtract CSG operation on selected parts.",
+			Icon = RBXASSET_SH("InsertableObjects", "NegateOperation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst or not isInstanceCSGAble(inst) then return end
+
+				local items = {}
+
+				for _, v in Selection:Get() do
+					if v == inst then continue end
+					if not isInstanceCSGAble(v) then continue end
+
+					table.insert(items, v)
+				end
+				recordChanges("Subtract", function()
+					local new = GeometryService:SubtractAsync(inst, items)
+
+					for _, v in new do
+						v.Parent = inst.Parent
+					end
+
+					inst.Parent = nil
+
+					for _, v in items do
+						v.Parent = nil
+					end
+					
+					task.delay(0.1, function()
+						Selection:Set(new)
+					end)
+				end)
+			end
+		},
+		Part_Seperate = {
+			Id = "SeperateSelection",
+			Text = "Seperate",
+			Desc = "Performs seperate CSG operation on selected parts.",
+			Icon = RBXASSET_SH("InsertableObjects", "Part.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst or not isInstanceCSGAble(inst) then return end
+
+				local items = {inst}
+
+				for _, v in Selection:Get() do
+					if v == inst then continue end
+					if not isInstanceCSGAble(v) then continue end
+
+					table.insert(items, v)
+				end
+				recordChanges("Seperate", function()
+					local seperated = plugin:Separate(items)
+					
+					task.delay(0.1, function()
+						Selection:Set(seperated)
+					end)
+				end)
+			end
+		},
+		
+		Model_ImportFbxAnim = {
+			Id = "ImportFbxAnim",
+			Text = "Import Fbx Animation Keyframes",
+			Desc = "Prompts to input an Animation Fbx asset as a KeyframeSequence.",
+			Icon = RBXASSET_SH("InsertableObjects", "Animation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst then return end
+				
+				local isR15 = false
+				local humanoid = inst:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+				end
+				
+				recordChanges("ImportFbx", function()
+					local keyframes: KeyframeSequence = plugin:ImportFbxAnimationAsync(inst, isR15)
+					keyframes.Parent = inst
+					task.delay(0.1, function()
+						Selection:Set({keyframes})
+					end)
+				end)
+			end
+		},
+		ImportAnimation = {
+			Id = "ImportAnimAsset",
+			Text = "Import Animation Asset",
+			Desc = "Prompts to import an Animation asset from Roblox.",
+			Icon = RBXASSET_SH("InsertableObjects", "Animation.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst then return end
+				
+				local id = plugin:PromptForExistingAssetIdAsync("Animation")
+				if not id then return end
+				
+				recordChanges("ImportAnimAsset", function()
+					local objects = game:GetObjects(`rbxassetid://{id}`)
+					for _, v in objects do
+						v.Parent = inst
+					end
+				end)
+			end
+		},
+		
+		LuaSourceContainer_OpenScript = {
+			Id = "OpenScript",
+			Text = "Open Script",
+			Desc = "Opens target LuaSourceContainer.",
+			Icon = RBXASSET_SH("InsertableObjects", "Script.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst then return end
+				if not inst:IsA("LuaSourceContainer") then return end
+				
+				local success, err = ScriptEditorService:OpenScriptDocumentAsync(inst)
+				if not success then
+					warn(`Could not open LuaSourceContainer '{inst}' : '{err}'`)
+				end
+			end
+		},
+		BaseScript_Toggle = {
+			Id = "ToggleScript",
+			Text = "Enable/Disable Script",
+			Desc = "Toggles .Enabled property of target LuaSourceContainer.",
+			Icon = nil,
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if not inst then return end
+				if not inst:IsA("BaseScript") then return end
+				
+				recordChanges("ToggleScript", function()
+					inst.Enabled = not inst.Enabled
+				end)
+			end
+		},
+		ExportAsObj = {
+			Id = "SaveAsObj",
+			Text = "Export as .obj...",
+			Desc = "Prompts to save selection as .obj file.",
+			Icon = RBXASSET_SH("Placeholder", "Placeholder@2x.png"),
+			Triggered = function()
+				PluginManager:ExportSelection("Object")
+			end
+		},
+	}
+	
+	instantiatePluginActions()
+	
+	local function isPureArray(t)
+		if type(t) ~= "table" then return false end
+		for k in t do
+			if type(k) ~= "number" then
+				return false
+			end
+		end
+		return true
+	end
+	
+	local function merge(t: {any}): {any}
+		local new = {}
+		for _, s in t do
+			if isPureArray(s) then
+				for _, v in s do
+					table.insert(new, v)
+				end
+			else
+				table.insert(new, s)
+			end
+		end
+		return new
+	end
+	
+	local basicActions = {
 		"Copy",
 		"PasteInto",
 		"Delete",
 		"Duplicate",
 		"Rename",
-
-		"---",
-
-		{
-			Id = "Menu.GroupAs",
-			Title = "Group As",
-			{
-				"GroupAsFolder",
-				"GroupAsModel"
-			}
-		},
-		
-		"ConvertInto",
-		"HideClass",
+	}
+	
+	local hierarchyActions = {
 		"Ungroup",
-
-		"---",
-
 		"SelectChildren",
 		"CollapseAll",
-
-		"---",
-
+	}
+	
+	local metaClassingActions = {
+		"ConvertInto",
+		"HideClass",
+	}
+	
+	local groupAsMenu = {
+		Id = "Menu.GroupAs",
+		Title = "Group As",
+		{
+			"GroupAsFolder",
+			"GroupAsModel"
+		}
+	}
+	
+	local versionControlMenu = {
+		Id = "Menu.VersionControl",
+		Title = "Version Control",
+		Icon = RBXASSET_SH("WidgetIcons", "ActivityHistory@2x.png"),
+		{
+			"OpenVersionHistory",
+			"Append",
+			"Commit",
+			"Discard"
+		}
+	}
+	
+	local importActions = {
 		"InsertFromFile",
 		"InsertObject",
+	}
+	
+	local importMenu = {
+		Id = "Menu.Import",
+		Title = "Import",
+		{
+			"ImportAnimation"
+		}
+	}
+	
+	local modelImportMenu = {
+		Id = "Menu.Import",
+		Title = "Import",
+		{
+			"ImportAnimation",
+			"Model_ImportFbxAnim"
+		}
+	}
+	
+	local exportActions = {
 		"SaveToFile",
 		"SaveToRoblox",
-		
+	}
+	
+	local exportMenu = {
+		Id = "Menu.Export",
+		Title = "Export",
 		{
-			Id = "Menu.ExportAs",
-			Title = "Export As",
-			{
-				"ExportAsObj"
-			}
-			
-		},
-
-		"---",
-		
+			"ExportAsObj"
+		}
+	}
+	
+	local explorerFrameActions = {
 		"RemoveFromTab",
 		"ChangeIconColor",
-
-		"---",
-
+	}
+	
+	local miscActions = {
 		"Help"
 	}
+	
+	
+	state.DefaultInstanceActionsArray = merge({
+		miscActions,
+		"---",
+		explorerFrameActions,
+		"---",
+		importActions,
+		exportActions,
+		importMenu,
+		exportMenu,
+		"---",
+		groupAsMenu,
+		metaClassingActions,
+		"---",
+		hierarchyActions,
+		"---",
+		basicActions,
+	})
 	
 	local instanceContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_InstanceContextMenu", true),
 		state.DefaultInstanceActionsArray
 	)
 	
-	local basePartContextMenu = Manager.createContextMenu(
-		getId("Jexplorer_BasePartContextMenu", true),
-		{
-			{
-				Id = "Menu.VersionControl",
-				Title = "Version Control",
-				{
-					"OpenVersionHistory",
-					"Append",
-					"Commit",
-					"Discard"
-				}
-			},
-
+	local baseScriptContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_ScriptContextMenu", true),
+		merge({
+			miscActions,
 			"---",
-
-			"Copy",
-			"PasteInto",
-			"Delete",
-			"Duplicate",
-			"Rename",
-
+			explorerFrameActions,
 			"---",
-
-			{
-				Id = "Menu.GroupAs",
-				Title = "Group As",
-				{
-					"GroupAsFolder",
-					"GroupAsModel"
-				}
-			},
-
-			"ConvertInto",
-			"HideClass",
-			"Ungroup",
-
+			importActions,
+			exportActions,
+			importMenu,
+			exportMenu,
 			"---",
-
-			"SelectChildren",
-			"CollapseAll",
-
+			groupAsMenu,
+			metaClassingActions,
 			"---",
-			
-			"Part_WeldTogether",
-			"Part_GoToPart",
-			
+			versionControlMenu,
+			"LuaSourceContainer_OpenScript",
+			"BaseScript_Toggle",
 			"---",
-
-			"InsertFromFile",
-			"InsertObject",
-			"SaveToFile",
-			"SaveToRoblox",
-
-			{
-				Id = "Menu.ExportAs",
-				Title = "Export As",
-				{
-					"ExportAsObj"
-				}
-
-			},
-
+			hierarchyActions,
 			"---",
-
-			"RemoveFromTab",
-			"ChangeIconColor",
-
-			"---",
-
-			"Help"
-		}
+			basicActions,
+		})
 	)
+	
+	local luaSourceContainerContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_ScriptContextMenu", true),
+		merge({
+			miscActions,
+			"---",
+			explorerFrameActions,
+			"---",
+			importActions,
+			exportActions,
+			importMenu,
+			exportMenu,
+			"---",
+			groupAsMenu,
+			metaClassingActions,
+			"---",
+			versionControlMenu,
+			"LuaSourceContainer_OpenScript",
+			"---",
+			hierarchyActions,
+			"---",
+			basicActions,
+		})
+	)
+	
+	local modelContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_ModelContextMenu", true),
+		merge({
+			miscActions,
+			"---",
+			explorerFrameActions,
+			"---",
+			importActions,
+			exportActions,
+			importMenu,
+			exportMenu,
+			"---",
+			groupAsMenu,
+			metaClassingActions,
+			"---",
+			"PVInstance_FocusOn",
+			"---",
+			hierarchyActions,
+			"---",
+			basicActions,
+		})
+	)
+	
+	local basePartContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_PartContextMenu", true),
+		merge({
+			miscActions,
+			"---",
+			explorerFrameActions,
+			"---",
+			importActions,
+			exportActions,
+			importMenu,
+			exportMenu,
+			"---",
+			groupAsMenu,
+			metaClassingActions,
+			"---",
+			"Part_WeldTogether",
+			"PVInstance_FocusOn",
+			"---",
+			hierarchyActions,
+			"---",
+			basicActions,
+		})
+	)
+	
+	local partContextMenu = Manager.createContextMenu(
+		getId("Jexplorer_PartContextMenu", true),
+		merge({
+			miscActions,
+			"---",
+			explorerFrameActions,
+			"---",
+			importActions,
+			exportActions,
+			importMenu,
+			exportMenu,
+			"---",
+			groupAsMenu,
+			metaClassingActions,
+			"---",
+			"Part_WeldTogether",
+			"PVInstance_FocusOn",
 
+			{
+				Id = "Menu.Csg",
+				Title = "CSG",
+				{
+					"Part_Union",
+					"Part_Intersect",
+					"Part_Negate",
+					"Part_Subtract",
+					"Part_Seperate"
+				}
+			},
+			"---",
+			hierarchyActions,
+			"---",
+			basicActions,
+		})
+	)
+	
 	local serviceContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ServiceContextMenu", true),
-		{
-			"PasteInto",
-			"Rename",
-
+		merge({
+			miscActions,
 			"---",
-
-			"HideClass",
-
+			explorerFrameActions,
 			"---",
-
+			importActions,
+			importMenu,
+			"---",
 			"SelectChildren",
 			"CollapseAll",
-
 			"---",
-
-			"InsertFromFile",
-			"InsertObject",
-
+			"HideClass",
 			"---",
-			
-			"RemoveFromTab",
-
-			"---",
-
-			"Help"
-		}
+			"PasteInto",
+			"Rename",
+		})
 	)
 
 	local tabMenu = Manager.createContextMenu(
@@ -3248,36 +3512,40 @@ local function initRegisterPluginMenusAndActions(
 			"Tab_EditIcon",
 		}
 	)
-
-	state.InstanceContextMenus = {
-		DefaultInstance = {
-			Menu = instanceContextMenu,
-			Condition = function(_, target)
-				local inst = world:get(target, components.Instance)
-				if not inst then return false end
-				return inst:IsA("Instance")
-			end,
-			Priority = 0
-		},
-		Service = {
-			Menu = serviceContextMenu,
-			Condition = function(_, target)
-				local inst = world:get(target, components.Instance)
-				if not inst then return false end
-				return inst.Parent == game
-			end,
-			Priority = 1
-		},
-		BasePart = {
-			Menu = basePartContextMenu,
-			Condition = function(_, target)
-				local inst = world:get(target, components.Instance)
-				if not inst then return false end
-				return inst:IsA("BasePart")
-			end,
-			Priority = 2
-		}
-	}
+	
+	local function registerMenu(menu: Types.ContextMenu, condition: (Instance) -> boolean, priority: number)
+		Manager.registerRightClickContextMenu(menu, function(_, target)
+			local inst = Manager.instanceOf(target)
+			if not inst then return false end
+			
+			return condition(inst)
+		end, priority)
+	end
+	
+	state.InstanceContextMenus = {}
+	
+	registerMenu(instanceContextMenu, function(inst)
+		return true -- This will show for all instances that arent overriden by another menu
+	end, 0)
+	registerMenu(serviceContextMenu, function(inst)
+		return inst.Parent == game
+	end, 1)
+	registerMenu(basePartContextMenu, function(inst)
+		return inst:IsA("BasePart")
+	end, 2)
+	registerMenu(partContextMenu, function(inst)
+		return inst:IsA("Part") or inst:IsA("PartOperation") or inst:IsA("WedgePart") or inst:IsA("CornerWedgePart")
+	end, 3)
+	registerMenu(modelContextMenu, function(inst)
+		return inst.ClassName == "Model"
+	end, 2)
+	registerMenu(baseScriptContextMenu, function(inst)
+		return inst:IsA("BaseScript")
+	end, 3)
+	registerMenu(luaSourceContainerContextMenu, function(inst)
+		return inst:IsA("LuaSourceContainer")
+	end, 2)
+	
 	state.MiscContextMenus = {
 		Tab = tabMenu,
 		AllTab = allTabMenu
@@ -3693,6 +3961,90 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					return true
 				end
 			end
+			
+			-- # prefix: suggest instance names
+			do
+				local partial = currentToken:match("#([^?].*)$")
+				if partial and not inValueContext then
+					local seen: {[string]: boolean} = {}
+					for entity in world:query(components.Instance):iter() do
+						local inst = world:get(entity, components.Instance)
+						if inst and not seen[inst.Name] then
+							if matchesPartial(inst.Name, partial) then
+								seen[inst.Name] = true
+								addResult("#" .. inst.Name, "#" .. inst.Name, 7)
+							end
+						end
+					end
+					return true
+				end
+			end
+
+			-- % prefix: suggest class names (exact)
+			do
+				local partial = currentToken:match("^%%([^?].*)$")
+				if partial and not inValueContext then
+					local seen: {[string]: boolean} = {}
+					for entity in world:query(components.Instance):iter() do
+						local inst = world:get(entity, components.Instance)
+						if inst and not seen[inst.ClassName] then
+							if matchesPartial(inst.ClassName, partial) then
+								seen[inst.ClassName] = true
+								addResult("%" .. inst.ClassName, "%" .. inst.ClassName, 7)
+							end
+						end
+					end
+					return true
+				end
+			end
+
+			-- %? prefix: suggest class names (fuzzy)
+			do
+				local partial = currentToken:match("^%%%?(.*)$")
+				if partial and not inValueContext then
+					local seen: {[string]: boolean} = {}
+					for entity in world:query(components.Instance):iter() do
+						local inst = world:get(entity, components.Instance)
+						if inst and not seen[inst.ClassName] then
+							if matchesPartial(inst.ClassName, partial) then
+								seen[inst.ClassName] = true
+								addResult("%?" .. inst.ClassName, "%?" .. inst.ClassName, 7)
+							end
+						end
+					end
+					return true
+				end
+			end
+
+			-- $ prefix: suggest attribute names
+			do
+				local partial = currentToken:match("^%$(.*)$")
+				if partial and not inValueContext then
+					for name, _ in Manager.QueryAttrMap do
+						if type(name) == "string" and matchesPartial(name, partial) then
+							addResult("$" .. name, "$" .. name .. " = ", 7)
+						end
+					end
+					return true
+				end
+			end
+
+			-- ! prefix: suggest completions for the negated expression
+			do
+				local partial = currentToken:match("^!(.*)$")
+				if partial and not inValueContext then
+					-- Re-run detection with the inner partial as the token,
+					-- then rewrite all inserted text to be prefixed with !
+					local savedToken = currentToken
+					local savedPrefix = prefix
+					currentToken = partial
+					prefix = prefix .. "!"
+					detectContext()
+					currentToken = savedToken
+					prefix = savedPrefix
+					return true
+				end
+			end
 
 			-- $ prefix: suggest attribute names
 			do
@@ -3720,18 +4072,22 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				local atExprStart = currentToken == ""
 					or currentToken == "*"
 					or currentToken == "#"
-				
+					or currentToken == "!"
+
 				if atExprStart and not inValueContext then
 					local prefixSymbols = {
-						{ label = "#name",   insert = "#",  priority = 6 },
-						{ label = "#?fuzzyname", insert = "#?", priority = 6 },
-						{ label = "$attr",   insert = "$",  priority = 6 },
-						{ label = ".tag",    insert = ".",  priority = 6 },
-						{ label = "@macro",  insert = "@",  priority = 6 },
-						{ label = "*<firstancestor",  insert = "*<",  priority = 6 },
+						{ label = "#name",              insert = "#",   priority = 6 },
+						{ label = "#?fuzzyname",        insert = "#?",  priority = 6 },
+						{ label = "%ClassName",         insert = "%",   priority = 6 },
+						{ label = "%?fuzzyClassName",   insert = "%?",  priority = 6 },
+						{ label = "!not",               insert = "!",   priority = 6 },
+						{ label = "$attr",              insert = "$",   priority = 6 },
+						{ label = ".tag",               insert = ".",   priority = 6 },
+						{ label = "@macro",             insert = "@",   priority = 6 },
+						{ label = "*<firstancestor",    insert = "*<",  priority = 6 },
 						{ label = "*>firstdescendant",  insert = "*>",  priority = 6 },
-						{ label = "<parent (stackable, like <<)",  insert = "<",  priority = 6 },
-						{ label = ">firstchild (stackable, like >>)",  insert = "*<",  priority = 6 },
+						{ label = "<parent (stackable, like <<)",       insert = "<",  priority = 6 },
+						{ label = ">firstchild (stackable, like >>)",  insert = ">",  priority = 6 },
 					}
 					for _, sym in prefixSymbols do
 						if matchesPartial(sym.insert, currentToken) then
@@ -3771,6 +4127,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 					end
 					task.defer(function()
 						list:Destroy()
+						triggerQueryAutocompleteSuggestions()
 					end)
 				end)
 				table.insert(buttons, button.Instance)
@@ -3880,8 +4237,14 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			ClassIcon.CachedIcons = {}
 			local sheet = Manager.Style
 			local theme = studioSettings.Theme :: StudioTheme
-
-			sheet:SetToken("BackgroundColor", theme:GetColor(Enum.StudioStyleGuideColor.MainBackground), false)
+			
+			local background = theme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
+			if getColorBrightness(background) > 0.5 then
+				Manager.CurrentTheme = "Light"
+			else
+				Manager.CurrentTheme = "Dark"
+			end
+			sheet:SetToken("BackgroundColor", background, false)
 			sheet:SetToken("TextColor", theme:GetColor(Enum.StudioStyleGuideColor.MainText), false)
 
 			topbarMenuDropdown:Destroy()
@@ -3891,6 +4254,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			for _, v in state.Tabs do
 				local iconLabel = v.IconLabel
 				iconLabel.Image = getTabImageIcon(v, iconLabel.Image)
+			end
+			
+			instantiatePluginActions()
+			for _, v in state.InstanceContextMenus do
+				v.Menu:Instantiate()
 			end
 		end),
 		jexplorerWidget.PluginDragDropped:Connect(function(dragData)
@@ -4347,9 +4715,8 @@ end
 function Manager.init(connections, jexplorerWidget)
 	local instances = connections:extend(cleanup.destroy)
 
-	local jexplorerUi = UITemplates.JexplorerUi {
-		Parent = jexplorerWidget
-	}
+	local jexplorerUi = UITemplates.JexplorerUi()
+	jexplorerUi.Parent = jexplorerWidget
 
 	TextBoundsHelper.SetProxyParent(jexplorerWidget)
 
@@ -4404,6 +4771,17 @@ function Manager.init(connections, jexplorerWidget)
 	local size = treeScroller.AbsoluteSize
 	Manager.InstTreeAbsoluteSizeY = size.Y
 	Manager.InstTreeAbsoluteSizeX = size.X
+	Manager.BindableActions = {}
+	
+	local theme = studioSettings.Theme :: StudioTheme?
+	if theme then
+		local background = theme:GetColor(Enum.StudioStyleGuideColor.MainBackground)
+		if getColorBrightness(background) > 0.5 then
+			Manager.CurrentTheme = "Light"
+		else
+			Manager.CurrentTheme = "Dark"
+		end
+	end
 	
 	if getGlobalConfigValue("reset_state") == true then
 		SavedState.save(SavedState.get_default(Manager))
@@ -4525,9 +4903,6 @@ function Manager.init(connections, jexplorerWidget)
 			for _, v in widgets do
 				v.Enabled = false
 			end
-			for _, v in Manager.PluginActions do
-				v:Destroy()
-			end
 		end,
 		function()
 			for _, v in tagRemovedSignals do
@@ -4539,7 +4914,7 @@ function Manager.init(connections, jexplorerWidget)
 			--ScriptEditorService:DeregisterScriptAnalysisCallback("JEXP_diagnostics_listener")
 		end,
 		function()
-			for _, v in Manager.PluginActions do
+			for _, v in Manager.BindableActions do
 				v:Destroy()
 			end
 		end,

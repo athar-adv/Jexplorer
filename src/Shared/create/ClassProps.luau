@@ -1,13 +1,14 @@
+
 type Source<T> = (() -> (T)) & ((newValue: T) -> ())
-type V<T> = T--T | Source<T>
+type V<T> = T?--T | Source<T>
 
 -- Base Instance type
 type Instance = {
 	Name: V<string>,
 	ClassName: V<string>,
 	Archivable: V<boolean>,
-	Parent: V<Instance?>,
-	[number]: any,
+	Parent: V<(Instance | any)?>,
+	[number]: any | string,
 }
 
 -- GuiBase2d - Base for all 2D UI elements

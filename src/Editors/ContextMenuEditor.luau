@@ -36,8 +36,8 @@ type ContextMenuConfigs = {
 			Id: string?,
 			Callback: (manager: Types.Manager, target: Types.ExplorerEntity) -> (),
 			Text: string,
-			Tooltip: string,
-			Icon: string?
+			Desc: string?,
+			Icon: (() -> string)?
 		}
 	}
 }
@@ -115,22 +115,22 @@ function ContextMenuEditor.init(Manager)
 	end)
 	
 	local defaultInstanceCtxMenus = table.clone(state.InstanceContextMenus)
-	local defaultActions = table.clone(Manager.PluginActions)
+	local defaultActionInfos = table.clone(Manager.ActionInfos)
+	local defaultActions = table.clone(Manager.BindableActions)
 	
 	local refreshDebounceThread: thread? = nil
 	local sourceChangedConn: RBXScriptConnection?
-	local stored: {Instance} = {}
+	local currentStored = connections:extend(cleanup.destroy)
 	
 	local function refresh(module: Instance)
 		if not module:IsA("ModuleScript") then return end
 		state.InstanceContextMenus = defaultInstanceCtxMenus
-		Manager.PluginActions = defaultActions
+		Manager.ActionInfos = defaultActionInfos
+		Manager.BindableActions = defaultActions
 		
-		for _, v in stored do
-			v:Destroy()
-		end
-		table.clear(stored)
-
+		currentStored:free()
+		currentStored = connections:extend(cleanup.destroy)
+		
 		if currentlyUsedModule then
 			currentlyUsedModule:Destroy()
 		end
@@ -161,23 +161,33 @@ function ContextMenuEditor.init(Manager)
 		end
 		
 		for name, info in configs.Actions do
-			local action = plugin:CreatePluginAction(
-				info.Id or `JexplorerCustomAction({tostring(os.clock())})`, info.Text, info.Tooltip, info.Icon
+			local id = info.Id or `JexplorerCustomAction({tostring(os.clock())})`
+			
+			local action = Manager.createPluginAction(
+				id, info.Text, info.Desc or "", if info.Icon then info.Icon() else nil
 			)
-			table.insert(stored, action)
-			action.Triggered:Connect(function()
-				local target = Manager.WidgetState.ContextTarget
-				if not target then return end
+			currentStored:add(action)
+			
+			local function triggered()
+				local target = Manager.takeContextTarget()
 				info.Callback(Manager, target)
-			end)
-			Manager.PluginActions[name] = action
+			end
+			
+			Manager.BindableActions[name] = action
+			Manager.ActionInfos[name] = {
+				Id = id,
+				Text = info.Text,
+				Desc = info.Desc or "",
+				Icon = info.Icon,
+				Triggered = triggered
+			}
 		end
 		for name, info in configs.Menus do
 			if typeof(info.Contents) == "function" then
 				info.Contents = info.Contents(function(defaultActionsName: string?)
 					local tbl
 					if defaultActionsName and state.InstanceContextMenus[defaultActionsName] then
-						tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.UnprocessedContents)
+						tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.Contents)
 					else
 						tbl = {}
 					end
@@ -185,9 +195,10 @@ function ContextMenuEditor.init(Manager)
 				end)
 			end
 			local newMenu = Manager.createContextMenu(PluginUI.getId(info.Id, true), info.Contents)
-			table.insert(stored, newMenu.Menu)
+			
+			currentStored:add(newMenu.Menu)
 			for _, v in newMenu.SubMenus do
-				table.insert(stored, v.Menu)
+				currentStored:add(v.Menu)
 			end
 			state.InstanceContextMenus[info.Id] = {
 				Menu = newMenu,
