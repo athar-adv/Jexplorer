@@ -13,6 +13,8 @@ local CoreGui = game:GetService("CoreGui")
 
 local VERSION = "5.5.0"
 
+plugin.Name = `cloud/plugin/Jexplorer@{VERSION}`
+
 local global = shared
 local shared = script.Shared
 local editors = script.Editors

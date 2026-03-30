@@ -182,7 +182,7 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 				plugin:Destroy()
 			end)
 			PluginUI.createButton(topbarMenuDropdown, "Insert Plugin Src", function()
-				plugin.Parent = workspace
+				Manager.Script:Clone().Parent = workspace
 			end)
 		end
 		topbarMenuDropdown.Backdrop.MouseLeave:Connect(function()

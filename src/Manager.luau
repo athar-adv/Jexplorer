@@ -2464,7 +2464,9 @@ local function initRegisterPluginMenusAndActions(
 		duplicateAction = createPluginAction(
 			"Duplicate", "Duplicate", "Duplicates this Instance."
 		)
-		duplicateAction.Triggered:Connect(Manager.triggerDuplicateTarget)
+		duplicateAction.Triggered:Connect(function()
+			(Manager.getSetting("NormalDuplicateIncrementsName") and Manager.triggerDuplicateTargetWithIncrementName or Manager.triggerDuplicateTarget)()
+		end)
 	end
 	local openVersionHistoryAction do
 		openVersionHistoryAction = createPluginAction(
