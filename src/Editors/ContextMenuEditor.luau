@@ -22,15 +22,14 @@ local init = false
 
 local ContextMenuEditor = {} :: Types.ContextMenuEditor
 
+type MenuDef = {
+	Id: string,
+	Priority: number,
+	Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
+	Contents: ((utils: ContextMenuUtils) -> {any}) | {any},
+}
 type ContextMenuConfigs = {
-	Menus: {
-		{
-			Id: string,
-			Priority: number,
-			Condition: (manager: Types.Manager, target: Types.ExplorerEntity) -> boolean,
-			Contents: {any},
-		}
-	},
+	Menus: {MenuDef},
 	Actions: {
 		[string]: {
 			Id: string?,
@@ -42,6 +41,12 @@ type ContextMenuConfigs = {
 	}
 }
 
+type ContextMenuUtils = {
+	createInterface: (defaultName: string) -> ContextMenuInterface,
+	getMenuIds: () -> {string},
+	createModifiedMenu: (menuId: string, newContents: (ContextMenuInterface) -> {any}) -> MenuDef
+}
+
 type ContextMenuInterface = {
 	GetMenuContents: () -> {any},
 	GetSubMenu: (name: string) -> ContextMenuInterface,
@@ -50,7 +55,10 @@ type ContextMenuInterface = {
 	Insert: (idx: number, v: any) -> (),
 	
 	FindAction: (name: string) -> number,
-	FindSubMenu: (name: string) -> number
+	FindSubMenu: (name: string) -> number,
+	
+	Relocate: (name: string, newIndex: number) -> (),
+	FlipOrder: () -> ()
 }
 
 local function createCtxMenuInterface(actions: any): ContextMenuInterface
@@ -64,6 +72,20 @@ local function createCtxMenuInterface(actions: any): ContextMenuInterface
 				return createCtxMenuInterface(v[1])
 			end
 			error(`SubMenu '{name}' not found`)
+		end,
+		Relocate = function(name, newIndex)
+			local idx = table.find(actions, name)
+			if idx then
+				table.remove(actions, idx)
+			end
+			table.insert(actions, newIndex, name)
+		end,
+		FlipOrder = function()
+			local reversed = {}
+			for i = #actions, 1, -1 do
+				table.insert(reversed, actions[i])
+			end
+			actions = reversed
 		end,
 		
 		Remove = function(idx)
@@ -122,6 +144,51 @@ function ContextMenuEditor.init(Manager)
 	local sourceChangedConn: RBXScriptConnection?
 	local currentStored = connections:extend(cleanup.destroy)
 	
+	local function getCtxMenuInterface(defaultActionsName: string?)
+		local tbl
+		if defaultActionsName and state.InstanceContextMenus[defaultActionsName] then
+			tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.Contents)
+		else
+			tbl = {}
+		end
+		return createCtxMenuInterface(tbl)
+	end
+	
+	local utils: ContextMenuUtils = {
+		createInterface = function(defaultActionsName: string?)
+			local tbl
+			if defaultActionsName and state.InstanceContextMenus[defaultActionsName] then
+				tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.Contents)
+			else
+				tbl = {}
+			end
+			return createCtxMenuInterface(tbl)
+		end,
+		getMenuIds = function()
+			local ids = {}
+			for name in state.InstanceContextMenus do
+				table.insert(ids, name)
+			end
+			return ids
+		end,
+		createModifiedMenu = function(menuId, newContents)
+			local menuInfo = assert(state.InstanceContextMenus[menuId], `{menuId} is not an existing menu, cant create modified one.`)
+			local contents = newContents(createCtxMenuInterface(menuInfo.Menu.Contents))
+			local menu = Manager.createContextMenu(
+				PluginUI.getId(menuId, true), contents
+			)
+			
+			return {
+				Id = menuId,
+				Priority = menuInfo.Priority,
+				Condition = function(manager, target)
+					return menuInfo.Condition(manager, target, assert(Manager.instanceOf(target)))
+				end,
+				Contents = contents
+			}
+		end,
+	}
+	
 	local function refresh(module: Instance)
 		if not module:IsA("ModuleScript") then return end
 		state.InstanceContextMenus = defaultInstanceCtxMenus
@@ -149,11 +216,11 @@ function ContextMenuEditor.init(Manager)
 				refreshDebounceThread = nil
 			end)
 		end)
-
-		local returnval: ContextMenuConfigs | (Plugin, Types.Manager, {any}) -> ContextMenuConfigs = (require::any)(clone)
-		local configs
+		
+		local returnval: ContextMenuConfigs | (Plugin, Types.Manager, ContextMenuUtils, {any}) -> ContextMenuConfigs = (require::any)(clone)
+		local configs: ContextMenuConfigs
 		if type(returnval) == "function" then
-			configs = returnval(plugin, Manager, table.clone(state.DefaultInstanceActionsArray))
+			configs = returnval(plugin, Manager, utils, table.clone(state.DefaultInstanceActionsArray))
 		elseif type(returnval) == "table" then
 			configs = returnval
 		else
@@ -183,18 +250,13 @@ function ContextMenuEditor.init(Manager)
 			}
 		end
 		for name, info in configs.Menus do
+			local contents
 			if typeof(info.Contents) == "function" then
-				info.Contents = info.Contents(function(defaultActionsName: string?)
-					local tbl
-					if defaultActionsName and state.InstanceContextMenus[defaultActionsName] then
-						tbl = table.clone(state.InstanceContextMenus[defaultActionsName].Menu.Contents)
-					else
-						tbl = {}
-					end
-					return createCtxMenuInterface(tbl)
-				end)
+				contents = info.Contents(utils)
+			else
+				contents = info.Contents
 			end
-			local newMenu = Manager.createContextMenu(PluginUI.getId(info.Id, true), info.Contents)
+			local newMenu = Manager.createContextMenu(PluginUI.getId(info.Id, true), contents)
 			
 			currentStored:add(newMenu.Menu)
 			for _, v in newMenu.SubMenus do

@@ -318,6 +318,12 @@ export type Components = {
 	ParentTabs: Jecs.Component<{[Tab]: boolean}>,
 }
 
+export type ContextMenuInfo = {
+	Menu: ContextMenu,
+	Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean,
+	Priority: number
+}
+
 export type WidgetState = {
 	World: World,
 	QueryWorld: World,
@@ -343,7 +349,7 @@ export type WidgetState = {
 
 	JExplorerUI: UITEMPLATE_JExplorerUi,
 	DefaultInstanceActionsArray: {any},
-	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
+	InstanceContextMenus: {[string]: ContextMenuInfo},
 	MiscContextMenus: {[string]: ContextMenu},
 	OverridePathBarText: string?,
 	Enabled: boolean
@@ -557,7 +563,7 @@ export type Manager = {
 	triggerEscapeTarget: () -> (),
 
 	createContextMenu: (id: string, contents: {any}, title: string?, icon: (() -> string)?) -> ContextMenu,
-	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
+	registerRightClickContextMenu: (menuId: string, menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
 
 	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, ExplorerEntity?, Tab?),
 
@@ -607,7 +613,7 @@ export type Manager = {
 	insertClassInto: (entity: ExplorerEntity, class: string) -> Instance?,
 	
 	jumpCanvasTo: (x: number?, y: number?, epsilon: number?) -> (),
-
+	
 	saveState: () -> {
 		save: () -> (),
 		all: () -> (),
