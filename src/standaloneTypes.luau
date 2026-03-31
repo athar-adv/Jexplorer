@@ -1,18 +1,204 @@
 --!strict
 
-local main = script.Parent
+-- Jecs Definitions
 
-local shared = main.Shared
+type i53 = number
+type i24 = number
 
-local PluginUI = require(shared.PluginUI)
-local Style = require(shared.Style)
-local GitAPI = require(shared.GitAPI)
+type Ty = { Entity }
+type ArchetypeId = number
 
-local ItemGroup = require(shared.Vendor.ItemGroup)
-local SimpleSignal = require(shared.Vendor.SimpleSignal)
-local ColorPicker = require(shared.Vendor.PluginColorPicker)
+type Column = { any }
 
-local Jecs = require(main.Jecs)
+type Map<K, V> = { [K]: V }
+
+export type Archetype = {
+	id: number,
+	types: Ty,
+	type: string,
+	entities: { Entity },
+	columns: { Column },
+	columns_map: { [Component]: Column }
+}
+
+export type QueryInner = {
+	compatible_archetypes: { Archetype },
+	archetypes_map: { [number]: number },
+	ids: { Component },
+	filter_with: { Component },
+	filter_without: { Component },
+	next: () -> (Entity, ...any),
+	-- world: World,
+}
+
+export type Entity<T = any> ={ __T: T }
+export type Component<T = any> ={ __T: T }
+export type Id<T = any> = { __T: T }
+export type Pair<P, O> = Id<P>
+type ecs_id_t<T = unknown> = Id<T> | Entity<T> | Pair<T, "Tag"> | Pair<"Tag", T>
+type ecs_entity_t<T = unknown> = Id<T> | Entity<T> | Pair<T, "Tag"> | Pair<"Tag", T>
+export type Item<T...> = (self: Query<T...>) -> (Entity, T...)
+export type Iter<T...> = (query: Query<T...>) -> () -> (Entity, T...)
+
+export type Cached_Query_Iter<T...> = (query: Cached_Query<T...>) -> () -> (Entity, T...)
+
+type TypePack<T...> = (T...) -> never
+
+export type Cached_Query<T...> = typeof(setmetatable(
+	{} :: {
+		iter: Cached_Query_Iter<T...>,
+		archetypes: (Cached_Query<T...>, override: boolean?) -> { Archetype },
+		has: (Cached_Query<T...>, Entity) -> boolean,
+		fini: (Cached_Query<T...>) -> (),
+
+		ids: { Id<any> },
+		filter_with: { Id<any> }?,
+		filter_without: { Id<any> }?,
+		archetypes_map: { [number]: number },
+		-- world: World
+	},
+	{} :: {
+		__iter: Cached_Query_Iter<T...>,
+	})
+)
+
+export type Query<T...> = typeof(setmetatable(
+	{} :: {
+		iter: Iter<T...>,
+		with: ((Query<T...>, ...Component) -> Query<T...>),
+		without: ((Query<T...>, ...Component) -> Query<T...>),
+		archetypes: (Query<T...>) -> { Archetype },
+		cached: (Query<T...>) -> Cached_Query<T...>,
+		has: (Query<T...>, Entity) -> boolean,
+		ids: { Id<any> },
+		filter_with: { Id<any> }?,
+		filter_without: { Id<any> }?,
+		-- world: World
+	},
+	{} :: {
+		__iter: Iter<T...>,
+	}
+	))
+
+type QueryArm<T...> = () -> ()
+
+export type Observer = {
+	callback: (archetype: Archetype) -> (),
+	query: QueryInner,
+}
+
+export type World = {
+	archetype_edges: Map<number, Map<Entity, Archetype>>,
+	archetype_index: { [string]: Archetype },
+	ROOT_ARCHETYPE: Archetype,
+
+	max_component_id: number,
+	max_archetype_id: number,
+
+	observable: Map<Component, Map<Component, { Observer }>>,
+
+	added: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+	removed: <T>(World, Component<T>, (e: Entity, id: Id<T>, delete: boolean?) -> ()) -> () -> (),
+	changed: <T>(World, Component<T>, (e: Entity, id: Id<T>, value: T, oldarchetype: Archetype) -> ()) -> () -> (),
+
+	--- Enforce a check on entities to be created within desired range
+	range: (self: World, range_begin: number, range_end: number?) -> (),
+
+	--- Creates a new entity
+	entity:
+		& ((self: World) -> Entity<nil>)
+	& ((self: World, id: Entity) -> Entity)
+	& ((self: World, id: number) -> Entity)
+	& (<T>(self: World, id: Component<T>) -> Component<T>),
+	--- Creates a new entity located in the first 256 ids.
+	--- These should be used for static components for fast access.
+	component: <T>(self: World) -> Entity<T>,
+
+	--- Gets the target of an relationship. For example, when a user calls
+	--- `world:target(id, ChildOf(parent), 0)`, you will obtain the parent entity.
+	target: <T, a>(
+		self: World,
+		id: Entity<T> | number,
+		relation: Component,
+		index: number?
+	) -> Entity<unknown>?,
+
+	--- Deletes an entity and all it's related components and relationships.
+	delete: <T>(self: World, id: Entity<T>) -> (),
+
+	--- Adds a component to the entity with no value
+	add: <a>(
+		self: World,
+		id: Entity<any>,
+		component: Component<a>
+	) -> (),
+
+	--- Assigns a value to a component on the given entity
+	set: <T, a>(self: World, id: Entity<T>, component: Component<a>, data: a) -> (),
+
+	cleanup: (self: World) -> (),
+
+	-- Removes all components from the entity
+	clear: (self: World, entity: Entity) -> (),
+	--- Removes a component from the given entity
+	remove: <T, a>(self: World, id: Entity<T>, component: Component<a>) -> (),
+	--- Retrieves the value of up to 4 components. These values may be nil.
+	get: & (<T, a>(World, Entity<T> | number, Component<a>) -> a?)
+	& (<T, a, b>(World, Entity<T> | number, Component<a>, Component<b>) -> (a?, b?))
+	& (<T, a, b, c>(World, Entity<T> | number, Component<a>, Component<b>, Component<c>) -> (a?, b?, c?))
+	& (<T, a, b, c, d>(World, Entity<T> | number, Component<a>, Component<b>, Component<c>, Component<d>) -> (a?, b?, c?, d?)),
+
+	--- Returns whether the entity has the ID.
+	has: (<T, a>(World, Entity<T>, Component<a>) -> boolean)
+	& (<T, a, b>(World, Entity<T>, Component<a>, Component<a>) -> boolean)
+	& (<T, a, b, c>(World, Entity<T>, Component<a>, Component<b>, Component<c>) -> boolean)
+	& <T, a, b, c, d>(World, Entity<T>, Component<a>, Component<b>, Component<c>, Component<d>) -> boolean,
+
+	--- Get parent (target of ChildOf relationship) for entity. If there is no ChildOf relationship pair, it will return nil.
+	parent: <T>(self: World, entity: Entity<T>) -> Entity?,
+
+	--- Checks if the world contains the given entity
+	contains: <T>(self: World, entity: Entity<T>) -> boolean,
+
+	--- Checks if the entity exists
+	exists: <T>(self: World, entity: Entity<T>) -> boolean,
+
+	each: <T>(self: World, id: Id<T>) -> () -> Entity,
+
+	children: <T>(self: World, id: Id<T>) -> () -> Entity,
+
+	--- Searches the world for entities that match a given query
+	query: ((World) -> Query<nil>)
+	& (<A>(World, Component<A>) -> Query<A>)
+	& (<A, B>(World, Component<A>, Component<B>) -> Query<A, B>)
+	& (<A, B, C>(World, Component<A>, Component<B>, Component<C>) -> Query<A, B, C>)
+	& (<A, B, C, D>(World, Component<A>, Component<B>, Component<C>, Component<D>) -> Query<A, B, C, D>)
+	& (<A, B, C, D, E>(World, Component<A>, Component<B>, Component<C>, Component<D>, Component<E>) -> Query<A, B, C, D, E>)
+	& (<A, B, C, D, E, F>(World, Component<A>, Component<B>, Component<C>, Component<D>, Component<E>, Component<F>) -> Query<A, B, C, D, E, F>)
+	& (<A, B, C, D, E, F, G>(
+		World,
+		Component<A>,
+		Component<B>,
+		Component<C>,
+		Component<D>,
+		Component<E>,
+		Component<F>,
+		Component<G>
+		) -> Query<A, B, C, D, E, F, G>)
+	& (<A, B, C, D, E, F, G, H>(
+		World,
+		Component<A>,
+		Component<B>,
+		Component<C>,
+		Component<D>,
+		Component<E>,
+		Component<F>,
+		Component<G>,
+		Component<H>,
+		...Component<any>
+		) -> Query<A, B, C, D, E, F, G, H>),
+}
+
 
 -- UI definitions
 
@@ -165,8 +351,8 @@ export type VisibleViewportInfo = {
 	viewportTop: number,
 	visibleSet: {[ExplorerEntity]: boolean}
 }
-export type ItemGroup<T=any> = ItemGroup.ItemGroup<T>
-type Signal<T... = ()> = SimpleSignal.SimpleSignal<T...>
+export type ItemGroup<T=any> = any
+type Signal<T... = ()> = any
 export type DragInfo_SetInstTypeProperty = {
 	-- Set instance type properties
 	Type: "setproperty",
@@ -212,7 +398,7 @@ export type ContextMenuUtils = {
 	createInterface: (defaultName: string) -> ContextMenuInterface,
 	getMenuIds: () -> {string},
 	createModifiedMenu: (menuId: string, newContents: (ContextMenuInterface) -> {any}) -> MenuDef,
-	
+
 	createSubMenu: (id: string, title: string, icon: any?, content: {any}) -> any,
 	createSection: (sectionName: string) -> any,
 }
@@ -229,7 +415,7 @@ export type ContextMenuInterface = {
 
 	relocate: (name: string, newIndex: number) -> (),
 	flipOrder: () -> (),
-	
+
 	getSection: (sectionName: string) -> (number, number),
 	addSection: (idx: number, sectionName: string, content: {any}) -> (),
 }
@@ -239,7 +425,6 @@ export type ContextMenu = {
 	Contents: {any},
 	Id: string,
 	Actions: {PluginAction},
-	Sections: {[string]: number}, -- {[SectionName]: MaxIndex}
 	
 	ShowAsync: (self: ContextMenu, targetOverride: any?) -> (),
 	Instantiate: (self: ContextMenu) -> ()
@@ -280,7 +465,7 @@ export type RepoProxy = {
 --	ToggleSelection: (InstanceFrame, selected: boolean) -> (),
 --	Reuse: (InstanceFrame) -> ()
 --}
-export type ExplorerFrame = Jecs.Id
+export type ExplorerFrame = Id
 export type PropertyItem = {
 	name: string,
 	type: ReflectionType,
@@ -288,9 +473,8 @@ export type PropertyItem = {
 	readable: boolean
 }
 
-export type World = Jecs.World
-export type ExplorerEntity = Jecs.Id
-export type QueryEntity = Jecs.Id
+export type ExplorerEntity = Id
+export type QueryEntity = Id
 export type FrameState = {
 	isLMBActive: boolean,
 	tagsToRemove: {string},
@@ -325,50 +509,50 @@ export type FrameState = {
 }
 
 export type Components = {
-	Selected: Jecs.Component,
-	Expanded: Jecs.Component,
-	AncestryLocked: Jecs.Component,
-	ArrowInvisible: Jecs.Component,
-	QueryAncestor: Jecs.Component,
-	QueryExpanded: Jecs.Component,
-	QueryInvisible: Jecs.Component,
-	Invisible: Jecs.Component,
-	IsQueried: Jecs.Component,
-	PendingChanges: Jecs.Component,
-	Deleted: Jecs.Component,
-	DisplayTopLevel: Jecs.Component,
-	HasPackageLink: Jecs.Component,
-	HasSideIcons: Jecs.Component,
+	Selected: Component,
+	Expanded: Component,
+	AncestryLocked: Component,
+	ArrowInvisible: Component,
+	QueryAncestor: Component,
+	QueryExpanded: Component,
+	QueryInvisible: Component,
+	Invisible: Component,
+	IsQueried: Component,
+	PendingChanges: Component,
+	Deleted: Component,
+	DisplayTopLevel: Component,
+	HasPackageLink: Component,
+	HasSideIcons: Component,
 
-	CleanupTicket: Jecs.Component<{}>,
-	DeletionTicket: Jecs.Component<{}>,
-	ChildAddedTicket: Jecs.Component<{children: {Instance}}>,
-	ChildMovedTicket: Jecs.Component<{children: {Instance}}>,
-	CreationTicket: Jecs.Component<{children: {Instance}}>,
-	PropAssignTicket: Jecs.Component<{ty: "virtual" | "instance"}>,
+	CleanupTicket: Component<{}>,
+	DeletionTicket: Component<{}>,
+	ChildAddedTicket: Component<{children: {Instance}}>,
+	ChildMovedTicket: Component<{children: {Instance}}>,
+	CreationTicket: Component<{children: {Instance}}>,
+	PropAssignTicket: Component<{ty: "virtual" | "instance"}>,
 
-	FrameReuseTicket: Jecs.Component<{frame: ExplorerFrame}>,
-	FrameTagAssignTicket: Jecs.Component<{frame: ExplorerFrame}>,
+	FrameReuseTicket: Component<{frame: ExplorerFrame}>,
+	FrameTagAssignTicket: Component<{frame: ExplorerFrame}>,
 
-	FRAMEWORLD_FrameSetParentTicket: Jecs.Component<{newParent: Instance?}>,
-	FRAMEWORLD_Main: Jecs.Component<UITEMPLATE_InstanceFrame_Main>,
-	FRAMEWORLD_CurrentParent: Jecs.Component<Instance>,
-	FRAMEWORLD_Ruler: Jecs.Component<GuiObject>,
-	FRAMEWORLD_IsSticky: Jecs.Component,
-	QUERYWORLD_ComponentHash: Jecs.Component<string>,
+	FRAMEWORLD_FrameSetParentTicket: Component<{newParent: Instance?}>,
+	FRAMEWORLD_Main: Component<UITEMPLATE_InstanceFrame_Main>,
+	FRAMEWORLD_CurrentParent: Component<Instance>,
+	FRAMEWORLD_Ruler: Component<GuiObject>,
+	FRAMEWORLD_IsSticky: Component,
+	QUERYWORLD_ComponentHash: Component<string>,
 
-	Instance: Jecs.Component<Instance>,
-	Frame: Jecs.Component<ExplorerFrame>,
-	Entity: Jecs.Component<ExplorerEntity>,
-	FrameState: Jecs.Component<FrameState>,
-	FrameIconColor: Jecs.Component<Color3>,
+	Instance: Component<Instance>,
+	Frame: Component<ExplorerFrame>,
+	Entity: Component<ExplorerEntity>,
+	FrameState: Component<FrameState>,
+	FrameIconColor: Component<Color3>,
 
-	Connections: Jecs.Component<ItemGroup<RBXScriptConnection>>,
-	ScriptErrors: Jecs.Component<{string}>,
-	ScriptWarns: Jecs.Component<{string}>,
-	QueryLinkedEntities: Jecs.Component<{ExplorerEntity}>,
-	LinkedQueryEntity: Jecs.Component<QueryEntity>,
-	ParentTabs: Jecs.Component<{[Tab]: boolean}>,
+	Connections: Component<ItemGroup<RBXScriptConnection>>,
+	ScriptErrors: Component<{string}>,
+	ScriptWarns: Component<{string}>,
+	QueryLinkedEntities: Component<{ExplorerEntity}>,
+	LinkedQueryEntity: Component<QueryEntity>,
+	ParentTabs: Component<{[Tab]: boolean}>,
 }
 
 export type ContextMenuInfo = {
@@ -444,13 +628,13 @@ export type HierarchyState = {
 		Name: string,
 		ChildAmount: number,
 		ClassIcon: StudioIconResult,
-		PropTags: {Jecs.Id},
+		PropTags: {Id},
 		Parent: ExplorerEntity?
 	}, extra: {[string]: any}) -> ExplorerEntity,
 	createInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
 
 	deregisterFromQueryWorld: (Manager, entity: ExplorerEntity) -> (),
-	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, tags: {Jecs.Id}, attributes: {Jecs.Id}) -> (),
+	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, tags: {Id}, attributes: {Id}) -> (),
 
 	updateEntityOrder: (Manager, entity: ExplorerEntity) -> (),
 	getChildren: (ExplorerEntity) -> {ExplorerEntity},
@@ -499,7 +683,7 @@ export type buttonItem = {
 export type ClassSelectionMenuInfo = {
 	currentOnSelectCallback: ((class: string) -> ())?,
 	currentInsertTarget: number,
-	classSelectList: PluginUI.ItemList,
+	classSelectList: any,
 	currentVisibleButtons: {buttonItem},
 	searchbar: TextBox,
 	highlightFrame: Frame,
@@ -540,7 +724,7 @@ export type ActionInfos = {[string]: {
 }}
 
 export type Manager = {
-	CleanupFns: typeof(ItemGroup.cleanup),
+	CleanupFns: {[string]: any},
 	WidgetState: WidgetState,
 	TabState: SharedTabState,
 	Components: Components,
@@ -560,9 +744,9 @@ export type Manager = {
 	InstTreeAbsoluteSizeY: number,
 	InstTreeAbsoluteSizeX: number,
 
-	QueryTagMap: {[string]: Jecs.Id},
-	QueryCtMap: {[string]: Jecs.Id},
-	QueryAttrMap: {[string]: Jecs.Id},
+	QueryTagMap: {[string]: Id},
+	QueryCtMap: {[string]: Id},
+	QueryAttrMap: {[string]: Id},
 	AttributeUsageAmounts: {[string]: number},
 
 	Script: Instance,
@@ -577,9 +761,9 @@ export type Manager = {
 	BindableActions: {[string]: PluginAction},
 	
 	ItemLists: {
-		InsertInstance: PluginUI.ItemList
+		InsertInstance: any
 	},
-	Style: Style.Style,
+	Style: any,
 	AllTab: Tab,
 
 	InstanceToEntity: {[Instance]: ExplorerEntity},
@@ -609,7 +793,7 @@ export type Manager = {
 
 	registerTab: (name: string, icon: string, roots: {ExplorerEntity}, registerIntoTabsArray: boolean) -> Tab,
 
-	getPropertyTag: (world: World, propName: string) -> Jecs.Id,
+	getPropertyTag: (world: World, propName: string) -> Id,
 
 	triggerDuplicateTarget: () -> (),
 	triggerDuplicateTargetWithIncrementName: () -> (),
@@ -617,7 +801,7 @@ export type Manager = {
 	triggerEscapeTarget: () -> (),
 
 	createContextMenu: (id: string, contents: {any}, title: string?, icon: (() -> string)?) -> ContextMenu,
-	registerRightClickContextMenu: (menuId: string, menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity, inst: Instance) -> boolean, priority: number) -> (),
+	registerRightClickContextMenu: (menuId: string, menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
 
 	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, ExplorerEntity?, Tab?),
 
@@ -638,7 +822,7 @@ export type Manager = {
 	isExplorerEntityDeleted: (entity: ExplorerEntity) -> boolean,
 	isExplorerEntityExpanded: (entity: ExplorerEntity) -> boolean,
 
-	getPropertyComponentsForClass: (World, class: string) -> {Jecs.Id},
+	getPropertyComponentsForClass: (World, class: string) -> {Id},
 
 	isInstanceExcluded: (inst: Instance) -> boolean,
 
@@ -649,12 +833,12 @@ export type Manager = {
 	addExplorerEntitiesToSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 	setExplorerEntitiesAsSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 
-	refreshQueryTags: (entity: ExplorerEntity, tagEnt: Jecs.Id?) -> (),
-	refreshQueryAttributes: (entity: ExplorerEntity, attrEnt: Jecs.Id?) -> (),
+	refreshQueryTags: (entity: ExplorerEntity, tagEnt: Id?) -> (),
+	refreshQueryAttributes: (entity: ExplorerEntity, attrEnt: Id?) -> (),
 
 	startDraggingSelected: () -> (),
 
-	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,
+	ChildOf: (ent: ExplorerEntity) -> Pair<Id, ExplorerEntity>,
 
 	init: (connections: ItemGroup<RBXScriptConnection>, widget: DockWidgetPluginGui) -> (),
 
@@ -682,7 +866,7 @@ export type Manager = {
 	},
 	loadState: (state: SavedState) -> ({
 		icon_colors: () -> (),
-		style: () -> Style.Style,
+		style: () -> any,
 		versions: () -> {
 			[Instance]: {
 				{
@@ -714,7 +898,7 @@ export type SettingEditor = Editor & {
 
 	getSetting: (Manager: Manager, name: string) -> any,
 	setSetting: (Manager: Manager, name: string, value: any) -> (),
-	createSetting: (list: PluginUI.ItemList, settingName: string, displayName: string, valueType: string, defaultValue: any, onChange: ((newValue: any) -> ())?) -> (),
+	createSetting: (list: any, settingName: string, displayName: string, valueType: string, defaultValue: any, onChange: ((newValue: any) -> ())?) -> (),
 }
 
 export type OrderEditor = Editor & {
@@ -725,15 +909,15 @@ export type OrderEditor = Editor & {
 
 export type VersionControl = Editor & {
 	InstanceHistoryWidget: DockWidgetPluginGui,
-	InstanceHistoryUIList: PluginUI.ItemList,
+	InstanceHistoryUIList: any,
 
 	VersionViewerWidget: DockWidgetPluginGui,
-	VersionViewerUIList: PluginUI.ItemList,
+	VersionViewerUIList: any,
 
 	SourceViewerWidget: DockWidgetPluginGui,
 	SourceViewerMainframe: UITEMPLATE_EditorFrame,
 
-	Token: GitAPI.LuaSecret?,
+	Token: any?,
 	RepoId: string,
 	Versions: {
 		[Instance]: {
@@ -771,7 +955,7 @@ export type InstanceVisibilityEditor = Editor & {
 }
 
 export type PropertyEditor = Editor & {
-	PropertyList: PluginUI.ItemList,
+	PropertyList: any,
 
 	CurrentSetNilTarget: {instances: {Instance}, name: string}?,
 	SetNilMenu: PluginMenu,

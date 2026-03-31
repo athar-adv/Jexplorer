@@ -507,6 +507,17 @@ local function findOrCreateInstance(parent: Instance, name: string, classIfNotFo
 	return new
 end
 
+local function replaceOrCreateInstance(parent: Instance, name: string, template: Instance)
+	local child = parent:FindFirstChild(name)
+	if child then
+		child:Destroy()
+	end
+	local new = template:Clone()
+	new.Name = name
+	new.Parent = parent
+	return new
+end
+
 local function findOrCreateInstanceWithTag(parent: Instance, tag: string, classIfNotFound: string)
 	local child = game:QueryDescendants(`.{tag}`)
 	if child[1] then return child[1] end
@@ -1334,33 +1345,46 @@ local function ContextMenu_Instantiate(self: Types.ContextMenu)
 		v.Menu:Destroy()
 	end
 	
+	table.clear(self.Sections)
 	local menu = self.Menu
 	menu:Clear()
 	
-	for _, name: any in self.Contents do
+	local currentSection: string? = nil
+	for i, name: any in self.Contents do
 		if name == "---" then
 			menu:AddSeparator()
 			continue
 		end
 		-- Submenu case
 		if typeof(name) == "table" then
-			assert(name.Id, "submenu must contain id")
-			assert(name.Title, "submenu must contain title")
-			assert(name[1], "submenu must contain actions")
-			local submenu = Manager.createContextMenu(
-				getId(name.Id, true), name[1], name.Title, name.Icon
-			)
-			menu:AddMenu(submenu.Menu)
-			
-			table.insert(submenus, submenu)
-			continue
-		end
-		
+			if name.SectionName then
+				if currentSection then
+					self.Sections[currentSection] = i - 1
+					menu:AddSeparator()
+				end
+				currentSection = name.SectionName
+				continue
+			else
+				assert(name.Id, "submenu must contain id")
+				assert(name.Title, "submenu must contain title")
+				assert(name[1], "submenu must contain actions")
+				local submenu = Manager.createContextMenu(
+					getId(name.Id, true), name[1], name.Title, name.Icon
+				)
+				menu:AddMenu(submenu.Menu)
+
+				table.insert(submenus, submenu)
+				continue
+			end
+		end		
 		local action = Manager.BindableActions[name]
 		assert(action, `PluginAction '{name}' not found for context menu creation. Has it been instantiated?`)
 
 		menu:AddAction(action)
 		table.insert(actionMap, action)
+	end
+	if currentSection then
+		self.Sections[currentSection] = #self.Contents
 	end
 	self.SubMenus = submenus
 	self.Actions = actionMap
@@ -1375,6 +1399,7 @@ function Manager.createContextMenu(id, actions, title, icon)
 		Menu = menu,
 		Id = id,
 		Contents = table.clone(actions),
+		Sections = {},
 		
 		ShowAsync = ContextMenu_ShowAsync,
 		Instantiate = ContextMenu_Instantiate
@@ -3233,6 +3258,15 @@ local function initRegisterPluginMenusAndActions(
 		return new
 	end
 	
+	local function subMenu(id: string, title: string, icon: any?, content: {any})
+		return {
+			Id = id,
+			Title = title,
+			Icon = icon,
+			content
+		}
+	end
+	
 	local basicActions = {
 		"Copy",
 		"PasteInto",
@@ -3252,61 +3286,40 @@ local function initRegisterPluginMenusAndActions(
 		"HideClass",
 	}
 	
-	local groupAsMenu = {
-		Id = "Menu.GroupAs",
-		Title = "Group As",
-		{
-			"GroupAsFolder",
-			"GroupAsModel"
-		}
-	}
+	local groupAsMenu = subMenu("Menu.GroupAs", "Group As", nil, {
+		"GroupAsFolder",
+		"GroupAsModel"
+	})
 	
-	local versionControlMenu = {
-		Id = "Menu.VersionControl",
-		Title = "Version Control",
-		Icon = RBXASSET_SH("WidgetIcons", "ActivityHistory@2x.png"),
-		{
-			"OpenVersionHistory",
-			"Append",
-			"Commit",
-			"Discard"
-		}
-	}
+	local versionControlMenu = subMenu("Menu.VersionControl", "Version Control", RBXASSET_SH("WidgetIcons", "ActivityHistory@2x.png"), {
+		"OpenVersionHistory",
+		"Append",
+		"Commit",
+		"Discard"
+	})
 	
 	local importActions = {
 		"InsertFromFile",
 		"InsertObject",
 	}
 	
-	local importMenu = {
-		Id = "Menu.Import",
-		Title = "Import",
-		{
-			"ImportAnimation"
-		}
-	}
+	local importMenu = subMenu("Menu.Import", "Import", nil, {
+		"ImportAnimation"
+	})
 	
-	local modelImportMenu = {
-		Id = "Menu.Import",
-		Title = "Import",
-		{
-			"ImportAnimation",
-			"Model_ImportFbxAnim"
-		}
-	}
+	local modelImportMenu = subMenu("Menu.Import", "Import", nil, {
+		"ImportAnimation",
+		"Model_ImportFbxAnim"
+	})
 	
 	local exportActions = {
 		"SaveToFile",
 		"SaveToRoblox",
 	}
 	
-	local exportMenu = {
-		Id = "Menu.Export",
-		Title = "Export",
-		{
-			"ExportAsObj"
-		}
-	}
+	local exportMenu = subMenu("Menu.Export", "Export", nil, {
+		"ExportAsObj"
+	})
 	
 	local explorerFrameActions = {
 		"RemoveFromTab",
@@ -3317,23 +3330,32 @@ local function initRegisterPluginMenusAndActions(
 		"Help"
 	}
 	
+	local function section(name: string)
+		return {SectionName = name}
+	end
 	
 	state.DefaultInstanceActionsArray = merge({
-		basicActions,
-		"---",
-		hierarchyActions,
-		"---",
-		metaClassingActions,
-		groupAsMenu,
-		"---",
-		exportMenu,
-		importMenu,
-		exportActions,
-		importActions,
-		"---",
-		explorerFrameActions,
-		"---",
-		miscActions,
+		section("Basic"),
+			basicActions,
+
+		section("Hierarchy"),
+			hierarchyActions,
+		
+		section("MetaClassing"),
+			metaClassingActions,
+			groupAsMenu,
+
+		section("ImportExport"),
+			exportMenu,
+			importMenu,
+			exportActions,
+			importActions,
+
+		section("ExplorerFrame"),
+			explorerFrameActions,
+
+		section("Misc"),
+			miscActions,
 	})
 
 	local instanceContextMenu = Manager.createContextMenu(
@@ -3344,151 +3366,189 @@ local function initRegisterPluginMenusAndActions(
 	local baseScriptContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ScriptContextMenu", true),
 		merge({
-			basicActions,
-			"---",
-			hierarchyActions,
-			"---",
-			"BaseScript_Toggle",
-			"LuaSourceContainer_OpenScript",
-			versionControlMenu,
-			"---",
-			metaClassingActions,
-			groupAsMenu,
-			"---",
-			exportMenu,
-			importMenu,
-			exportActions,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+			section("Basic"),
+				basicActions,
+
+			section("Hierarchy"),
+				hierarchyActions,
+
+			section("Special"),
+				"LuaSourceContainer_OpenScript",
+				"BaseScript_Toggle",
+				versionControlMenu,
+
+			section("MetaClassing"),
+				metaClassingActions,
+				groupAsMenu,
+
+			section("ImportExport"),
+				exportMenu,
+				importMenu,
+				exportActions,
+				importActions,
+
+			section("ExplorerFrame"),
+				explorerFrameActions,
+
+			section("Misc"),
+				miscActions,
 		})
 	)
 
 	local luaSourceContainerContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ScriptContextMenu", true),
 		merge({
-			basicActions,
-			"---",
-			hierarchyActions,
-			"---",
-			"LuaSourceContainer_OpenScript",
-			versionControlMenu,
-			"---",
-			metaClassingActions,
-			groupAsMenu,
-			"---",
-			exportMenu,
-			importMenu,
-			exportActions,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+			section("Basic"),
+				basicActions,
+
+			section("Hierarchy"),
+				hierarchyActions,
+			
+			section("Special"),
+				"LuaSourceContainer_OpenScript",
+				versionControlMenu,
+			
+			section("MetaClassing"),
+				metaClassingActions,
+				groupAsMenu,
+
+			section("ImportExport"),
+				exportMenu,
+				importMenu,
+				exportActions,
+				importActions,
+
+			section("ExplorerFrame"),
+				explorerFrameActions,
+
+			section("Misc"),
+				miscActions,
 		})
 	)
 
 	local modelContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ModelContextMenu", true),
 		merge({
-			basicActions,
-			"---",
-			hierarchyActions,
-			"---",
-			"PVInstance_FocusOn",
-			"---",
-			metaClassingActions,
-			groupAsMenu,
-			"---",
-			exportMenu,
-			importMenu,
-			exportActions,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+			section("Basic"),
+				basicActions,
+			
+			section("Hierarchy"),
+				hierarchyActions,
+			
+			section("Special"),
+				"PVInstance_FocusOn",
+			
+			section("MetaClassing"),
+				metaClassingActions,
+				groupAsMenu,
+			
+			section("ImportExport"),
+				exportMenu,
+				importMenu,
+				exportActions,
+				importActions,
+			
+			section("ExplorerFrame"),
+				explorerFrameActions,
+			
+			section("Misc"),
+				miscActions,
 		})
 	)
 
 	local basePartContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_PartContextMenu", true),
 		merge({
-			basicActions,
-			"---",
-			hierarchyActions,
-			"---",
-			"PVInstance_FocusOn",
-			"Part_WeldTogether",
-			"---",
-			metaClassingActions,
-			groupAsMenu,
-			"---",
-			exportMenu,
-			importMenu,
-			exportActions,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+			section("Basic"),
+				basicActions,
+			
+			section("Hierarchy"),
+				hierarchyActions,
+			
+			section("Special"),
+				"PVInstance_FocusOn",
+				"Part_WeldTogether",
+			
+			section("MetaClassing"),
+				metaClassingActions,
+				groupAsMenu,
+			
+			section("ImportExport"),
+				exportMenu,
+				importMenu,
+				exportActions,
+				importActions,
+			
+			section("ExplorerFrame"),
+				explorerFrameActions,
+			
+			section("Misc"),
+				miscActions,
 		})
 	)
 
 	local partContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_PartContextMenu", true),
 		merge({
-			basicActions,
-			"---",
-			hierarchyActions,
-			"---",
-			{
-				Id = "Menu.Csg",
-				Title = "CSG",
-				{
+			section("Basic"),
+				basicActions,
+			
+			section("Hierarchy"),
+				hierarchyActions,
+			
+			section("Special"),
+				subMenu("Menu.Csg", "CSG", nil, {
 					"Part_Union",
 					"Part_Intersect",
 					"Part_Negate",
 					"Part_Subtract",
 					"Part_Seperate"
-				}
-			},
-			"PVInstance_FocusOn",
-			"Part_WeldTogether",
-			"---",
-			metaClassingActions,
-			groupAsMenu,
-			"---",
-			exportMenu,
-			importMenu,
-			exportActions,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+				}),
+				"PVInstance_FocusOn",
+				"Part_WeldTogether",
+			
+			
+			section("MetaClassing"),
+				metaClassingActions,
+				groupAsMenu,
+
+			section("ImportExport"),
+				exportMenu,
+				importMenu,
+				exportActions,
+				importActions,
+
+			section("ExplorerFrame"),
+				explorerFrameActions,
+
+			section("Misc"),
+				miscActions,
 		})
 	)
 
 	local serviceContextMenu = Manager.createContextMenu(
 		getId("Jexplorer_ServiceContextMenu", true),
 		merge({
-			"Rename",
-			"PasteInto",
-			"---",
-			"HideClass",
-			"---",
-			"CollapseAll",
-			"SelectChildren",
-			"---",
-			importMenu,
-			importActions,
-			"---",
-			explorerFrameActions,
-			"---",
-			miscActions,
+			section("Basic"),
+				"Rename",
+				"PasteInto",
+			
+			section("MetaClassing"),
+				"HideClass",
+			
+			section("Hierarchy"),
+				"CollapseAll",
+				"SelectChildren",
+			
+			section("ImportExport"),
+				importMenu,
+				importActions,
+			
+			section("ExplorerFrame"),
+				explorerFrameActions,
+			
+			section("Misc"),
+				miscActions,
 		})
 	)
 
@@ -3512,36 +3572,29 @@ local function initRegisterPluginMenusAndActions(
 		}
 	)
 	
-	local function registerMenu(menuId: string, menu: Types.ContextMenu, condition: (Instance) -> boolean, priority: number)
-		Manager.registerRightClickContextMenu(menuId, menu, function(_, target)
-			local inst = Manager.instanceOf(target)
-			if not inst then return false end
-			
-			return condition(inst)
-		end, priority)
-	end
+	local registerMenu = Manager.registerRightClickContextMenu
 	
 	state.InstanceContextMenus = {}
 	
-	registerMenu("Instance", instanceContextMenu, function(inst)
+	registerMenu("Instance", instanceContextMenu, function(_, _, inst)
 		return true -- This will show for all instances that arent overriden by another menu
 	end, 0)
-	registerMenu("Service", serviceContextMenu, function(inst)
+	registerMenu("Service", serviceContextMenu, function(_, _, inst)
 		return inst.Parent == game
 	end, 1)
-	registerMenu("BasePart", basePartContextMenu, function(inst)
+	registerMenu("BasePart", basePartContextMenu, function(_, _, inst)
 		return inst:IsA("BasePart")
 	end, 2)
-	registerMenu("Part", partContextMenu, function(inst)
+	registerMenu("Part", partContextMenu, function(_, _, inst)
 		return inst:IsA("Part") or inst:IsA("PartOperation") or inst:IsA("WedgePart") or inst:IsA("CornerWedgePart")
 	end, 3)
-	registerMenu("Model", modelContextMenu, function(inst)
+	registerMenu("Model", modelContextMenu, function(_, _, inst)
 		return inst.ClassName == "Model"
 	end, 2)
-	registerMenu("BaseScript", baseScriptContextMenu, function(inst)
+	registerMenu("BaseScript", baseScriptContextMenu, function(_, _, inst)
 		return inst:IsA("BaseScript")
 	end, 3)
-	registerMenu("LuaSourceContainer", luaSourceContainerContextMenu, function(inst)
+	registerMenu("LuaSourceContainer", luaSourceContainerContextMenu, function(_, _, inst)
 		return inst:IsA("LuaSourceContainer")
 	end, 2)
 	
@@ -4731,6 +4784,7 @@ function Manager.init(connections, jexplorerWidget)
 	Manager.Storage = {
 		repoRoots = findOrCreateInstance(storage, "repo_roots", "Folder"),
 		idObjects = findOrCreateInstance(storage, "jexplorer_ids", "Folder"),
+		publicTypedef = replaceOrCreateInstance(storage, "Types", script.Parent.standaloneTypes) :: any,
 		self = storage
 	}
 	
