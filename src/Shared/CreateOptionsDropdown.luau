@@ -182,9 +182,6 @@ return function(Manager: Types.Manager, components: Types.Components, topbar: In
 				plugin:Destroy()
 			end)
 			PluginUI.createButton(topbarMenuDropdown, "Insert Plugin Src", function()
-				Manager.Script:Clone().Parent = workspace
-			end)
-			PluginUI.createButton(topbarMenuDropdown, "Debug Plugin", function()
 				plugin.Parent = workspace
 			end)
 		end

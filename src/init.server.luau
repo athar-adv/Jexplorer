@@ -11,9 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "5.6.0"
-
-plugin.Name = `cloud/plugin/Jexplorer@{VERSION}`
+local VERSION = "5.4.0"
 
 local global = shared
 local shared = script.Shared
@@ -78,7 +76,7 @@ UniPlugin:setApi("dependencies", {
 	GitAPI = require(shared.GitAPI),
 	PluginManager = require(shared.PluginManager),
 	JQL = require(shared.JQL),
-	create = require(shared.create)
+	Create = require(shared.Create)
 })
 
 local function pluginui<T>(name: string, create: () -> T): T

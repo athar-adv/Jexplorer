@@ -500,13 +500,12 @@ function VirtualScroller.update(Manager, isScroller: boolean, forceUpdateIcons: 
 	for frame in state.FrameWorld:query(components.Instance):without(components.Entity) do
 		ExplorerFrame.queueForExplorerFrameReuse(Manager, frame)
 	end
+	Manager.DeferredTaskScheduler.FrameTagAssignQueuePending = true
 
 	local size = UDim2.new(
 		0, maxNameBoundsX + 80, -- Enough padding for 3 right edge icons
 		0, (viewportInfo.flatCount + 3) * viewportInfo.explorerFrameHeight
 	)
-	
-	Manager.DeferredTaskScheduler.FrameTagAssignQueuePending = true
 	state.TreeScroller.CanvasSize = size
 
 	VirtualScroller.IsVirtualScrollerUpdating = false

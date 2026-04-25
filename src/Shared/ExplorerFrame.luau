@@ -125,11 +125,12 @@ local function onSelectExplorerFrame(
 	end
 	if input.UserInputType == Enum.UserInputType.MouseMovement then
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		state.ContextTarget = entity
 		-- If this entity is already selected don't set selection so any other selected instances dont get deselected
 		if not world:has(entity, components.Selected) then
 			Manager.setExplorerEntitiesAsSelection({entity}, true)
 		end
-		
+
 		local chosenMenus = {}
 		for _, info in state.InstanceContextMenus do
 			local pass = info.Condition(Manager, entity, instance)
@@ -139,9 +140,7 @@ local function onSelectExplorerFrame(
 			table.sort(chosenMenus, function(a, b)
 				return a.Priority > b.Priority
 			end)
-			
-			state.ContextTarget = entity
-			chosenMenus[1].Menu:ShowAsync()
+			chosenMenus[1].Menu.Menu:ShowAsync()
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 		profilebegin("InstanceFrame::onInput::LMB (click)")
@@ -205,7 +204,7 @@ local function onInstanceNameFocused(frameWorld: Types.World, frameEntity: Explo
 	instanceName.BackgroundTransparency = 0
 end
 
-local function onInstanceNameFocusLost(Manager: Manager, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, world: Types.World, instanceName: TextBox)
+local function onInstanceNameFocusLost(frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, world: Types.World, instanceName: TextBox)
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
@@ -217,7 +216,6 @@ local function onInstanceNameFocusLost(Manager: Manager, frameWorld: Types.World
 	recordChanges("Set Name", function()
 		instance.Name = instanceName.Text
 	end)
-	Manager.NameCache[entity] = instanceName.Text
 end
 
 local function onInputEnded(Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, components: Types.Components, state: Types.WidgetState, frameState: Types.FrameState, input: InputObject)
@@ -475,7 +473,7 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 		onInstanceNameFocused(frameWorld, frameEntity, components, state, instanceName)
 	end)
 	items[n+2] = instanceName.FocusLost:Connect(function(enterPressed)
-		onInstanceNameFocusLost(Manager, frameWorld, frameEntity, components, state, world, instanceName)
+		onInstanceNameFocusLost(frameWorld, frameEntity, components, state, world, instanceName)
 	end)
 	items[n+3] = selectInstanceButton.InputBegan:Connect(function(input)
 		onSelectExplorerFrame(
@@ -1028,14 +1026,7 @@ local function addMissingIconStyleRules(Manager: Manager)
 	end
 end
 
-local isFlushing = false
 function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-	if isFlushing then
-		task.defer(ExplorerFrame.flushExplorerFrameTagAssignQueue, Manager)
-		return false
-	end
-	isFlushing = true
-	
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
@@ -1051,11 +1042,11 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local frame = ticketData.frame
 		
 		local frameInst = Manager.frameOf(frame)
-		assert(frameInst, "frameinst not found")
+		if not frameInst then continue end
 		local frameState = frameWorld:get(frame, components.FrameState)
-		assert(frameState, "framestate not found")
+		if not frameState then continue end
 		local inst = world:get(entity, components.Instance)
-		assert(inst, "entity instance not found")
+		if not inst then continue end
 		
 		local isSelected = world:has(entity, components.Selected)
 		setFrameSelected(Manager, frame, isSelected)
@@ -1103,7 +1094,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		end
 		local hasScriptError = scriptErrors and #scriptErrors > 0
 		local hasScriptWarn = not hasScriptError and scriptWarns and #scriptWarns > 0
-		
+
 		if hasScriptError then
 			table.insert(newTags, "JEXP_ScriptError")
 		elseif hasScriptWarn then
@@ -1117,7 +1108,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		local tagsToRemove = {}
 		local addCount = 0
 		local removeCount = 0
-		
+
 		for _, oldTag in frameState.tagsToRemove do
 			if not newTagSet[oldTag] then
 				removeCount += 1
@@ -1148,7 +1139,7 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 			end
 		end
 		frameState.tagsToRemove = newTags
-		
+
 		ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity, frameState)
 	end
 	
@@ -1156,8 +1147,6 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 		addMissingIconStyleRules(Manager)
 		clear(entitiesToAddIcons)
 	end
-	
-	isFlushing = false
 
 	profileend()
 	return any

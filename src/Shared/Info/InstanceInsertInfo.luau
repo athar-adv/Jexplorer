@@ -26,8 +26,6 @@ local INSTANCE_INSERT_INFO: {
 			end
 		end,
 		Props = {
-			Anchored = true,
-			
 			TopSurface = Enum.SurfaceType.Smooth,
 			BottomSurface = Enum.SurfaceType.Smooth,
 			LeftSurface = Enum.SurfaceType.Smooth,

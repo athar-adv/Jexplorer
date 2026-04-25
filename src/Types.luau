@@ -183,69 +183,13 @@ export type StudioIconResult = {
 	ImageRectOffset: Vector2,
 	ImageRectSize: Vector2
 }
-
------------------------------------- Context Menu
-export type MenuDef = {
-	Id: string,
-	Priority: number,
-	Condition: (manager: Manager, target: ExplorerEntity) -> boolean,
-	Contents: ((utils: ContextMenuUtils) -> {any}) | {any},
-}
-export type ActionDef = {
-	Id: string?,
-	Callback: (manager: Manager, target: ExplorerEntity) -> (),
-	Text: string,
-	Desc: string?,
-	Icon: (() -> string)?
-}
-
-export type ContextMenuConfigModuleReturnValue =
-|	ContextMenuConfigs 
-|	(Plugin, Manager, ContextMenuUtils, {any}) -> ContextMenuConfigs
-
-export type ContextMenuConfigs = {
-	Menus: {MenuDef},
-	Actions: {[string]: ActionDef}
-}
-
-export type ContextMenuUtils = {
-	createInterface: (defaultName: string) -> ContextMenuInterface,
-	getMenuIds: () -> {string},
-	createModifiedMenu: (menuId: string, newContents: (ContextMenuInterface) -> {any}) -> MenuDef,
-	
-	createSubMenu: (id: string, title: string, icon: any?, content: {any}) -> any,
-	createSection: (sectionName: string) -> any,
-}
-export type ContextMenuInterface = {
-	getMenuContents: () -> {any},
-	getSubMenu: (name: string) -> ContextMenuInterface,
-
-	remove: (idx: number) -> (),
-	insert: (idx: number, v: any) -> (),
-	inline: (idx: number, arr: {any}) -> (),
-
-	findAction: (name: string) -> number,
-	findSubMenu: (name: string) -> number,
-
-	relocate: (name: string, newIndex: number) -> (),
-	flipOrder: () -> (),
-	
-	getSection: (sectionName: string) -> (number, number),
-	addSection: (idx: number, sectionName: string, content: {any}) -> (),
-}
 export type ContextMenu = {
+	Actions: {PluginAction},
 	Menu: PluginMenu,
 	SubMenus: {ContextMenu},
-	Contents: {any},
-	Id: string,
-	Actions: {PluginAction},
-	Sections: {[string]: number}, -- {[SectionName]: MaxIndex}
-	
-	ShowAsync: (self: ContextMenu, targetOverride: any?) -> (),
-	Instantiate: (self: ContextMenu) -> ()
+	UnprocessedContents: {any},
+	Id: string
 }
-
------------------------------------- end Context Menu
 export type Tab = {
 	TabFrame: GuiObject,
 	Button: GuiButton,
@@ -371,12 +315,6 @@ export type Components = {
 	ParentTabs: Jecs.Component<{[Tab]: boolean}>,
 }
 
-export type ContextMenuInfo = {
-	Menu: ContextMenu,
-	Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean,
-	Priority: number
-}
-
 export type WidgetState = {
 	World: World,
 	QueryWorld: World,
@@ -402,7 +340,7 @@ export type WidgetState = {
 
 	JExplorerUI: UITEMPLATE_JExplorerUi,
 	DefaultInstanceActionsArray: {any},
-	InstanceContextMenus: {[string]: ContextMenuInfo},
+	InstanceContextMenus: {[string]: {Menu: ContextMenu, Condition: (manager: Manager, target: ExplorerEntity, instance: Instance) -> boolean, Priority: number}},
 	MiscContextMenus: {[string]: ContextMenu},
 	OverridePathBarText: string?,
 	Enabled: boolean
@@ -531,14 +469,6 @@ export type SharedTabState = {
 	contextTargetTab: Tab?
 }
 
-export type ActionInfos = {[string]: {
-	Id: string,
-	Text: string,
-	Desc: string?,
-	Icon: (() -> string)?,
-	Triggered: ((target: any) -> ())?
-}}
-
 export type Manager = {
 	CleanupFns: typeof(ItemGroup.cleanup),
 	WidgetState: WidgetState,
@@ -548,11 +478,8 @@ export type Manager = {
 	Storage: {
 		repoRoots: Instance,
 		idObjects: Instance,
-		publicTypedef: ModuleScript,
-		self: Instance
+		--pluginActions: Instance
 	},
-	
-	CurrentTheme: string,
 	
 	TabChanged: Signal<Tab, Tab?>,
 	SelectionChanged: Signal<{ExplorerEntity}>,
@@ -573,9 +500,8 @@ export type Manager = {
 	ClassSelectionMenu: ClassSelectionMenu,
 	DeferredTaskScheduler: DeferredTaskScheduler,
 
-	ActionInfos: ActionInfos,
-	BindableActions: {[string]: PluginAction},
-	
+	PluginActions: {[string]: PluginAction},
+
 	ItemLists: {
 		InsertInstance: PluginUI.ItemList
 	},
@@ -599,7 +525,7 @@ export type Manager = {
 
 	TabFrameToTab: {[Instance]: Tab},
 
-	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string?) -> PluginAction,
+	createPluginAction: (actionId: string, text: string, statusTip: string, iconId: string) -> PluginAction,
 	takeContextTarget: () -> ExplorerEntity,
 
 	connectInputBegan: (fn: (input: InputObject) -> ()) -> RBXScriptConnection,
@@ -616,8 +542,8 @@ export type Manager = {
 	triggerDeleteTarget: () -> (),
 	triggerEscapeTarget: () -> (),
 
-	createContextMenu: (id: string, contents: {any}, title: string?, icon: (() -> string)?) -> ContextMenu,
-	registerRightClickContextMenu: (menuId: string, menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity, inst: Instance) -> boolean, priority: number) -> (),
+	createContextMenu: (id: string, contents: {any}, title: string?, icon: string?) -> ContextMenu,
+	registerRightClickContextMenu: (menu: ContextMenu, condition: (manager: Manager, target: ExplorerEntity) -> boolean, priority: number) -> (),
 
 	getEntityAt: (x: number, y: number, filteredParent: Instance?) -> (Instance?, ExplorerEntity?, Tab?),
 
@@ -667,7 +593,7 @@ export type Manager = {
 	insertClassInto: (entity: ExplorerEntity, class: string) -> Instance?,
 	
 	jumpCanvasTo: (x: number?, y: number?, epsilon: number?) -> (),
-	
+
 	saveState: () -> {
 		save: () -> (),
 		all: () -> (),
