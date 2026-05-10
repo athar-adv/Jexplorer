@@ -1892,4 +1892,67 @@ function PluginUI.createPopupWidget(title: string, items: {ValueUIItem})
 	end
 end
 
+function PluginUI.createInstanceBox(list: ItemList?, attributeName: string?, initValue: Instance?, callback: ((InputObject) -> ())?): ValueUIItem
+	local uiItem = PluginUI.createAttributeBox(list, attributeName, initValue and initValue.Name or "")
+	local valueBox = uiItem.Instance:FindFirstChild("ValueBox") :: TextBox
+	assert(valueBox)
+
+	valueBox.PlaceholderText = "Click, hold & drop to assign..."
+
+	local button = Instance.new("TextButton")
+	button.BorderSizePixel = 0
+	button.BackgroundTransparency = 1
+	button.Size = UDim2.fromScale(1, 1)
+	button.ZIndex = 10
+	button.Text = ""
+	button.Parent = valueBox
+
+	local connections: {RBXScriptConnection} = {}
+	local callbacks: {any} = { callback }
+
+	local item: ValueUIItem = {
+		Instance = uiItem.Instance,
+		Get = function(self)
+			return valueBox.Text
+		end,
+		Set = function(self, v: Instance?)
+			valueBox.Text = v and v.Name or ""
+		end,
+		SetText = function(self, new: string)
+			valueBox.Text = new
+		end,
+		GetName = function(self)
+			return uiItem:GetName()
+		end,
+		SetName = function(self, new: string)
+			uiItem:SetName(new)
+		end,
+		OnChange = function(self, fn)
+			table.insert(callbacks, fn)
+			return connection(callbacks, fn)
+		end,
+		SetEditable = function(self, editable: boolean)
+			uiItem:SetEditable(editable)
+			button.Interactable = editable
+			button.Active = editable
+		end,
+		Destroy = function(self)
+			for _, c in connections do c:Disconnect() end
+			table.clear(connections)
+			table.clear(callbacks)
+			table.clear(self)
+			uiItem:Destroy()
+		end,
+	}
+
+	table.insert(connections, button.InputBegan:Connect(function(input)
+		if input.UserInputState ~= Enum.UserInputState.Begin then return end
+		for _, fn in callbacks do
+			fn(input)
+		end
+	end))
+
+	return item
+end
+
 return PluginUI

@@ -319,6 +319,12 @@ function StyleMethods:Link(gui)
 	link.StyleSheet = sheet
 	link.Parent = gui
 	table.insert(self.Links, link)
+	link.Destroying:Connect(function()
+		local idx = table.find(self.Links, link)
+		if idx then
+			table.remove(self.Links, idx)
+		end
+	end)
 	return link
 end
 

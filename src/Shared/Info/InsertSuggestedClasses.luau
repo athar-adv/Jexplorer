@@ -3,11 +3,15 @@ local INSERT_SUGGESTED_CLASSES: {[string]: {string}} = {
 		"Part",
 		"MeshPart",
 		"Model",
-		"Folder"
+		"Folder",
+		"Pointer",
 	},
-	Players = {},
+	Players = {
+		"Pointer"
+	},
 	CoreGui = {
 		"ScreenGui",
+		"Pointer"
 	},
 	Lighting = {
 		"Sky",
@@ -16,38 +20,47 @@ local INSERT_SUGGESTED_CLASSES: {[string]: {string}} = {
 		"ColorCorrectionEffect",
 		"BlurEffect",
 		"BloomEffect",
-		"DepthOfFieldEffect"
+		"DepthOfFieldEffect",
+		"Pointer"
 	},
 	MaterialService = {
 		"MaterialVariant",
-		"Folder"
+		"Folder",
+		"Pointer"
 	},
 	NetworkClient = {},
 	PluginGuiService = {},
 	ReplicatedFirst = {
 		"LocalScript",
-		"Folder"
+		"Folder",
+		"Pointer"
 	},
 	ReplicatedStorage = {
 		"Folder",
 		"ModuleScript",
 		"RemoteEvent",
-		"RemoteFunction"
+		"RemoteFunction",
+		"BindableEvent",
+		"BindableFunction",
+		"Pointer"
 	},
 	ServerScriptService = {
 		"Script",
 		"ModuleScript",
-		"Folder"
+		"Folder",
+		"Pointer",
 	},
 	ServerStorage = {
 		"Script",
 		"ModuleScript",
-		"Folder"
+		"Folder",
+		"Pointer"
 	},
 	SoundService = {
 		"Sound",
 		"SoundGroup",
-		"Folder"
+		"Folder",
+		"Pointer"
 	},
 	StarterGui = {
 		"Frame",
@@ -58,29 +71,35 @@ local INSERT_SUGGESTED_CLASSES: {[string]: {string}} = {
 		"ImageLabel",
 		"ScreenGui",
 		"BillboardGui",
-		"SurfaceGui"
+		"SurfaceGui",
+		"Pointer"
 	},
 	StarterPack = {
 		"Tool",
-		"LocalScript"
+		"LocalScript",
+		"Pointer"
 	},
 	StarterPlayer = {
 		"LocalScript",
 		"Folder",
 		"BindableFunction",
-		"BindableEvent"
+		"BindableEvent",
+		"Pointer"
 	},
 	Teams = {
-		"Team"
+		"Team",
+		"Pointer"
 	},
 	TextChatService = {
 		"TextChatCommand",
-		"TextChannel"
+		"TextChannel",
+		"Pointer"
 	},
 	StylingService = {
 		"StyleSheet",
 		"StyleRule",
-		"StyleDerive"
+		"StyleDerive",
+		"Pointer"
 	}
 }
 return INSERT_SUGGESTED_CLASSES

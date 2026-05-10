@@ -1,4 +1,8 @@
 return {
+	Meta = {
+		"Pointer"
+	},
+	
 	Input = {
 		"ProximityPrompt",
 		"ClickDetector",

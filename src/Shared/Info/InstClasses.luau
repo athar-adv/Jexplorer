@@ -1,4 +1,5 @@
 return {
+	"Pointer",
 	"Frame",
 	"ForceField",
 	"Folder",

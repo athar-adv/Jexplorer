@@ -48,9 +48,6 @@ function JextensionEditor.init(Manager)
 		plugin:SetSetting("JextensionRefreshDelay", v)
 	end)
 	
-	local defaultInstanceCtxMenus = table.clone(state.InstanceContextMenus)
-	local defaultActions = table.clone(Manager.PluginActions)
-	
 	local refreshDebounceThread: thread? = nil
 	local sourceChangedConn: RBXScriptConnection?
 	local function refresh(module: Instance)

@@ -92,23 +92,28 @@ type OrCondition = {
 type SelectedCondition = {
 	type: "selected"
 }
+type NotCondition = {
+	type: "not",
+	condition: QueryCondition
+}
 type QueryCondition =
 	|NoCondition
-	|PairCondition
-	|HasCondition
-	|PropMatchesCondition
-	|PropIsCondition
-	|PatternCondition
-	|PredicateCondition
-	|DescendantCondition
-	|AncestorCondition
-	|ParentCondition
-	|FirstChildCondition
-	|AttributeCondition
-	|TagCondition
-	|AndCondition
-	|OrCondition
-	|SelectedCondition
+|PairCondition
+|HasCondition
+|PropMatchesCondition
+|PropIsCondition
+|PatternCondition
+|PredicateCondition
+|DescendantCondition
+|AncestorCondition
+|ParentCondition
+|FirstChildCondition
+|AttributeCondition
+|TagCondition
+|AndCondition
+|OrCondition
+|SelectedCondition
+|NotCondition
 
 local evaluateCondition
 
@@ -118,7 +123,7 @@ local function fuzzyMatch(str: string, pattern: string)
 	if not str or not pattern then
 		return false
 	end
-	
+
 	local str = string.lower(tostring(str))
 	local pattern = string.lower(tostring(pattern))
 
@@ -199,7 +204,7 @@ end
 local function parsePair(expr: string): PairCondition
 	local content = expr:match("^%((.*)%)$")
 	assert(content, `Invalid pair syntax: {expr}`)
-	
+
 	local equalPos = nil
 	local depth = 0
 	for i = 1, #content do
@@ -268,7 +273,7 @@ end
 local function parseHasMacro(expr: string): HasCondition
 	local content = expr:match("^@has%((.*)%)$")
 	assert(content, `Invalid @has syntax: {expr}`)
-	
+
 	local componentName = content:gsub("^%s+", ""):gsub("%s+$", "")
 
 	return {
@@ -280,12 +285,12 @@ end
 local function parseMatchesMacro(expr: string): PropMatchesCondition
 	local content = expr:match("^@matches%((.*)%)$")
 	assert(content, `Invalid @matches syntax: {expr}`)
-	
+
 	local parts = splitArguments(content)
 	if #parts ~= 2 then
 		error("@matches requires exactly 2 arguments: property and pattern: " .. expr)
 	end
-	
+
 	local property = parts[1]
 	local pattern = parts[2]
 
@@ -299,7 +304,7 @@ end
 local function parseIsMacro(expr: string): PropIsCondition
 	local content = expr:match("^@is%((.*)%)$")
 	assert(content, `Invalid @is syntax: {expr}`)
-	
+
 	local parts = splitArguments(content)
 	if #parts ~= 2 then
 		error("@is requires exactly 2 arguments: property and type: " .. expr)
@@ -324,10 +329,9 @@ local function parsePatternMacro(expr: string): PatternCondition
 	local property = parts[1]:gsub("^%s+", ""):gsub("%s+$", "")
 	local patternStr = parts[2]:gsub("^%s+", ""):gsub("%s+$", "")
 
-	-- Strip required surrounding quotes
 	local stripped = patternStr:match('^"(.*)"$') or patternStr:match("^'(.*)'$")
 	assert(stripped, `@pattern second argument must be a quoted string: {expr}`)
-	
+
 	return {
 		type = "pattern",
 		property = property,
@@ -338,7 +342,7 @@ end
 local function parsePredicate(expr: string): PredicateCondition
 	local content = expr:match("^predicate%((.*)%)$")
 	assert(content, `Invalid predicate syntax: {expr}`)
-	
+
 	local parts = splitArguments(content)
 	if #parts ~= 3 then
 		error("Predicate requires exactly 3 arguments: " .. expr)
@@ -387,13 +391,11 @@ local function parseCondition(condition: string): QueryCondition
 	local parentWildcard = false
 	local remaining = condition
 
-	-- Check for wildcard parent operator (<*)
 	if remaining:match("^<%*") then
 		parentWildcard = true
 		remaining = remaining:sub(3)
 		parentDepth = 1
 	else
-		-- Regular parent operator (<)
 		while remaining:match("^<") do
 			parentDepth = parentDepth + 1
 			remaining = remaining:sub(2)
@@ -414,13 +416,11 @@ local function parseCondition(condition: string): QueryCondition
 	local childWildcard = false
 	remaining = condition
 
-	-- Check for wildcard child operator (>*)
 	if remaining:match("^>%*") then
 		childWildcard = true
 		remaining = remaining:sub(3)
 		childDepth = 1
 	else
-		-- Regular child operator (>)
 		while remaining:match("^>") do
 			childDepth = childDepth + 1
 			remaining = remaining:sub(2)
@@ -453,6 +453,27 @@ local function parseCondition(condition: string): QueryCondition
 		return {
 			type = "matches",
 			property = "Name",
+			pattern = partialName,
+		}
+	end
+
+	-- Parse %CLASSNAME prefix (exact ClassName match)
+	if condition:match("^%%[^?]") then
+		local name = condition:sub(2):gsub("^%s+", ""):gsub("%s+$", "")
+		return {
+			type = "pair",
+			component = "ClassName",
+			value = name,
+			rawValue = name
+		}
+	end
+
+	-- Parse %?PARTIAL_CLASSNAME prefix (partial ClassName match)
+	if condition:match("^%%%?") then
+		local partialName = condition:sub(3):gsub("^%s+", ""):gsub("%s+$", "")
+		return {
+			type = "matches",
+			property = "ClassName",
 			pattern = partialName,
 		}
 	end
@@ -520,6 +541,15 @@ end
 local function parseExpression(text: string): QueryCondition
 	local text = text:gsub("^%s+", ""):gsub("%s+$", "")
 
+	-- Parse ! (not) operator
+	if text:match("^!") then
+		local remaining = text:sub(2)
+		return {
+			type = "not",
+			condition = parseExpression(remaining)
+		}
+	end
+
 	local orParts = splitTopLevel(text, "|")
 	if #orParts > 1 then
 		local orConditions = {}
@@ -586,6 +616,8 @@ local function getQueryCacheKey(queryTree: QueryCondition): string
 			table.insert(parts, getQueryCacheKey(cond))
 		end
 		return "or(" .. table.concat(parts, ",") .. ")"
+	elseif queryTree.type == "not" then
+		return "not(" .. getQueryCacheKey(queryTree.condition) .. ")"
 	elseif queryTree.type == "parent" then
 		local wildcardStr = queryTree.wildcard and "*" or ""
 		return "parent" .. wildcardStr .. queryTree.depth .. "(" .. getQueryCacheKey(queryTree.condition) .. ")"
@@ -675,6 +707,8 @@ local function estimateConditionCost(condition: QueryCondition, world: World, co
 			return count * 0.1
 		end
 		return math.huge
+	elseif condition.type == "not" then
+		return math.huge
 	elseif condition.type == "and" then
 		local minCost = math.huge
 		for _, subcond in condition.conditions do
@@ -698,7 +732,7 @@ local function estimateConditionCost(condition: QueryCondition, world: World, co
 		end
 		return baseCost
 	elseif condition.type == "selected" then
-		return 10 -- Selection is tiny, very selective
+		return 10
 	else
 		error(`Unprocessed QueryCondition type: {condition.type}`)
 	end
@@ -798,7 +832,7 @@ local function testConditionMatch(
 
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-		
+
 		local value = rawindex(instance, condition.component)
 		return condition.value == value
 	elseif condition.type == "has" then
@@ -843,10 +877,12 @@ local function testConditionMatch(
 	elseif condition.type == "selected" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
-		
+
 		local selection = Selection:Get()
 		if table.find(selection, instance) then return true end
 		return false
+	elseif condition.type == "not" then
+		return not testConditionMatch(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
 	else
 		local result = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition)
 		for _, resultEntity in result do
@@ -911,9 +947,9 @@ local function checkSingleCondition(
 	world: World, components: Types.Components, componentMap: IdMap, attributeMap: IdMap, entity: ExplorerEntity, condition: QueryCondition
 )
 	if condition.type == "tag" then
-		return true -- Already filtered by the query
+		return true
 	elseif condition.type == "has" then
-		return true -- Already filtered by the query
+		return true
 	elseif condition.type == "matches" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
@@ -970,7 +1006,6 @@ local function evaluateLeafCondition(
 )
 	local validEntities = {}
 
-	-- Full instance scan for conditions that can't be indexed
 	if condition.type == "matches" or condition.type == "is" or condition.type == "pattern" then
 		local instanceComponent = components.Instance
 		if not instanceComponent then
@@ -1040,7 +1075,7 @@ local function evaluateLeafCondition(
 	for _, queryEntity in entityList do
 		local entities = queryWorld:get(queryEntity, components.QueryLinkedEntities)
 		if not entities then continue end
-		
+
 		for _, entity in entities do
 			if checkSingleCondition(world, components, componentMap, attributeMap, entity, condition) then
 				table.insert(validEntities, entity)
@@ -1054,7 +1089,26 @@ end
 function evaluateCondition(
 	world: World, queryWorld: World, components: Types.Components, componentMap: IdMap, tagMap: IdMap, attributeMap: IdMap, condition: QueryCondition
 )
-	if condition.type == "and" then
+	if condition.type == "not" then
+		local allEntities = {}
+		for entity in world:query(components.Instance):iter() do
+			table.insert(allEntities, entity)
+		end
+
+		local excluded = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap, condition.condition)
+		local excludedSet = {}
+		for _, entity in excluded do
+			excludedSet[entity] = true
+		end
+
+		local result = {}
+		for _, entity in allEntities do
+			if not excludedSet[entity] then
+				table.insert(result, entity)
+			end
+		end
+		return result
+	elseif condition.type == "and" then
 		local sortedConditions = sortConditionsBySelectivity(condition.conditions, world, componentMap, tagMap, attributeMap)
 
 		local result = nil
@@ -1092,7 +1146,7 @@ function evaluateCondition(
 		if condition.wildcard then
 			local leafEntities = evaluateCondition(world, queryWorld, components, componentMap, tagMap, attributeMap,
 				{type = "tag", name = (condition.condition :: any).name or (condition.condition :: any).component or "Instance"})
-			
+
 			for _, entity in leafEntities do
 				local parentMatches = getAllWildcardParents(world, queryWorld, components, componentMap, tagMap, attributeMap, entity, condition.condition)
 				for _, parentEntity in parentMatches do
@@ -1183,7 +1237,6 @@ function JQL.parseQuery(queryText: string): QueryCondition
 	return parseExpression(queryText)
 end
 
--- Cache for parent trees to avoid recomputation
 local parentTreeCache = {}
 local cacheSize = 0
 local MAX_CACHE_SIZE = 1000

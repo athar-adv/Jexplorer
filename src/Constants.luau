@@ -7,5 +7,6 @@ return {
 	ExplorerFrameScriptClassNameFormat = "s_%s",
 	UnsavedTokenTag = "DontSaveToken",
 	DefaultTokenTag = "Default",
-	InsertScopeFormat = "Insert:%s"
+	InsertScopeFormat = "Insert:%s",
+	PointerTag = "JEXP_Pointer"
 }
