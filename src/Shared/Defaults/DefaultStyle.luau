@@ -19,18 +19,18 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 	local theme = studioSettings.Theme :: StudioTheme
 	
 	local defaultTokens = {
-		["SelectedColor"] = Color3.fromRGB(15, 91, 153),
+		["SelectedColor"] = var "brightness($BackgroundColor) > 0.5 ? rgb(82, 139, 255) : rgb(0, 39, 184)",
 		["ScriptErrorColor"] = Color3.fromRGB(255, 44, 44),
 		["ScriptWarnColor"] = Color3.fromRGB(255, 211, 53),
 		["HoverColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(30, 30, 30) : $BackgroundColor + rgb(30, 30, 30)",
 		
 		["BackgroundColor"] = theme:GetColor(Enum.StudioStyleGuideColor.MainBackground),
-		["DarkBackgroundColor"] = var "$BackgroundColor - rgb(6, 6, 6)",
-		["LightBackgroundColor"] = var "$BackgroundColor + rgb(10, 10, 10)",
-		["DarkerBackgroundColor"] = var "$DarkBackgroundColor - rgb(10, 10, 10)",
+		["DarkBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(20, 20, 20) : $BackgroundColor + rgb(20, 20, 20)",
+		["LightBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor + rgb(10, 10, 10) : $BackgroundColor - rgb(10, 10, 10)",
+		["DarkerBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $DarkBackgroundColor - rgb(20, 20, 20) : $DarkBackgroundColor + rgb(20, 20, 20)",
 
 		["TextColor"] = var "invert($BackgroundColor)",
-		["DefaultTextColor"] = var "$TextColor - rgb(80, 80, 80)",
+		["DefaultTextColor"] = Color3.fromRGB(114, 119, 136),
 		["TextColorDark"] = var "$TextColor - rgb(130, 130, 130)",
 
 		["MonochromeColor"] = var "invert($BackgroundColor)",
@@ -41,10 +41,10 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		
 		["IconSizeOffset"] = UDim2.fromOffset(16, 16),
 		["TopbarSize"] = UDim2.new(1, 0, 0, 20),
-		["PathBarSize"] = UDim2.new(1, 0, 0, 20),
+		["PathBarSize"] = UDim2.new(1, 0, 0, 8),
 		["TabBarSize"] = UDim2.new(1, 0, 0, 20),
 		["ScrollbarWidthOffset"] = 12,
-		["ScrollbarColor"] = var "brightness($BackgroundColor) > 0.5 ? $DarkerBackgroundColor - rgb(70, 70, 70) : $DarkerBackgroundColor - rgb(210, 210, 210)",
+		["ScrollbarColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(40, 40, 40) : $BackgroundColor + rgb(40, 40, 40)",
 		["QueryInputTextSize"] = 11,
 		["Theme"] = var "brightness($BackgroundColor) > 0.5 ? 'Light' : 'Dark'",
 		
@@ -55,11 +55,12 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		
 		["LegacyDownArrowImage"] = var "'rbxasset://studio_svg_textures/Shared/Navigation/![$Theme]/Standard/ArrowDown.png'",
 		["FadedColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(100, 100, 100) : $BackgroundColor + rgb(100, 100, 100)",
-		["SelectedTheme"] = var "brightness($SelectedColor) > 0.5 ? 'Light' : 'Dark'",
-		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 0.5 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
+		["SelectedTheme"] = var "brightness($SelectedColor) > 1 ? 'Light' : 'Dark'",
+		["SelectedMonochromeColor"] = var "brightness($SelectedColor) > 1 ? rgb(0, 0, 0) : rgb(255, 255, 255)",
 		["CornerRadius"] = UDim.new(0, 6),
 		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29),
-		["Icon16x16AspectRatio"] = 0.96
+		["Icon16x16AspectRatio"] = 0.96,
+		["ScrollBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(10, 10, 10) : $BackgroundColor + rgb(10, 10, 10)"
 	}
 	
 	--local rule = function(...)
@@ -96,12 +97,14 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 			AnchorPoint = Vector2.new(0, 1),
 			BackgroundTransparency = 0,
 			Position = UDim2.new(0, 0, 1, 0),
+			BackgroundColor3 = "$ScrollBackgroundColor",
 			Size = var "udim2(1, 0, 0, $ScrollbarWidthOffset)",
 		}),
 		rule("ScrollBackgroundVerticalStyle", ".JEXP_ScrollBackgroundVertical", 0, {
 			AnchorPoint = Vector2.new(1, 0),
 			BackgroundTransparency = 0,
 			Position = UDim2.new(1, 0, 0, 0),
+			BackgroundColor3 = "$ScrollBackgroundColor",
 			Size = var "udim2(0, $ScrollbarWidthOffset, 1, 0)",
 		}),
 		rule("JExplorerUIStyle", "#JexplorerUi", 10, {
@@ -133,13 +136,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				rule("QueryFrameStyle", "> #QueryInputFrame", 0, {
 					AnchorPoint = Vector2.new(0, 0.5),
 					Position = var "udim2(0, $IconSizeOffset.X.Offset + 5, 0.5, 0)",
-					Size = UDim2.fromScale(0.9, 0.8),
+					Size = UDim2.new(1, -30, 1, -4),
 					
 					rule("RoundedCorner", "::UICorner", 0, {
 						CornerRadius = "$CornerRadius"
 					}),
 					rule("BorderStyle", "::UIStroke", 10, {
-						Thickness = 0.5,
+						Thickness = 0,
 						LineJoinMode = Enum.LineJoinMode.Round
 					}),
 					rule("ScrollerStyle", "> #Scroll", 0, {
@@ -235,13 +238,14 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					})
 				}),
 				rule("PathBarStyle", "> #PathBar", 0, {
-					Size = "$PathBarSize",
+					Size = var "$PathBarSize + $TabBarSize",
 					AnchorPoint = Vector2.new(0, 0),
-					Position = UDim2.fromScale(0, 1),
+					Position = UDim2.fromScale(0, 0),
 					
 					rule("ScrollingFrameStyle", "> #Segments ScrollingFrame", 0, {
 						BackgroundTransparency = 1,
 						Size = UDim2.new(1, 0, 1, 0),
+						Visible = false,
 						AutomaticCanvasSize = Enum.AutomaticSize.X,
 						BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -350,7 +354,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		}),
 		rule("GrayUIBorder", ".JEXP_GrayBorder ::UIStroke", 0, {
 			Thickness = 0.4,
-			Color = Color3.fromRGB(50, 50, 50),
+			Color = "$DarkerBackgroundColor",
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 			LineJoinMode = Enum.LineJoinMode.Miter,
 			
@@ -376,7 +380,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				CornerRadius = "$CornerRadius"
 			}),
 			rule("BorderStyle", "::UIStroke", 10, {
-				Thickness = 0.5,
+				Thickness = 0,
 				LineJoinMode = Enum.LineJoinMode.Round
 			}),
 			rule("NameBoxStyle", "> #NameBox TextBox", 0, {
@@ -386,7 +390,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				TextYAlignment = Enum.TextYAlignment.Center,
 				ClearTextOnFocus = false,
 				Interactable = true,
-				TextSize = 14,
+				TextSize = 12,
 				Active = false,
 				BackgroundTransparency = 1,
 				FontFace = Font.fromName("SourceSans", Enum.FontWeight.Heavy)
@@ -555,7 +559,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 				ImageTransparency = 0
 			}),
 			rule("OverlayStyle", "> #Main > #Overlay", 1, {
-				BackgroundTransparency = 0.2,
+				BackgroundTransparency = 0,
 				BackgroundColor3 = "$SelectedColor",
 			}),
 			rule("ArrowStyle", "> #Main > #Arrow", 1, {

@@ -20,17 +20,13 @@ return {
 				create "Frame" {
 					Name = "ScrollBackgroundHorizontal",
 					ZIndex = 4,
-
-					"JEXP_DarkBackground",
-					"JEXP_GrayBorder",
+					
 					"JEXP_ScrollBackgroundHorizontal"
 				},
 				create "Frame" {
 					Name = "ScrollBackgroundVertical",
 					ZIndex = 4,
-
-					"JEXP_DarkBackground",
-					"JEXP_GrayBorder",
+					
 					"JEXP_ScrollBackgroundVertical"
 				},
 			},
@@ -38,11 +34,10 @@ return {
 				Name = "Topbar",
 
 				"JEXP_Background",
-				"JEXP_Border",
 				create "Frame" {
 					Name = "PathBar",
 					"JEXP_Background",
-					"JEXP_Border",
+					"JEXP_GrayBorder",
 					create "ScrollingFrame" {
 						Name = "Segments",
 

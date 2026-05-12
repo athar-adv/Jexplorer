@@ -1012,7 +1012,7 @@ local function addMissingIconStyleRules(Manager: Manager)
 			local lightIcon = rule(name.."_Selected", ".JEXP_Selected "..slctr, 100, {
 				ImageRectOffset = icon.ImageRectOffset,
 				ImageRectSize = icon.ImageRectSize,
-				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$SelectedTheme]/Standard/{image}'`)
+				Image = var(`'rbxasset://studio_svg_textures/Shared/{dir}/![$Theme]/Standard/{image}'`)
 			})
 			normalIcon:AddTag("DontSaveRule")
 			lightIcon:AddTag("DontSaveRule")

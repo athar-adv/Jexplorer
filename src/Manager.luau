@@ -1904,7 +1904,7 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		nameBox.Size = UDim2.fromOffset(textWidth, nameBox.AbsoluteSize.Y)
 		local tabWidth = textWidth + 30
 		
-		tabFrame.Size = UDim2.fromOffset(tabWidth, tabBar.AbsoluteSize.Y - 1)
+		tabFrame.Size = UDim2.fromOffset(tabWidth, tabBar.AbsoluteSize.Y - 4)
 		task.defer(updateTabBarCanvasSize)
 	end
 	tabConnections:add_many({
