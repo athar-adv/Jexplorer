@@ -683,23 +683,20 @@ end
 local function onChildAdded(Manager: Manager, ent: ExplorerEntity, child: Instance)
 	if Manager.isInstanceExcluded(child) then return end
 
-	local entities = Manager.getEntitiesOfInstance(child)
-	if entities then
-		for _, existing in entities do
-			if Manager.WidgetState.World:has(existing, Manager.Components.AncestryLocked) then
-				return
-			end
-
-			HierarchyState.queueForOnChildAdded(Manager, ent, child)
-		end
-		Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
+	local existing = Manager.getEntitiesOfInstance(child)
+	if existing then
+		return
 	end
+
+	HierarchyState.queueForOnChildAdded(Manager, ent, child)
+	Manager.DeferredTaskScheduler.EntityChildAddedQueuePending = true
 end
 
 local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Instance)
 	local world = Manager.WidgetState.World
 	local components = Manager.Components
 	local entities = Manager.getEntitiesOfInstance(child)
+	
 	if entities then
 		for _, existing in entities do
 			if world:has(existing, components.AncestryLocked) then
