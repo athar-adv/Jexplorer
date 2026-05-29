@@ -1,10 +1,31 @@
 --!strict
 local Types = require(script.Parent.Parent.Parent.Types)
 local Style = require(script.Parent.Parent.Style)
+local DefaultStyle = require("./DefaultStyle")
 
 local var = Style.var
 
 return {
+	Display = {
+		ShowTabBar = {
+			Type = "boolean",
+			Display = "Show Tab Bar",
+			Default = true,
+			OnChange = function(manager, newvalue)
+				if newvalue == true then
+					local tokens = DefaultStyle(manager)
+					
+					manager.Style:SetToken("TabBarSize", assert(tokens["TabBarSize"]), false)
+					manager.Style:SetToken("TabFramesVisible", assert(tokens["TabFramesVisible"]), false)
+					manager.Style:UpdateTokens()
+				else
+					manager.Style:SetToken("TabBarSize", UDim2.fromScale(0, 0), false)
+					manager.Style:SetToken("TabFramesVisible", false, false)
+					manager.Style:UpdateTokens()
+				end
+			end,
+		}
+	},
 	Internal = {
 		EntityDeletionFlushStep = {
 			Type = "number",

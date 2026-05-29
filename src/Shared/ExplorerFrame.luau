@@ -113,6 +113,8 @@ local function onSelectExplorerFrame(
 	Manager: Manager, world: Types.World, frameWorld: Types.World, frameEntity: ExplorerFrame, state: Types.WidgetState,
 	components: Types.Components, frameState: Types.FrameState, input: InputObject
 )
+	frameState.inputOnSelect = input
+	
 	local entity = frameWorld:get(frameEntity, components.Entity)
 	if not entity then return end
 
@@ -155,7 +157,7 @@ local function onSelectExplorerFrame(
 		local currentTime = os.clock()
 		local timeSinceLastClick = currentTime - frameState.lastClickTime
 		frameState.lastClickTime = currentTime
-
+		
 		-- Check for double-click
 		if timeSinceLastClick <= Manager.getSetting("DoubleClickToOpenScriptTime") and instance:IsA("LuaSourceContainer") then
 			--plugin:OpenScript(instance)
@@ -305,7 +307,7 @@ local function onMouseLeave(
 	end
 	
 	if frameState.isLMBActive then
-		Manager.startDraggingSelected()
+		Manager.startDraggingSelected(frameState.inputOnSelect)
 	end
 end
 

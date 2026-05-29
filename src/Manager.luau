@@ -287,6 +287,33 @@ local function pasteCopiedInstances(world: World)
 	end)
 end
 
+local function copyToClipboard(text: string)
+	local UserInputService = game:GetService("UserInputService")
+	
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "JEXP_CopyToClipboard_Ephemeral"
+	screenGui.Archivable = false
+	screenGui.Parent = game:GetService("Debris")
+	
+	local textBox = Instance.new("TextBox")
+	textBox.Text = text
+	textBox.ClearTextOnFocus = false
+	textBox.Parent = screenGui
+	
+	textBox:CaptureFocus()
+	textBox.SelectionStart = 1
+	textBox.CursorPosition = string.len(textBox.Text) + 1
+	
+	local virtualInput: VirtualInput = UserInputService:CreateVirtualInput()
+	virtualInput:SendKey(true, Enum.KeyCode.LeftControl)
+	virtualInput:SendKey(true, Enum.KeyCode.C)
+	
+	task.spawn(function()
+		task.wait(1/10)
+		screenGui:Destroy()
+	end)
+end
+
 local function checkCombo(str: string, input: InputObject): (boolean, number?)
 	str = str:gsub("%s+", "")
 
@@ -1265,7 +1292,7 @@ function Manager.getSetPropertyDragInfo(instances, propName)
 	end
 	return {
 		Sender = "setproperty",
-		MimeType = "text/plain",
+		MimeType = "application/json",
 		Data = HttpService:JSONEncode({
 			ids = ids,
 			propName = propName
@@ -1291,7 +1318,7 @@ function Manager.getDragEntitiesDragInfo(entities)
 	end
 	return {
 		Sender = "reparent",
-		MimeType = "text/plain",
+		MimeType = "application/json",
 		Data = HttpService:JSONEncode(entities),
 		MouseIcon = "",
 		DragIcon = icon,
@@ -1462,13 +1489,104 @@ function Manager.createContextMenu(id, actions, title, icon)
 	return contextMenu
 end
 
-function Manager.startDraggingSelected()
+local function constructScriptInstancePath(inst: Instance)
+	local path = {}
+	local current: Instance? = inst
+	while current do
+		if current == game then
+			current = current.Parent
+			continue
+		end
+
+		local name = current.Name
+		local segment
+
+		if current.Parent == game then
+			segment = 'game:GetService("' .. name .. '")'
+		elseif name:match("^[%a_][%w_]*$") then
+			segment = name
+		else
+			segment = '["' .. name:gsub('"', '\\"') .. '"]'
+		end
+
+		table.insert(path, 1, segment)
+		current = current.Parent
+	end
+
+	local result = ""
+	for i, segment in path do
+		if i == 1 then
+			result = segment
+		elseif segment:sub(1, 1) == "[" then
+			result = result .. segment
+		else
+			result = result .. "." .. segment
+		end
+	end
+	return result
+end
+
+local function nameIntoCamelCaseIdentifier(name: string): string
+	-- Split on spaces, then process each word
+	local words = {}
+
+	-- First, clean the name: remove invalid leading chars (non-alpha/underscore)
+	-- and split on spaces
+	for word in name:gmatch("[^ ]+") do
+		-- Strip non-identifier characters (keep alphanumeric and underscore)
+		word = word:gsub("[^%w_]", "")
+		if word ~= "" then
+			table.insert(words, word)
+		end
+	end
+
+	if #words == 0 then return "" end
+
+	-- First word: lowercase the first letter (handles PascalCase -> camelCase)
+	local result = words[1]:sub(1, 1):lower() .. words[1]:sub(2)
+
+	-- Subsequent words: capitalize first letter
+	for i = 2, #words do
+		local word = words[i]
+		result = result .. word:sub(1, 1):upper() .. word:sub(2)
+	end
+
+	-- Strip invalid leading characters (digits, etc.)
+	result = result:gsub("^[^%a_]+", "")
+
+	return result
+end
+
+function Manager.startDraggingSelected(inputOnSelect)
 	local state = Manager.WidgetState
 	local components = Manager.Components
+	
+	if inputOnSelect and inputOnSelect:IsModifierKeyDown(Enum.ModifierKey.Ctrl) then
+		-- Drag instance path into code
+		local entities = state.CurrentSelection
+		local dragstr = {}
 
-	--state.IsDragging = true
-	local info = Manager.getDragEntitiesDragInfo(state.CurrentSelection)
-	plugin:StartDrag(info)
+		for _, entity in entities do
+			local inst = Manager.instanceOf(entity)
+			if inst then
+				table.insert(dragstr, `local {nameIntoCamelCaseIdentifier(inst.Name)} = {constructScriptInstancePath(inst)}`)
+			end
+		end
+		
+		local payload = table.concat(dragstr, "\n") .. "\n"
+		
+		plugin:StartDrag({
+			Sender = "import_path",
+			MimeType = "text/plain",
+			Data = payload,
+			MouseIcon = "",
+			DragIcon = RBXASSET_SH("Navigation", "AddNoBorder.png")(),
+			HotSpot = Vector2.new(-0.1, -0.1)
+		})
+	else
+		local info = Manager.getDragEntitiesDragInfo(state.CurrentSelection)
+		plugin:StartDrag(info)
+	end
 end
 
 function Manager.setExplorerEntitiesAsSelection(entities: {ExplorerEntity}, updateSelection: boolean)
@@ -2608,6 +2726,20 @@ local function initRegisterPluginMenusAndActions(
 				plugin:SaveSelectedToRoblox()
 			end
 		},
+		CopyPath = {
+			Id = "CopyPath",
+			Text = "Copy Path",
+			Desc = "Copies the path of selected instance to your clipboard.",
+			Icon = RBXASSET_SH("Clipboard", "Copy@2x.png"),
+			Triggered = function(target: ExplorerEntity)
+				local inst = Manager.instanceOf(target)
+				if inst then
+					copyToClipboard(
+						constructScriptInstancePath(inst)
+					)
+				end
+			end,
+		},
 		Copy = {
 			Id = "Copy",
 			Text = "Copy",
@@ -3406,6 +3538,7 @@ local function initRegisterPluginMenusAndActions(
 	})
 	
 	local exportActions = {
+		"CopyPath",
 		"SaveToFile",
 		"SaveToRoblox",
 	}

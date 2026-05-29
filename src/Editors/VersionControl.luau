@@ -254,7 +254,7 @@ function VersionControl.openSourceViewer(src)
 	box.TextSize = 12
 	box.Size = UDim2.new(1, 0, 0, 0)
 	box.Text = src
-	box.TextColor3 = mainframe.Items.Content:FindFirstChild("ItemFrame"):GetStyled("BackgroundColor3")
+	box.TextColor3 = (mainframe.Items.Content:FindFirstChild("ItemFrame") :: any):GetStyled("BackgroundColor3")
 	box.TextWrapped = false
 	box.AutomaticSize = Enum.AutomaticSize.Y
 	box.BackgroundTransparency = 1
@@ -396,36 +396,41 @@ function VersionControl.addPendingChange(inst, changedProp, newValue)
 		return
 	end
 
-	local entity = Manager.InstanceToEntity[inst]
-	if not entity then return end
+	local entities = Manager.getEntitiesOfInstance(inst)
+	if not entities then return end
 
 	local world = Manager.WidgetState.World
 	local components = Manager.Components
 
-	world:add(entity, components.PendingChanges)
+	for _, entity in entities do
+		world:add(entity, components.PendingChanges)
 
-	local frame = world:get(entity, components.Frame)
-	if frame then
-		Manager.ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity)
-	end
-
-	Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
-end
-
-local function removePendingChangseState(inst: Instance)
-	local entity = Manager.InstanceToEntity[inst]
-	if entity then
-		local world = Manager.WidgetState.World
-		local components = Manager.Components
-
-		world:remove(entity, components.PendingChanges)
-		
 		local frame = world:get(entity, components.Frame)
 		if frame then
 			Manager.ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity)
 		end
-	
+
 		Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+	end
+end
+
+local function removePendingChangseState(inst: Instance)
+	local entities = Manager.getEntitiesOfInstance(inst)
+	
+	if entities then
+		local world = Manager.WidgetState.World
+		local components = Manager.Components
+
+		for _, entity in entities do
+			world:remove(entity, components.PendingChanges)
+
+			local frame = world:get(entity, components.Frame)
+			if frame then
+				Manager.ExplorerFrame.updateRightEdgeIcons(Manager, frame, nil, nil, entity)
+			end
+
+			Manager.ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
+		end
 	end
 end
 

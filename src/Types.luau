@@ -292,6 +292,7 @@ export type World = Jecs.World
 export type ExplorerEntity = Jecs.Id
 export type QueryEntity = Jecs.Id
 export type FrameState = {
+	inputOnSelect: InputObject?,
 	isLMBActive: boolean,
 	tagsToRemove: {string},
 	hasBeenSelected: boolean,
@@ -659,7 +660,7 @@ export type Manager = {
 	refreshQueryTags: (entity: ExplorerEntity, tagEnt: Jecs.Id?) -> (),
 	refreshQueryAttributes: (entity: ExplorerEntity, attrEnt: Jecs.Id?) -> (),
 
-	startDraggingSelected: () -> (),
+	startDraggingSelected: (inputOnSelect: InputObject?) -> (),
 
 	ChildOf: (ent: ExplorerEntity) -> Jecs.Pair<Jecs.Id, ExplorerEntity>,
 

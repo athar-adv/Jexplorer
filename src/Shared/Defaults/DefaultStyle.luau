@@ -60,7 +60,9 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["CornerRadius"] = UDim.new(0, 6),
 		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29),
 		["Icon16x16AspectRatio"] = 0.96,
-		["ScrollBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(10, 10, 10) : $BackgroundColor + rgb(10, 10, 10)"
+		["ScrollBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(10, 10, 10) : $BackgroundColor + rgb(10, 10, 10)",
+		
+		["TabFramesVisible"] = true
 	}
 	
 	--local rule = function(...)
@@ -376,6 +378,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		rule("TabFrameStyle", ".JEXP_TabFrame Frame", 0, {
 			BackgroundColor3 = var "brightness($BackgroundColor) > 0.5 ? $DarkBackgroundColor : $LightBackgroundColor",
 			AnchorPoint = Vector2.new(0, 0.5),
+			Visible = "$TabFramesVisible",
 			rule("RoundedCorner", "::UICorner", 0, {
 				CornerRadius = "$CornerRadius"
 			}),
