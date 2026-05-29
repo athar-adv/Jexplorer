@@ -15,7 +15,7 @@ local getClassTagSlctr = Selector.getClassTagSlctr
 
 local studioSettings = settings().Studio
 
-return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
+return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): ({[string]: any}, {Style.Rule})
 	local theme = studioSettings.Theme :: StudioTheme
 	
 	local defaultTokens = {
@@ -62,9 +62,13 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 		["Icon16x16AspectRatio"] = 0.96,
 		["ScrollBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(10, 10, 10) : $BackgroundColor + rgb(10, 10, 10)",
 		
-		["TabFramesVisible"] = true
+		["TabFramesVisible"] = true,
+		["_PATHBARSIZEMODIFIER"] = UDim2.fromScale(0, 0)
 	}
-	
+	if onTokens then
+		onTokens(defaultTokens)
+		return {}, {}
+	end
 	--local rule = function(...)
 	--	local newrule = _rule(...)
 	--	newrule:AddTag("Default")
@@ -240,7 +244,7 @@ return function(Manager: Types.Manager): ({[string]: any}, {Style.Rule})
 					})
 				}),
 				rule("PathBarStyle", "> #PathBar", 0, {
-					Size = var "$PathBarSize + $TabBarSize",
+					Size = var "$PathBarSize + $TabBarSize + $_PATHBARSIZEMODIFIER",
 					AnchorPoint = Vector2.new(0, 0),
 					Position = UDim2.fromScale(0, 0),
 					
