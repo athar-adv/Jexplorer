@@ -4845,7 +4845,13 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			for entity in world:query(components.QueryAncestor):iter() do
 				world:remove(entity, components.QueryAncestor)
 			end
+			local oldQueried = {}
 			for entity in world:query(components.IsQueried):iter() do
+				table.insert(oldQueried, entity)
+			end
+
+			for entity in world:query(components.IsQueried):iter() do
+				world:remove(entity, components.IsQueried)
 				world:remove(entity, components.ArrowInvisible)
 			end
 
