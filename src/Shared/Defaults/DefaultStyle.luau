@@ -61,6 +61,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 		["TabPickingRootsColor"] = Color3.fromRGB(34, 112, 29),
 		["Icon16x16AspectRatio"] = 0.96,
 		["ScrollBackgroundColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(10, 10, 10) : $BackgroundColor + rgb(10, 10, 10)",
+		["GlobalFont"] = Font.fromEnum(Enum.Font.SourceSans),
 		
 		["TabFramesVisible"] = true,
 		["_PATHBARSIZEMODIFIER"] = UDim2.fromScale(0, 0)
@@ -168,7 +169,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 							PlaceholderColor3 = "$DefaultTextColor",
 							PlaceholderText = "Query Components...",
 							BackgroundTransparency = 1,
-							FontFace = Font.fromEnum(Enum.Font.SourceSans),
+							FontFace = "$GlobalFont",
 							TextXAlignment = Enum.TextXAlignment.Left,
 							Size = UDim2.fromScale(1, 1),
 							AutomaticSize = Enum.AutomaticSize.X,
@@ -273,7 +274,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 							Size = UDim2.new(0, 0, 1, 0),
 							TextSize = 11,
 							Text = "",
-							FontFace = Font.fromEnum(Enum.Font.SourceSans),
+							FontFace = "$GlobalFont",
 							TextXAlignment = Enum.TextXAlignment.Left,
 						})
 					})
@@ -400,7 +401,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 				TextSize = 12,
 				Active = false,
 				BackgroundTransparency = 1,
-				FontFace = Font.fromName("SourceSans", Enum.FontWeight.Heavy)
+				FontFace = "$GlobalFont"
 			}),
 			rule("IconStyle", "> #Icon ImageLabel", 0, {
 				Size = UDim2.new(0, 16, 0, 16),
@@ -490,7 +491,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 					RichText = true,
 					Text = "Instance",
 					TextXAlignment = Enum.TextXAlignment.Left,
-					FontFace = Font.fromEnum(Enum.Font.SourceSans)
+					FontFace = "$GlobalFont"
 				}),
 				rule("ArrowStyle", "> #Arrow ImageButton", 0, {
 					AnchorPoint = Vector2.new(0.5, 0.5),

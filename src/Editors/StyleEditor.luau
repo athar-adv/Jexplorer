@@ -469,8 +469,9 @@ function StyleEditor.init(Manager)
 	
 	local function createTokenAttribute(k: string, defaultValue: any, defaultStr: string, createDeleteButton: boolean)
 		local box
+		local dontProcessTokenChange = false
 		box = PluginUI.createAttributeBox(nil, k, defaultStr, function(newValue)
-			if newValue == defaultStr then 
+			if newValue == defaultStr then
 				sheet:SetToken(k, defaultValue, true)
 				return
 			end
@@ -479,10 +480,13 @@ function StyleEditor.init(Manager)
 				box.Instance.ValueBox.Text = defaultStr
 				return
 			end
+			box.Instance.ValueBox.Text = newValue
+			dontProcessTokenChange = true
 			sheet:SetToken(k, value, true)
 		end)
 		
 		local conn = sheet.TokenChanged:Connect(function(name, newValue)
+			if dontProcessTokenChange then return end
 			if name ~= k then return end
 			if not newValue then return end
 			box.Instance.ValueBox.Text = UDF.to(newValue.RawValue)
