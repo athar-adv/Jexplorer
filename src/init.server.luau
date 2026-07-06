@@ -11,7 +11,7 @@ if not plugin then return end
 
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "5.6.5"
+local VERSION = "5.6.6"
 
 plugin.Name = `cloud/plugin/Jexplorer@{VERSION}`
 

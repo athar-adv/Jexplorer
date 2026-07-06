@@ -1015,22 +1015,32 @@ function Manager.triggerDuplicateTarget()
 		for _, entity in state.CurrentSelection do
 			local parent = Manager.parentOf(entity)
 			if parent == nil then continue end
+			
+			world:add(parent, components.AncestryLocked)
+		end
+		for _, entity in state.CurrentSelection do
+			local parent = Manager.parentOf(entity)
+			if parent == nil then continue end
 
 			local instance = world:get(entity, components.Instance)
 			if not instance then continue end
 
-			world:add(parent, components.AncestryLocked)
-
 			local clone = instance:Clone()
-			--clone.Parent = instance.Parent
 			clone.Parent = instance.Parent
 			local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
 			VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
-
-			world:remove(parent, components.AncestryLocked)
 		end
+		task.defer(function()
+			for _, entity in state.CurrentSelection do
+				local parent = Manager.parentOf(entity)
+				if parent == nil then continue end
+				
+				world:remove(parent, components.AncestryLocked)
+			end
+		end)
 	end)
 	
+	Manager.DeferredTaskScheduler.EntityPropAssignQueuePending = true
 	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 	
@@ -1077,6 +1087,12 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 		for _, entity in state.CurrentSelection do
 			local parent = Manager.parentOf(entity)
 			if parent == nil then continue end
+			
+			world:add(parent, components.AncestryLocked)
+		end
+		for _, entity in state.CurrentSelection do
+			local parent = Manager.parentOf(entity)
+			if parent == nil then continue end
 			local instance = world:get(entity, components.Instance)
 			if not instance then continue end
 
@@ -1088,8 +1104,7 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 			else
 				baseName = _baseName
 			end
-
-			world:add(parent, components.AncestryLocked)
+			
 			local clone = instance:Clone()
 			clone.Parent = instance.Parent
 
@@ -1105,10 +1120,18 @@ function Manager.triggerDuplicateTargetWithIncrementName()
 
 			local cloneEntity = HierarchyState.createInstanceEntity(Manager, clone, parent)
 			VirtualScroller.invalidateEntityHeightCache(Manager, cloneEntity)
-			world:remove(parent, components.AncestryLocked)
+			task.defer(function()
+				for _, entity in state.CurrentSelection do
+					local parent = Manager.parentOf(entity)
+					if parent == nil then continue end
+					
+					world:remove(parent, components.AncestryLocked)
+				end
+			end)
 		end
 	end)
 	
+	Manager.DeferredTaskScheduler.EntityPropAssignQueuePending = true
 	Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 	Manager.DeferredTaskScheduler.ChildGraphDirty = true
 	
