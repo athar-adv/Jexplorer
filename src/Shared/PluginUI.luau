@@ -26,7 +26,8 @@ export type ItemList = {
 	Show: (self: ItemList) -> (),
 	Hide: (self: ItemList) -> (),
 	Destroy: (self: ItemList) -> (),
-	Parent: (self: ItemList, parentList: ItemList) -> ()
+	Parent: (self: ItemList, parentList: ItemList) -> (),
+	AutoUpdateLayout: boolean
 }
 
 export type ValueUIItem<T = (newValue: string, ...never) -> ()> = {
@@ -253,7 +254,8 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 	local itemList = {
 		Backdrop = backdrop,
 		Container = container,
-		Items = items
+		Items = items,
+		AutoUpdateLayout = true
 	}
 
 	-- Methods
@@ -261,7 +263,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 		item.Parent = container
 		item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset or 30)
 		table.insert(self.Items, item)
-		updateLayout(scrollingFrame)
+		if itemList.AutoUpdateLayout then updateLayout(scrollingFrame) end
 	end
 	
 	function itemList:AddBulkItem(items: {GuiObject})
@@ -271,7 +273,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 			item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
 		end
 		
-		updateLayout(scrollingFrame)
+		if itemList.AutoUpdateLayout then updateLayout(scrollingFrame) end
 	end
 
 	function itemList:RemoveItem(item: GuiObject)
@@ -282,7 +284,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 				break
 			end
 		end
-		updateLayout(scrollingFrame)
+		if itemList.AutoUpdateLayout then updateLayout(scrollingFrame) end
 	end
 
 	function itemList:Clear()
@@ -290,7 +292,7 @@ function PluginUI.createItemListFromExisting(backdrop: Instance, container: Inst
 			item:Destroy()
 		end
 		self.Items = {}
-		updateLayout(scrollingFrame)
+		if itemList.AutoUpdateLayout then updateLayout(scrollingFrame) end
 	end
 
 	function itemList:SetAnchor(anchorPoint: Vector2, position: UDim2)
@@ -375,14 +377,15 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 		Backdrop = backdrop,
 		Container = container,
 		Items = items,
-		IsShown = false
+		IsShown = false,
+		AutoUpdateLayout = true
 	}
 
 	-- Methods
 	function itemList:AddItem(item: GuiObject)
 		item.Parent = container
 		table.insert(self.Items, item)
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 	
 	function itemList:AddBulkItem(items: {GuiObject})
@@ -391,7 +394,7 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 			table.insert(self.Items, item)
 		end
 
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 
 	function itemList:RemoveItem(item: GuiObject)
@@ -402,7 +405,7 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 				break
 			end
 		end
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 
 	function itemList:Clear()
@@ -410,7 +413,7 @@ function PluginUI.createItemList(frameProperties: {[string]: any}?): ItemList
 			item:Destroy()
 		end
 		self.Items = {}
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 
 	function itemList:SetAnchor(anchorPoint: Vector2, position: UDim2)
@@ -557,7 +560,7 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 		item.Parent = container
 		item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
 		table.insert(self.Items, item)
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 	
 	function itemList:SetText(txt)
@@ -571,7 +574,7 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 			item.Size = UDim2.new(1, 0, 0, item.Size.Y.Offset)
 		end
 
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 
 	function itemList:RemoveItem(item: GuiObject)
@@ -582,7 +585,7 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 				break
 			end
 		end
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 	
 	function itemList:Clear()
@@ -590,7 +593,7 @@ function PluginUI.createDropDownItemList(frameProperties: {[string]: any}?, head
 			item:Destroy()
 		end
 		self.Items = {}
-		updateLayout(container)
+		if itemList.AutoUpdateLayout then updateLayout(container) end
 	end
 
 	function itemList:SetAnchor(anchorPoint: Vector2, position: UDim2)

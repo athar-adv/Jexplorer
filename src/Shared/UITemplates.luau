@@ -35,15 +35,13 @@ return {
 
 				"JEXP_Background",
 				create "Frame" {
-					Name = "PathBar",
+					Name = "Toolbar",
 					"JEXP_Background",
 					"JEXP_GrayBorder",
 					create "ScrollingFrame" {
-						Name = "Segments",
-
-						create "TextButton" {
-							Name = "PathSegment",
-							"JEXP_Text"
+						Name = "Tools",
+						create "Frame" {
+							Name = "Content",
 						}
 					}
 				},

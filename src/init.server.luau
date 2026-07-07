@@ -9,11 +9,10 @@
 
 if not plugin then return end
 
+local Constants = require("@self/Constants")
 local CoreGui = game:GetService("CoreGui")
 
-local VERSION = "5.6.7"
-
-plugin.Name = `cloud/plugin/Jexplorer@{VERSION}`
+plugin.Name = `cloud/plugin/Jexplorer@{Constants.VERSION}`
 
 local global = shared
 local shared = script.Shared
@@ -117,7 +116,7 @@ end)
 
 jexplorerWidget:AddTag("JEXP_Widget")
 jexplorerWidget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-jexplorerWidget.Title = `Jexplorer @{VERSION}`
+jexplorerWidget.Title = `Jexplorer @{Constants.VERSION}`
 jexplorerWidget.Name = "Jexplorer"
 
 jexplorerWidget:BindToClose(function()

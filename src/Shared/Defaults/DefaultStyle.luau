@@ -41,7 +41,7 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 		
 		["IconSizeOffset"] = UDim2.fromOffset(16, 16),
 		["TopbarSize"] = UDim2.new(1, 0, 0, 20),
-		["PathBarSize"] = UDim2.new(1, 0, 0, 8),
+		["ToolbarSize"] = UDim2.new(1, 0, 0, 20),
 		["TabBarSize"] = UDim2.new(1, 0, 0, 20),
 		["ScrollbarWidthOffset"] = 12,
 		["ScrollbarColor"] = var "brightness($BackgroundColor) > 0.5 ? $BackgroundColor - rgb(40, 40, 40) : $BackgroundColor + rgb(40, 40, 40)",
@@ -64,7 +64,6 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 		["GlobalFont"] = Font.fromEnum(Enum.Font.SourceSans),
 		
 		["TabFramesVisible"] = true,
-		["_PATHBARSIZEMODIFIER"] = UDim2.fromScale(0, 0)
 	}
 	if onTokens then
 		onTokens(defaultTokens)
@@ -118,7 +117,8 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 			Size = UDim2.fromScale(1, 1),
 			
 			rule("InstanceTreeStyle", "> #InstanceTree Frame", 2, {
-				Size = var "udim2(1, 0, 1, -($TopbarSize.Y.Offset + $PathBarSize.Y.Offset + $TabBarSize.Y.Offset))",
+				Size = var "udim2(1, 0, 1, -($TopbarSize.Y.Offset + $ToolbarSize.Y.Offset + $TabBarSize.Y.Offset))",
+				--Size = var "udim2(1, 0, 1, -($TopbarSize.Y.Offset + $TabBarSize.Y.Offset))",
 				AutomaticCanvasSize = Enum.AutomaticSize.None,
 				ClipDescendants = true,
 				AnchorPoint = Vector2.new(0.5, 1),
@@ -244,15 +244,23 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 						})
 					})
 				}),
-				rule("PathBarStyle", "> #PathBar", 0, {
-					Size = var "$PathBarSize + $TabBarSize + $_PATHBARSIZEMODIFIER",
-					AnchorPoint = Vector2.new(0, 0),
-					Position = UDim2.fromScale(0, 0),
+				rule("ToolbarStyle", "> #Toolbar", 0, {
+					Size = var "$ToolbarSize",
+					AnchorPoint = Vector2.new(1, 0),
+					Position = var "udim2(1, 0, 0, $TabBarSize.Y.Offset)",
 					
-					rule("ScrollingFrameStyle", "> #Segments ScrollingFrame", 0, {
+					rule("PaddingStyle", "::UIPadding", 0, {
+						PaddingRight = UDim.new(0, 8)
+					}),
+					rule("StrokeStyle", "::UIStroke", 0, {
+						Thickness = 0.6,
+						Color = "$DarkBackgroundColor"
+					}),
+					
+					rule("ScrollingFrameStyle", "> #Tools ScrollingFrame", 0, {
 						BackgroundTransparency = 1,
 						Size = UDim2.new(1, 0, 1, 0),
-						Visible = false,
+						Visible = true,
 						AutomaticCanvasSize = Enum.AutomaticSize.X,
 						BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -261,21 +269,27 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 						TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						MidImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
 						ScrollBarImageColor3 = "$ScrollbarColor",
+						Position = UDim2.fromScale(1, 0),
+						AnchorPoint = Vector2.new(1, 0),
 						
-						rule("ListLayout", "::UIListLayout", 0, {
-							FillDirection = Enum.FillDirection.Horizontal,
-							SortOrder = Enum.SortOrder.LayoutOrder,
-							VerticalAlignment = Enum.VerticalAlignment.Center,
-							Padding = UDim.new(0, 4)
-						}),
-						rule("PathSegmentStyle", "> #PathSegment", 0, {
-							AutomaticSize = Enum.AutomaticSize.X,
+						rule("ContentStyle", "> #Content Frame", 0, {
+							Size = UDim2.fromScale(0, 0),
+							Position = UDim2.fromScale(1, 0),
+							AnchorPoint = Vector2.new(1, 0),
+							AutomaticSize = Enum.AutomaticSize.XY,
 							BackgroundTransparency = 1,
-							Size = UDim2.new(0, 0, 1, 0),
-							TextSize = 11,
-							Text = "",
-							FontFace = "$GlobalFont",
-							TextXAlignment = Enum.TextXAlignment.Left,
+
+							rule("ListLayout", "::UIListLayout", 0, {
+								HorizontalAlignment = Enum.HorizontalAlignment.Right,
+								Wraps = false,
+								FillDirection = Enum.FillDirection.Horizontal,
+								SortOrder = Enum.SortOrder.LayoutOrder,
+								VerticalAlignment = Enum.VerticalAlignment.Center,
+								Padding = UDim.new(0, 4),
+								HorizontalFlex = Enum.UIFlexAlignment.None,
+								VerticalFlex = Enum.UIFlexAlignment.None,
+								ItemLineAlignment = Enum.ItemLineAlignment.Automatic
+							}),
 						})
 					})
 				})

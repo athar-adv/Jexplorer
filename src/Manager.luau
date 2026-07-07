@@ -15,6 +15,7 @@ local ScriptEditorService = game:GetService("ScriptEditorService")
 local TextService = game:GetService("TextService")
 local Selection = game:GetService("Selection")
 local GeometryService = game:GetService("GeometryService")
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 local Jecs = require("./Jecs")
 local Types = require("./Types")
@@ -43,6 +44,7 @@ local TextBoundsHelper = require("./Shared/Small/TextBoundsHelper")
 local Signal = require("./Shared/Vendor/SimpleSignal").new
 
 local UniPlugin = require("./UniPlugin")(plugin)
+
 
 local SettingEditor = require("./Editors/SettingEditor")
 local StyleEditor = require("./Editors/StyleEditor")
@@ -92,7 +94,6 @@ local sharedTabState: {
 	currentlyOpenTab = nil,
 	contextTargetTab = nil
 }
-
 local PLACE_ID = tostring(game.PlaceId)
 local IS_EDIT = game:GetService("RunService"):IsEdit()
 local ID_ATTR = "JexId"
@@ -556,6 +557,16 @@ local function findOrCreateInstanceWithTag(parent: Instance, tag: string, classI
 	return new
 end
 
+local toolbarTextLabel: TextLabel
+local function displayToolbarText(text: string?)
+	if not text then
+		toolbarTextLabel.Text = ""
+		return
+	end
+	
+	toolbarTextLabel.Text = text
+end
+
 local function instanceSelectionAttrCallback(inst: Instance, name: string)
 	return function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -648,84 +659,84 @@ local function getCommonAncestor(instances: {Instance}): Instance?
 	return lca
 end
 
-local pathClickConnection: RBXScriptConnection?
-local pathAncestryChangedConns: {RBXScriptConnection} = {}
-local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, components: typeof(Manager.Components))
-	local world = state.World
-	local jexplorerUi = state.JExplorerUI
-	local jexplorerWidget = state.Widget
-	local topbar = jexplorerUi.Topbar
-	local pathSegments = topbar.PathBar.Segments
+--local pathClickConnection: RBXScriptConnection?
+--local pathAncestryChangedConns: {RBXScriptConnection} = {}
+--local function refreshPathBar(instances: {Instance}, state: Types.WidgetState, components: typeof(Manager.Components))
+--	local world = state.World
+--	local jexplorerUi = state.JExplorerUI
+--	local jexplorerWidget = state.Widget
+--	local topbar = jexplorerUi.Topbar
+--	local pathSegments = topbar.PathBar.Segments
 
-	if state.OverridePathBarText then
-		local pathButton = pathSegments.PathSegment
-		pathButton.Text = state.OverridePathBarText
-		return
-	end
+--	if state.OverridePathBarText then
+--		local pathButton = pathSegments.PathSegment
+--		pathButton.Text = state.OverridePathBarText
+--		return
+--	end
 
-	if pathClickConnection then
-		pathClickConnection:Disconnect()
-	end
-	for _, v in pathAncestryChangedConns do
-		v:Disconnect()
-	end
-	if #instances == 0 then
-		local pathButton = pathSegments.PathSegment
-		pathButton.Text = ""
-		Manager.setExplorerEntitiesAsSelection({}, false)
-		return
-	end
+--	if pathClickConnection then
+--		pathClickConnection:Disconnect()
+--	end
+--	for _, v in pathAncestryChangedConns do
+--		v:Disconnect()
+--	end
+--	if #instances == 0 then
+--		local pathButton = pathSegments.PathSegment
+--		pathButton.Text = ""
+--		Manager.setExplorerEntitiesAsSelection({}, false)
+--		return
+--	end
 
-	-- Update path bar
-	local commonAncestor = getCommonAncestor(instances)
-	if commonAncestor then
-		local pathButton = pathSegments.PathSegment
-		local current: Instance? = commonAncestor
-		local segmentBounds = {}
+--	-- Update path bar
+--	local commonAncestor = getCommonAncestor(instances)
+--	if commonAncestor then
+--		local pathButton = pathSegments.PathSegment
+--		local current: Instance? = commonAncestor
+--		local segmentBounds = {}
 
-		local pathParts: {string} = {}
-		local size = pathButton.TextSize
-		local font = pathButton.Font
-		local entities = {}
-		while current and current ~= game do
-			--local entity = instanceToEntity[current]
-			table.insert(pathParts, 1, current.Name)
-			table.insert(entities, 1, current)
-			current = current.Parent
-		end
+--		local pathParts: {string} = {}
+--		local size = pathButton.TextSize
+--		local font = pathButton.Font
+--		local entities = {}
+--		while current and current ~= game do
+--			--local entity = instanceToEntity[current]
+--			table.insert(pathParts, 1, current.Name)
+--			table.insert(entities, 1, current)
+--			current = current.Parent
+--		end
 		
-		local cumulativeText = ""
-		local absSize = Vector2.new(math.huge, pathButton.AbsoluteSize.Y)
-		for i, part in pathParts do
-			if i > 1 then
-				cumulativeText = cumulativeText .. " / "
-			end
-			cumulativeText = cumulativeText .. part
+--		local cumulativeText = ""
+--		local absSize = Vector2.new(math.huge, pathButton.AbsoluteSize.Y)
+--		for i, part in pathParts do
+--			if i > 1 then
+--				cumulativeText = cumulativeText .. " / "
+--			end
+--			cumulativeText = cumulativeText .. part
 			
-			local textSize = game:GetService("TextService"):GetTextSize(cumulativeText, size, font, absSize)
-			table.insert(segmentBounds, {bound = textSize.X, entity = entities[i]})
-		end
+--			local textSize = game:GetService("TextService"):GetTextSize(cumulativeText, size, font, absSize)
+--			table.insert(segmentBounds, {bound = textSize.X, entity = entities[i]})
+--		end
 		
-		pathClickConnection = pathButton.Activated:Connect(function(input: InputObject)
-			local relativeX = input.Position.X - pathButton.AbsolutePosition.X + pathSegments.CanvasPosition.X
-			for _, item in segmentBounds do
-				if relativeX <= item.bound then
-					Selection:Set {item.entity}
-					break
-				end
-			end
-		end)
-		for _, inst in instances do
-			local conn = inst.AncestryChanged:Once(function()
-				refreshPathBar(instances, state, components)
-			end)
-			table.insert(pathAncestryChangedConns, conn)
-		end
+--		pathClickConnection = pathButton.Activated:Connect(function(input: InputObject)
+--			local relativeX = input.Position.X - pathButton.AbsolutePosition.X + pathSegments.CanvasPosition.X
+--			for _, item in segmentBounds do
+--				if relativeX <= item.bound then
+--					Selection:Set {item.entity}
+--					break
+--				end
+--			end
+--		end)
+--		for _, inst in instances do
+--			local conn = inst.AncestryChanged:Once(function()
+--				refreshPathBar(instances, state, components)
+--			end)
+--			table.insert(pathAncestryChangedConns, conn)
+--		end
 
-		pathButton.Text = table.concat(pathParts, " / ")
-		pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
-	end
-end
+--		pathButton.Text = table.concat(pathParts, " / ")
+--		pathSegments.CanvasPosition = pathSegments.AbsoluteCanvasSize
+--	end
+--end
 
 local function getGlobalConfigValue(k: string): any?
 	local configs = global.JexplorerConfigs
@@ -1580,24 +1591,124 @@ local function nameIntoCamelCaseIdentifier(name: string): string
 	return result
 end
 
+local function intoGameStringRequire(targetInst: Instance)
+	local segments = {}
+	local current: Instance? = targetInst
+
+	while current and current ~= game do
+		table.insert(segments, 1, current.Name)
+		current = current.Parent
+	end
+	
+	local pathString = table.concat(segments, "/")
+	return `@game/{pathString}`
+end
+
+local function intoStringRequire(activeScript: Instance, targetModule: Instance): string
+	if activeScript:GetFullName():split(".")[1] ~= targetModule:GetFullName():split(".")[1] then
+		return intoGameStringRequire(targetModule)
+	end
+
+	-- Build ancestry trees (including the instances themselves)
+	local activeAncestors = { activeScript }
+	local current = activeScript.Parent
+	while current do
+		table.insert(activeAncestors, current)
+		current = current.Parent
+	end
+
+	local targetAncestors = { targetModule }
+	local targetCurrent = targetModule.Parent
+	while targetCurrent do
+		table.insert(targetAncestors, targetCurrent)
+		targetCurrent = targetCurrent.Parent
+	end
+
+	-- Find the Lowest Common Ancestor (LCA)
+	local lca = nil
+	local activeIndex = #activeAncestors
+	local targetIndex = #targetAncestors
+
+	while activeIndex > 0 and targetIndex > 0 do
+		if activeAncestors[activeIndex] == targetAncestors[targetIndex] then
+			lca = activeAncestors[activeIndex]
+			activeIndex = activeIndex - 1
+			targetIndex = targetIndex - 1
+		else
+			break
+		end
+	end
+
+	-- Target is inside the activeScript itself
+	if lca == activeScript and targetModule ~= activeScript then
+		-- Build steps down from the activeScript
+		local pathParts = { "@self" }
+		-- Exclude the last index because it represents the activeScript/LCA
+		for i = targetIndex, 1, -1 do
+			table.insert(pathParts, targetAncestors[i].Name)
+		end
+		return table.concat(pathParts, "/")
+	end
+
+	-- Target is the activeScript itself
+	if activeScript == targetModule then
+		return "@self"
+	end
+
+	-- Calculate steps up to the common ancestor
+	-- activeIndex represents the steps up from activeScript's parent to the LCA
+	local parentCount = activeIndex
+	local firstSegment = ""
+
+	if parentCount == 0 then
+		firstSegment = "."
+	elseif parentCount == 1 then
+		firstSegment = ".."
+	else
+		firstSegment = string.rep("../", parentCount):sub(1, -2)
+	end
+
+	-- Build steps down to the target module
+	local pathParts = { firstSegment }
+	-- Exclude index 1 if it matches the target module name (already handled)
+	for i = targetIndex, 2, -1 do
+		table.insert(pathParts, targetAncestors[i].Name)
+	end
+	table.insert(pathParts, targetModule.Name)
+
+	return table.concat(pathParts, "/")
+end
+
+
 function Manager.startDraggingSelected(inputOnSelect)
 	local state = Manager.WidgetState
 	local components = Manager.Components
-	
+
 	if inputOnSelect and inputOnSelect:IsModifierKeyDown(Enum.ModifierKey.Ctrl) then
 		-- Drag instance path into code
 		local entities = state.CurrentSelection
 		local dragstr = {}
 
+		local activeScript = game:GetService("StudioService").ActiveScript
 		for _, entity in entities do
 			local inst = Manager.instanceOf(entity)
-			if inst then
+			if not inst then continue end
+
+			if inst:IsA("ModuleScript") and activeInputs then
+				if inputOnSelect:IsModifierKeyDown(Enum.ModifierKey.Shift) then
+					-- Shift + Ctrl: Game-rooted path require (@game/)
+					table.insert(dragstr, `local {inst.Name} = require("{intoGameStringRequire(inst)}")`)
+				else
+					-- Ctrl only: Relative path require (@self/ or .)
+					table.insert(dragstr, `local {inst.Name} = require("{intoStringRequire(activeScript, inst)}")`)
+				end
+			else
 				table.insert(dragstr, `local {nameIntoCamelCaseIdentifier(inst.Name)} = {constructScriptInstancePath(inst)}`)
 			end
 		end
-		
+
 		local payload = table.concat(dragstr, "\n") .. "\n"
-		
+
 		plugin:StartDrag({
 			Sender = "import_path",
 			MimeType = "text/plain",
@@ -1869,8 +1980,8 @@ local function cancelTabPickingRoots(changeImage: boolean)
 	end
 	if pickingTab then
 		pickingTab.TabFrame:RemoveTag("JEXP_SelectingRoots")
-		state.OverridePathBarText = nil
-		refreshPathBar(Selection:Get(), state, components)
+		displayToolbarText(nil)
+		
 		sharedTabState.currentlyPickingTabRoots = nil
 		if changeImage then
 			switchTabIcon(pickingTab)
@@ -2553,10 +2664,9 @@ local function initRegisterPluginMenusAndActions(
 
 				local tabFrame = tab.TabFrame
 				tabFrame:AddTag("JEXP_SelectingRoots")
-
-				state.OverridePathBarText = "Press [Enter] to confirm selection, [Escape] to cancel."
-				refreshPathBar({}, state, components)
-
+				
+				displayToolbarText "Press [Enter] to confirm selection, [Escape] to cancel."
+				
 				sharedTabState.currentlyPickingTabRoots = tab
 				sharedTabState.tabInsertListener = Manager.connectInputBegan(function(input)
 					if input.UserInputState ~= Enum.UserInputState.Begin then return end
@@ -4693,7 +4803,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				PropertyEditor.updateProperties(selection)
 			end
 			
-			refreshPathBar(selection, state, components)
+			--refreshPathBar(selection, state, components)
 			
 			for v in world:query(components.Instance, components.Selected):iter() do
 				world:remove(v, components.Selected)
@@ -4738,43 +4848,45 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				local currentViewportBottom = currentViewportTop + Manager.InstTreeAbsoluteSizeY
 				
 				local viewportInfo = VirtualScroller.getVisibleViewportInfo(Manager, currentViewportTop, false)
-				local jumpTarget
-				local minJumpTargetIdx = math.huge
-				
-				local atleastOneIsVisible = false
-				
-				-- Only jump if all entities aren't visible
-				for _, entity in entities do
-					local visIdx = viewportInfo.entityToVisibleIndex[entity]
-					if visIdx then
-						atleastOneIsVisible = true
-						break
-					end
-					
-					local idx = viewportInfo.entityToIndex[entity]
-					local targetFrameY = (idx - 1) * viewportInfo.explorerFrameHeight
-					
-					-- Not visible
-					if idx < minJumpTargetIdx then
-						minJumpTargetIdx = idx
-						jumpTarget = Vector2.new(
-							0,
-							math.max(
+				if viewportInfo then
+					local jumpTarget
+					local minJumpTargetIdx = math.huge
+
+					local atleastOneIsVisible = false
+
+					-- Only jump if all entities aren't visible
+					for _, entity in entities do
+						local visIdx = viewportInfo.entityToVisibleIndex[entity]
+						if visIdx then
+							atleastOneIsVisible = true
+							break
+						end
+
+						local idx = viewportInfo.entityToIndex[entity]
+						local targetFrameY = (idx - 1) * viewportInfo.explorerFrameHeight
+
+						-- Not visible
+						if idx < minJumpTargetIdx then
+							minJumpTargetIdx = idx
+							jumpTarget = Vector2.new(
 								0,
-								targetFrameY - (Manager.InstTreeAbsoluteSizeY - viewportInfo.explorerFrameHeight) / 2
+								math.max(
+									0,
+									targetFrameY - (Manager.InstTreeAbsoluteSizeY - viewportInfo.explorerFrameHeight) / 2
+								)
 							)
+						end
+					end
+					if not atleastOneIsVisible and jumpTarget then
+						Manager.jumpCanvasTo(
+							jumpTarget.X,
+							jumpTarget.Y,
+							0
 						)
 					end
+
+					VirtualScroller.update(Manager, false)
 				end
-				if not atleastOneIsVisible and jumpTarget then
-					Manager.jumpCanvasTo(
-						jumpTarget.X,
-						jumpTarget.Y,
-						0
-					)
-				end
-				
-				VirtualScroller.update(Manager, false)
 			end
 			ExplorerFrame.updateSelectionVisuals(Manager, false)
 			profileend()
@@ -4892,11 +5004,11 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 				if queryErrorTimeout then
 					task.cancel(queryErrorTimeout)
 				end
-				local button = topbar.PathBar.Segments.PathSegment
+				
 				local terr = err .. " (error clears in 5s)"
-				button.Text = terr
+				displayToolbarText(terr)
 				queryErrorTimeout = task.delay(5, function()
-					if button.Text == terr then button.Text = "" end
+					if toolbarTextLabel.Text == terr then displayToolbarText(nil) end
 					queryErrorTimeout = nil
 				end)
 				warn(err)
@@ -5039,7 +5151,7 @@ end
 function Manager.init(connections, jexplorerWidget)
 	local instances = connections:extend(cleanup.destroy)
 
-	local jexplorerUi = UITemplates.JexplorerUi()
+	local jexplorerUi: Types.UITEMPLATE_JExplorerUi = UITemplates.JexplorerUi()
 	jexplorerUi.Parent = jexplorerWidget
 
 	TextBoundsHelper.SetProxyParent(jexplorerWidget)
@@ -5063,6 +5175,8 @@ function Manager.init(connections, jexplorerWidget)
 	local world = Jecs.world()
 	local queryWorld = Jecs.world()
 
+	local topbar = jexplorerUi.Topbar
+
 	world:remove(Jecs.ChildOf, Jecs.pair(Jecs.OnDeleteTarget, Jecs.Delete))
 	Manager.WidgetState = {
 		World = world,
@@ -5083,6 +5197,11 @@ function Manager.init(connections, jexplorerWidget)
 		InstanceContextMenus = nil :: any,
 		MiscContextMenus = nil :: any,
 		IsDragging = false,
+		ToolbarItemList = PluginUI.createItemListFromExisting(
+			topbar.Toolbar,
+			topbar.Toolbar.Tools.Content,
+			topbar.Toolbar.Tools
+		),
 		
 		InstanceTree = (instanceTree :: any).ScrollContainer,
 		TreeScroller = treeScroller,
@@ -5091,7 +5210,6 @@ function Manager.init(connections, jexplorerWidget)
 	
 	local state = Manager.WidgetState
 	local components = Manager.Components
-	local topbar = jexplorerUi.Topbar
 	
 	local size = treeScroller.AbsoluteSize
 	Manager.InstTreeAbsoluteSizeY = size.Y
@@ -5226,7 +5344,7 @@ function Manager.init(connections, jexplorerWidget)
 	connections:extend(cleanup.call, {
 		function()
 			for _, v in widgets do
-				v.Enabled = false
+				v:Destroy()
 			end
 		end,
 		function()
@@ -5244,6 +5362,30 @@ function Manager.init(connections, jexplorerWidget)
 			end
 		end,
 	})
+	
+	local toolbarItemList = Manager.WidgetState.ToolbarItemList
+	toolbarItemList.AutoUpdateLayout = false
+	
+	toolbarTextLabel = Instance.new("TextLabel")
+	toolbarTextLabel.Text = ""
+	toolbarTextLabel.BackgroundTransparency = 1
+	toolbarTextLabel:AddTag("JEXP_Text")
+	toolbarTextLabel.AutomaticSize = Enum.AutomaticSize.X
+	toolbarTextLabel.Size = UDim2.fromScale(0, 1)
+	toolbarTextLabel.Parent = toolbarItemList.Container
+	
+	local function createToolbarButton(name: string, fn: () -> ())
+		local button = PluginUI.createButton(toolbarItemList, name, fn).Instance
+		button.Size = UDim2.new(0, 0, 0, 20)
+		button.AutomaticSize = Enum.AutomaticSize.X
+	end
+	
+	createToolbarButton("Undo", function()
+		ChangeHistoryService:Undo()
+	end)
+	createToolbarButton("Redo", function()
+		ChangeHistoryService:Redo()
+	end)
 	
 	local threads = connections:extend(task.cancel, {
 		scrollTrackerThread,

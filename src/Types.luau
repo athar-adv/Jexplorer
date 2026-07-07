@@ -27,9 +27,9 @@ export type UITEMPLATE_JExplorerUi = Frame & {
 
 	Topbar: Frame & {
 		UIStroke: UIStroke,
-		PathBar: Frame & {
-			Segments: ScrollingFrame & {
-				PathSegment: TextButton,
+		Toolbar: Frame & {
+			Tools: ScrollingFrame & {
+				Content: Frame
 			}
 		},
 		TabBar: Frame & {
@@ -406,7 +406,7 @@ export type WidgetState = {
 	DefaultInstanceActionsArray: {any},
 	InstanceContextMenus: {[string]: ContextMenuInfo},
 	MiscContextMenus: {[string]: ContextMenu},
-	OverridePathBarText: string?,
+	ToolbarItemList: PluginUI.ItemList,
 	Enabled: boolean
 }
 
