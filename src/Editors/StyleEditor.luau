@@ -597,33 +597,6 @@ function StyleEditor.init(Manager)
 		end)
 	end
 	
-	tokensDropdown:SetText("Loading, please wait...")
-	rulesDropdown:SetText("Loading, please wait...")
-	connections:extend(task.cancel, {
-		task.spawn(function()
-			local tokens = {}
-			for k, v in sheet.Tokens do
-				local defaultValue = v.RawValue
-				local defaultStr = UDF.to(v.RawValue)
-
-				table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr, not v:HasTag(Constants.DefaultTokenTag)).Instance)
-				task.wait()
-			end
-			tokensDropdown:AddBulkItem(tokens)
-			tokensDropdown:SetText("StyleTokens")
-		end),
-
-		task.spawn(function()
-			local dropdowns = {}
-			for _, rule in sheet.Rules do
-				table.insert(dropdowns, createStyleRuleDropdown(rule).Backdrop)
-				task.wait(0.1)
-			end
-			rulesDropdown:AddBulkItem(dropdowns)
-			rulesDropdown:SetText("StyleRules")
-		end)
-	})
-	
 	local rulesHeader = rulesDropdown.Backdrop:FindFirstChild("DropDownHeader")
 
 	PluginUI.createInsertButton(rulesHeader, function()
@@ -635,6 +608,39 @@ function StyleEditor.init(Manager)
 	PluginUI.createInsertButton(tokensHeader, function()
 		showCreateTokenMenu()
 	end)
+	
+	local isInitialized = false
+
+	local button = PluginUI.createButton(nil, "Initialize StyleEditor", function()
+		tokensDropdown:SetText("Loading, please wait...")
+		rulesDropdown:SetText("Loading, please wait...")
+		connections:extend(task.cancel, {
+			task.spawn(function()
+				local tokens = {}
+				for k, v in sheet.Tokens do
+					local defaultValue = v.RawValue
+					local defaultStr = UDF.to(v.RawValue)
+
+					table.insert(tokens, createTokenAttribute(k, defaultValue, defaultStr, not v:HasTag(Constants.DefaultTokenTag)).Instance)
+					task.wait()
+				end
+				tokensDropdown:AddBulkItem(tokens)
+				tokensDropdown:SetText("StyleTokens")
+			end),
+
+			task.spawn(function()
+				local dropdowns = {}
+				for _, rule in sheet.Rules do
+					table.insert(dropdowns, createStyleRuleDropdown(rule).Backdrop)
+					task.wait(0.1)
+				end
+				rulesDropdown:AddBulkItem(dropdowns)
+				rulesDropdown:SetText("StyleRules")
+			end)
+		})
+	end)
+	
+	button.Instance.Parent = mainframe.Items.Content
 
 	rulesDropdown.Backdrop.Parent = mainframe.Items.Content
 	tokensDropdown.Backdrop.Parent = mainframe.Items.Content

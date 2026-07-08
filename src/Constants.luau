@@ -1,5 +1,5 @@
 return {
-	VERSION = "5.6.9",
+	VERSION = "5.7",
 	
 	TaggedProperties = {
 		--[["RunContext",]] "Enabled", "Name", "ClassName"

@@ -16,6 +16,8 @@ local stickToRightEdge = require("./Small/StickToRightEdge")
 local recordChanges = require("./Small/RecordChanges")
 local TextBoundsHelper = require("./Small/TextBoundsHelper")
 local RulerPool = require("./RulerPool")
+local PluginUI = require("./PluginUI")
+local getClampedXY = require("./Small/GetClampedXY")
 
 local getClassPropMap = require("./Small/GetClassPropMap")
 
@@ -430,7 +432,8 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 	local selectInstanceButton = overlayFrame.Select
 	local reclassButton = main.Reclass
 	local insertInstanceButton = main.Insert
-
+	local collectionButton = main.Collection
+	
 	local connections = state.Connections:extend(cleanup.disconnect)
 	local frameState: Types.FrameState = {
 		isLMBActive = false,
@@ -456,7 +459,9 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 		lastFrameX = math.huge,
 		currentFrameX = 0,
 		overlayFrame = overlayFrame,
-		isSticky = false
+		isSticky = false,
+		collectionButton = collectionButton,
+		collectionButtonVisible = false
 	}
 	
 	local frameEntity = frameWorld:entity()
@@ -521,6 +526,79 @@ local function createExplorerFrame(Manager: Manager, frame: Types.UITEMPLATE_Ins
 	end)
 	items[n+10] = reclassButton.Activated:Connect(function()
 		onReclassActivated(Manager, frameWorld, frameEntity, components, state, reclassButton)
+	end)
+	local currentList: PluginUI.ItemList?
+	items[n+11] = collectionButton.MouseEnter:Connect(function(x, y)
+		if currentList then return end
+		local entity = frameWorld:get(frameEntity, components.Entity)
+		if not entity then return end
+		local inst = Manager.instanceOf(entity)
+		if not inst then return end
+
+		-- 1. Create list directly under explorer UI
+		local list = PluginUI.createItemList({Parent = jexplorerUi})
+
+		-- Turn AutoUpdateLayout off since we handle size evaluation manually here
+		list.AutoUpdateLayout = false
+		list.Backdrop:RemoveTag("JEXP_Background")
+		list.Backdrop:AddTag("JEXP_DarkBackground")
+
+		-- Use AutomaticSize safely
+		list.Backdrop.AutomaticSize = Enum.AutomaticSize.XY
+		list.Container.AutomaticSize = Enum.AutomaticSize.XY
+
+		-- Keep base Size small so it stretches outward to fit the tags
+		list.Backdrop.Size = UDim2.fromOffset(10, 10)
+		currentList = list
+
+		-- 2. Populate text objects (Give them explicit width limits so they scale naturally)
+		for _, tag in inst:GetTags() do
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(0, 120, 0, 16) -- Explicit width means automatic text wrapper works cleanly
+			label:AddTag("JEXP_Text")
+			label.TextSize = 8
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.BackgroundTransparency = 1
+			label.Text = tag
+			list:AddItem(label)
+		end
+
+		-- 3. FORCE ROBLOX LAYOUT ENGINE UP-TO-DATE
+		-- This updates list.Backdrop.AbsoluteSize instantly so it reads real numbers instead of 0, 0
+		list.Backdrop.Visible = true 
+		task.defer(function()
+			-- If mouse left quickly while deferring, abort to prevent errors
+			if not currentList or currentList ~= list then return end
+
+			local mousePos = Vector2.new(x, y)
+			local frameSize = list.Backdrop.AbsoluteSize
+
+			-- Extract absolute container bounds
+			local left = jexplorerUi.AbsolutePosition.X
+			local top = jexplorerUi.AbsolutePosition.Y
+			local right = left + jexplorerUi.AbsoluteSize.X
+			local bottom = top + jexplorerUi.AbsoluteSize.Y
+
+			-- 4. Calculate actual positions (Left of cursor, vertically centered)
+			local desiredX = mousePos.X - frameSize.X - 6
+			local desiredY = mousePos.Y - (frameSize.Y / 2)
+
+			-- 5. Strict window bounds clamping
+			local clampedOffsetX = math.clamp(desiredX, left, right - frameSize.X)
+			local clampedOffsetY = math.clamp(desiredY, top, bottom - frameSize.Y)
+
+			-- 6. Apply physical anchor properties
+			list:SetAnchor(Vector2.new(0, 0), UDim2.fromOffset(clampedOffsetX, clampedOffsetY))
+		end)
+
+		list:Show()
+	end)
+
+	items[n+12] = collectionButton.MouseLeave:Connect(function()
+		if currentList then
+			currentList:Destroy()
+			currentList = nil
+		end
 	end)
 	return frameEntity
 end
@@ -850,6 +928,33 @@ local frameIconOrderUpdaters = {
 		
 		return offset, iconCanExist
 	end,
+	-- Collection
+	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean?)
+		profilebegin("updateCollection")
+		
+		local offset
+		local iconCanExist = frameState.collectionButtonVisible
+
+		local collectionButton = frameState.collectionButton
+		local canShow, pos = false, nil 
+
+		if frameState.collectionButtonVisible then
+			pos = stickToRightEdge(containerWidth, FrameX, currentoffset)
+			canShow = pos.X.Offset > nameBoundX
+		end
+
+		collectionButton.Visible = canShow
+
+		if canShow then
+			if FrameX ~= frameState.lastFrameX or pos ~= frameState.collectionIconPos then
+				collectionButton.Position = pos
+				frameState.collectionIconPos = pos
+			end
+			offset = collectionButton.AbsoluteSize.X
+		end
+
+		return offset, iconCanExist
+	end,
 	-- pending changes,
 	function(Manager: Manager, entity, FrameX: number, frameState: Types.FrameState, state: Types.WidgetState, containerWidth, nameBoundX, currentoffset): (number?, boolean??)
 		profilebegin("updatePendingChanges")
@@ -1100,9 +1205,13 @@ function ExplorerFrame.flushExplorerFrameTagAssignQueue(Manager)
 				table.insert(newTags, JexpTags.getTaggedPropertyTag(prop, typeof(value) == "EnumItem" and value.Name or tostring(value)))
 			end
 		end
+		local hasTags = false
 		for _, tag in inst:GetTags() do
+			hasTags = true
 			table.insert(newTags, `JEXP_TAG_{tag}`)
 		end
+		frameState.collectionButtonVisible = hasTags
+		
 		local hasScriptError = scriptErrors and #scriptErrors > 0
 		local hasScriptWarn = not hasScriptError and scriptWarns and #scriptWarns > 0
 		

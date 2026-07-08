@@ -152,13 +152,13 @@ function SavedState.save(state: SavedState)
 	plugin:SetSetting("Jexplorer_SavedState", state)
 end
 
-function SavedState.load(manager: Types.Manager): SavedState
+function SavedState.load(manager: Types.Manager): (SavedState, boolean)
 	local saved = plugin:GetSetting("Jexplorer_SavedState")
 	
 	if not saved then
 		print("No saved state found, creating defaults")
 		saved = SavedState.get_default(manager)
-		return saved
+		return saved, true
 	end
 	
 	if not saved.data_version or saved.data_version ~= SavedState.data_version then
@@ -166,7 +166,7 @@ function SavedState.load(manager: Types.Manager): SavedState
 		saved.data_version = SavedState.data_version
 	end
 
-	return saved
+	return saved, false
 end
 
 return SavedState

@@ -57,7 +57,8 @@ type UITEMPLATE_InstanceFrame_Main = Frame & {
 
 	PackageLinkIcon: ImageLabel,
 	PendingChanges: ImageLabel,
-	Reclass: ImageButton
+	Reclass: ImageButton,
+	Collection: ImageButton
 }
 
 export type UITEMPLATE_InstanceFrame = Frame & {
@@ -314,6 +315,7 @@ export type FrameState = {
 	packageLinkIconVisible: boolean,
 	pendingChangesIconVisible: boolean,
 	reclassIconVisible: boolean,
+	collectionButton: GuiButton,
 	currentNameBoundX: number,
 	currentFrameX: number,
 	lastFrameX: number,
@@ -322,7 +324,9 @@ export type FrameState = {
 	
 	linkIconPos: UDim2?,
 	pendingChangesIconPos: UDim2?,
-	reclassIconPos: UDim2?
+	reclassIconPos: UDim2?,
+	collectionIconPos: UDim2?,
+	collectionButtonVisible: boolean
 }
 
 export type Components = {

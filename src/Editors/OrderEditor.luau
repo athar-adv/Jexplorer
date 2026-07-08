@@ -216,18 +216,20 @@ function OrderEditor.init(Manager)
 		end)
 	end)
 	
-	dropdown:SetText("Loading, please wait...")
-	connections:extend(task.cancel, {
-		task.spawn(function()
-			local items = {}
-			for i, v in OrderEditor.ClassPriorities do
-				table.insert(items, createClassPriorityBox(v, i, nil).Instance)
-				task.wait()
-			end
-			dropdown:AddBulkItem(items)
-			dropdown:SetText("Instance Sorting Priorities (descending)")
-		end)
-	})
+	PluginUI.createButton(list, "Initialize OrderEditor", function()
+		dropdown:SetText("Loading, please wait...")
+		connections:extend(task.cancel, {
+			task.spawn(function()
+				local items = {}
+				for i, v in OrderEditor.ClassPriorities do
+					table.insert(items, createClassPriorityBox(v, i, nil).Instance)
+					task.wait()
+				end
+				dropdown:AddBulkItem(items)
+				dropdown:SetText("Instance Sorting Priorities (descending)")
+			end)
+		})
+	end)
 end
 
 return OrderEditor

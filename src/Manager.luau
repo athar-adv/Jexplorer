@@ -45,7 +45,6 @@ local Signal = require("./Shared/Vendor/SimpleSignal").new
 
 local UniPlugin = require("./UniPlugin")(plugin)
 
-
 local SettingEditor = require("./Editors/SettingEditor")
 local StyleEditor = require("./Editors/StyleEditor")
 local VersionControl = require("./Editors/VersionControl")
@@ -558,13 +557,25 @@ local function findOrCreateInstanceWithTag(parent: Instance, tag: string, classI
 end
 
 local toolbarTextLabel: TextLabel
-local function displayToolbarText(text: string?)
+local currentDisplayId = 0
+local function displayToolbarText(text: string?): number?
 	if not text then
 		toolbarTextLabel.Text = ""
-		return
+		return nil
 	end
+	local id = currentDisplayId
+	currentDisplayId += 1
 	
 	toolbarTextLabel.Text = text
+	return currentDisplayId
+end
+
+local function displayToolbarTextWithTimeout(text: string, timeout: number)
+	local id = displayToolbarText(text)
+	task.delay(timeout, function()
+		if currentDisplayId ~= id then return end
+		displayToolbarText(nil)
+	end)
 end
 
 local function instanceSelectionAttrCallback(inst: Instance, name: string)
@@ -1523,41 +1534,140 @@ function Manager.createContextMenu(id, actions, title, icon)
 	return contextMenu
 end
 
-local function constructScriptInstancePath(inst: Instance)
-	local path = {}
-	local current: Instance? = inst
-	while current do
-		if current == game then
-			current = current.Parent
-			continue
-		end
+-- Helper to safely get the current script source context
+local function getActiveScriptSource(activeScript: Instance?): string?
+	if not activeScript or not activeScript:IsA("Script") and not activeScript:IsA("LocalScript") and not activeScript:IsA("ModuleScript") then
+		return nil
+	end
+	-- Dynamic wrapper for Studio environment safety
+	local success, source = pcall(function()
+		return (activeScript :: any).Source
+	end)
+	return success and source or nil
+end
 
-		local name = current.Name
-		local segment
+-- Helper function to parse code context and find assigned service/instance variables
+local function extractVariableContext(sourceCode: string): { [string]: string }
+	local context: { [string]: string } = {}
 
-		if current.Parent == game then
-			segment = 'game:GetService("' .. name .. '")'
-		elseif name:match("^[%a_][%w_]*$") then
-			segment = name
-		else
-			segment = '["' .. name:gsub('"', '\\"') .. '"]'
-		end
-
-		table.insert(path, 1, segment)
-		current = current.Parent
+	-- Match patterns like: local s = game:GetService("ReplicatedStorage")
+	for varName, serviceName in sourceCode:gmatch('local%s+([%w_]+)%s*=%s*game:GetService%s*%(%s*["\']([^"\']+)["\']%s*%)') do
+		if not serviceName then continue end
+		context[serviceName] = varName
 	end
 
-	local result = ""
-	for i, segment in path do
-		if i == 1 then
-			result = segment
-		elseif segment:sub(1, 1) == "[" then
-			result = result .. segment
+	-- Match patterns like: local workspace = game.Workspace or game:GetService("Workspace")
+	for varName, serviceName in sourceCode:gmatch('local%s+([%w_]+)%s*=%s*game%s*%.%s*([%w_]+)') do
+		if not serviceName then continue end
+		context[serviceName] = varName
+	end
+
+	return context
+end
+
+local function constructScriptInstancePath(inst: Instance, executingScript: Instance?, sourceCodeContext: string?): string
+	local candidates: {string} = {}
+	local serviceContext = sourceCodeContext and extractVariableContext(sourceCodeContext) or {}
+
+	-- Helper to construct standard dot/bracket suffixes onto a starting base string
+	local function getPathFromAncestor(target: Instance, ancestor: Instance, baseStr: string): string
+		local segments: {Instance} = {}
+		local curr: Instance? = target
+		while curr and curr ~= ancestor do
+			table.insert(segments, 1, curr)
+			curr = curr.Parent
+		end
+
+		local result = baseStr
+		for _, segmentInst in segments do
+			local name = segmentInst.Name
+			if name:match("^[%a_][%w_]*$") then
+				result = (result == "" and name) or (result .. "." .. name)
+			else
+				result = result .. '["' .. name:gsub('"', '\\"') .. '"]'
+			end
+		end
+		return result
+	end
+
+	-- 1. SCRIPT-RELATIVE PATHS (Climbing up parents or down to descendants)
+	if executingScript then
+		if inst == executingScript then
+			table.insert(candidates, "script")
+		elseif inst:IsDescendantOf(executingScript) then
+			table.insert(candidates, getPathFromAncestor(inst, executingScript, "script"))
 		else
-			result = result .. "." .. segment
+			local current: Instance? = executingScript.Parent
+			local parentChain = "script"
+			while current and current ~= game do
+				parentChain = parentChain .. ".Parent"
+				if inst == current then
+					table.insert(candidates, parentChain)
+					break
+				elseif inst:IsDescendantOf(current) then
+					table.insert(candidates, getPathFromAncestor(inst, current, parentChain))
+					break
+				end
+				current = current.Parent
+			end
 		end
 	end
-	return result
+
+	-- 2. DETECTED SERVICE VARIABLE PATHS
+	local currentCheck: Instance? = inst
+	local rootService: Instance? = nil
+	while currentCheck and currentCheck ~= game do
+		if currentCheck.Parent == game then
+			rootService = currentCheck
+			break
+		end
+		currentCheck = currentCheck.Parent
+	end
+
+	if rootService then
+		local serviceName = rootService.Name
+		local detectedVarName = serviceContext[serviceName]
+
+		if detectedVarName then
+			if inst == rootService then
+				table.insert(candidates, detectedVarName)
+			else
+				table.insert(candidates, getPathFromAncestor(inst, rootService, detectedVarName))
+			end
+		end
+	end
+
+	-- 3. STANDARD GAME-RELATIVE FALLBACK PATH
+	local gameSegments: {Instance} = {}
+	local currentFallback: Instance? = inst
+	local topServiceSegment: string = ""
+
+	while currentFallback and currentFallback ~= game do
+		if currentFallback.Parent == game then
+			topServiceSegment = 'game:GetService("' .. currentFallback.Name .. '")'
+		else
+			table.insert(gameSegments, 1, currentFallback)
+		end
+		currentFallback = currentFallback.Parent
+	end
+
+	local gameResult = topServiceSegment
+	for _, seg in gameSegments do
+		local name = seg.Name
+		if name:match("^[%a_][%w_]*$") then
+			gameResult = gameResult .. "." .. name
+		else
+			gameResult = gameResult .. '["' .. name:gsub('"', '\\"') .. '"]'
+		end
+	end
+	table.insert(candidates, gameResult)
+
+	-- 4. EVALUATE AND RETURN SHORTEST STRING PATH
+	table.sort(candidates, function(a, b)
+		return #a < #b
+	end)
+
+	return candidates[1] or gameResult
 end
 
 local function nameIntoCamelCaseIdentifier(name: string): string
@@ -1641,9 +1751,7 @@ local function intoStringRequire(activeScript: Instance, targetModule: Instance)
 
 	-- Target is inside the activeScript itself
 	if lca == activeScript and targetModule ~= activeScript then
-		-- Build steps down from the activeScript
 		local pathParts = { "@self" }
-		-- Exclude the last index because it represents the activeScript/LCA
 		for i = targetIndex, 1, -1 do
 			table.insert(pathParts, targetAncestors[i].Name)
 		end
@@ -1655,9 +1763,8 @@ local function intoStringRequire(activeScript: Instance, targetModule: Instance)
 		return "@self"
 	end
 
-	-- Calculate steps up to the common ancestor
-	-- activeIndex represents the steps up from activeScript's parent to the LCA
-	local parentCount = activeIndex
+	-- CORRECTION: Calculate steps up from activeScript's PARENT to the LCA.
+	local parentCount = activeIndex - 1
 	local firstSegment = ""
 
 	if parentCount == 0 then
@@ -1670,15 +1777,14 @@ local function intoStringRequire(activeScript: Instance, targetModule: Instance)
 
 	-- Build steps down to the target module
 	local pathParts = { firstSegment }
-	-- Exclude index 1 if it matches the target module name (already handled)
-	for i = targetIndex, 2, -1 do
+
+	-- FIX: Changed targetIndex + 1 to targetIndex to omit the LCA name
+	for i = targetIndex, 1, -1 do
 		table.insert(pathParts, targetAncestors[i].Name)
 	end
-	table.insert(pathParts, targetModule.Name)
 
 	return table.concat(pathParts, "/")
 end
-
 
 function Manager.startDraggingSelected(inputOnSelect)
 	local state = Manager.WidgetState
@@ -1703,10 +1809,10 @@ function Manager.startDraggingSelected(inputOnSelect)
 					table.insert(dragstr, `local {inst.Name} = require("{intoStringRequire(activeScript, inst)}")`)
 				end
 			else
-				table.insert(dragstr, `local {nameIntoCamelCaseIdentifier(inst.Name)} = {constructScriptInstancePath(inst)}`)
+				table.insert(dragstr, `local {nameIntoCamelCaseIdentifier(inst.Name)} = {constructScriptInstancePath(inst, activeScript, activeScript.Source)}`)
 			end
 		end
-
+		
 		local payload = table.concat(dragstr, "\n") .. "\n"
 
 		plugin:StartDrag({
@@ -2223,6 +2329,7 @@ function Manager.saveState()
 			end
 			
 			SavedState.save(savedState)
+			displayToolbarTextWithTimeout("State saved successfully", 3)
 		end,
 		all = function()
 			for k, v in tbl do
@@ -2868,7 +2975,7 @@ local function initRegisterPluginMenusAndActions(
 				local inst = Manager.instanceOf(target)
 				if inst then
 					copyToClipboard(
-						constructScriptInstancePath(inst)
+						inst:GetFullName()
 					)
 				end
 			end,
@@ -3569,13 +3676,13 @@ local function initRegisterPluginMenusAndActions(
 			Text = "Enable/Disable Script",
 			Desc = "Toggles .Enabled property of target LuaSourceContainer.",
 			Icon = nil,
-			Triggered = function(target: ExplorerEntity)
-				local inst = Manager.instanceOf(target)
-				if not inst then return end
-				if not inst:IsA("BaseScript") then return end
-				
+			Triggered = function()
 				recordChanges("ToggleScript", function()
-					inst.Enabled = not inst.Enabled
+					for _, v in state.CurrentSelection do
+						local inst = Manager.instanceOf(v)
+						if not inst or not inst:IsA("BaseScript") then continue end
+						inst.Enabled = not inst.Enabled
+					end
 				end)
 			end
 		},
@@ -4044,6 +4151,7 @@ local function initRegisterTagListeners(
 	
 			local entities = Manager.getEntitiesOfInstance(inst)
 			if entities then
+				local shouldUpdate = {}
 				for _, entity in entities do
 					Manager.refreshQueryTags(entity, tagComponent)
 
@@ -4056,6 +4164,12 @@ local function initRegisterTagListeners(
 					local tag = `JEXP_TAG_{tag}`
 					table.insert(frameState.tagsToRemove, tag)
 					frameInst:AddTag(tag)
+					
+					frameState.collectionButtonVisible = true
+					table.insert(shouldUpdate, frame)
+				end
+				for _, v in shouldUpdate do
+					ExplorerFrame.updateRightEdgeIcons(Manager, v)
 				end
 			end
 		end
@@ -4074,6 +4188,7 @@ local function initRegisterTagListeners(
 			
 			local entities = Manager.getEntitiesOfInstance(inst)
 			if entities then
+				local shouldUpdate = {}
 				for _, entity in entities do
 					Manager.refreshQueryTags(entity, nil)
 
@@ -4089,6 +4204,14 @@ local function initRegisterTagListeners(
 
 					frameInst:RemoveTag(tag)
 					table.remove(frameState.tagsToRemove, idx)
+					
+					if #inst:GetTags() == 0 then
+						frameState.collectionButtonVisible = false
+						table.insert(shouldUpdate, frame)
+					end
+				end
+				for _, v in shouldUpdate do
+					ExplorerFrame.updateRightEdgeIcons(Manager, v)
 				end
 			end
 		end)
@@ -4164,7 +4287,6 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 
 	local autocompleteGroup: ItemGroup.ItemGroup?
 	local suppressAutocomplete = false
-	local queryErrorTimeout: thread?
 	
 	local function triggerQueryAutocompleteSuggestions()
 		if not Manager.getSetting("QueryAutocompleteEnabled") then return end
@@ -5001,16 +5123,8 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			
 			if not success then
 				local err = `Query Error: '{type(result) == "table" and (result :: any).message or tostring(result)}'`
-				if queryErrorTimeout then
-					task.cancel(queryErrorTimeout)
-				end
 				
-				local terr = err .. " (error clears in 5s)"
-				displayToolbarText(terr)
-				queryErrorTimeout = task.delay(5, function()
-					if toolbarTextLabel.Text == terr then displayToolbarText(nil) end
-					queryErrorTimeout = nil
-				end)
+				displayToolbarTextWithTimeout(err .. " (error clears in 5s)", 5)
 				warn(err)
 				
 				profilebegin("Jexplorer::query::showEntities")
@@ -5234,7 +5348,8 @@ function Manager.init(connections, jexplorerWidget)
 		local tbl = plugin:GetSetting("Jexplorer_SavedState")
 		tbl.data_version = getGlobalConfigValue("data_version")
 	end
-	local loaders, savedState = Manager.loadState(SavedState.load(Manager))
+	local loadedState, isDefault = SavedState.load(Manager)
+	local loaders, savedState = Manager.loadState(loadedState)
 	local sheet = loaders.style()
 	
 	loaders.icon_colors()
@@ -5380,6 +5495,9 @@ function Manager.init(connections, jexplorerWidget)
 		button.AutomaticSize = Enum.AutomaticSize.X
 	end
 	
+	--createToolbarButton("Save Configs", function()
+	--	Manager.saveState().all()
+	--end)
 	createToolbarButton("Undo", function()
 		ChangeHistoryService:Undo()
 	end)
@@ -5458,6 +5576,23 @@ function Manager.init(connections, jexplorerWidget)
 	local size = treeScroller.AbsoluteSize
 	Manager.InstTreeAbsoluteSizeY = size.Y
 	Manager.InstTreeAbsoluteSizeX = size.X
+
+	if isDefault then
+		local roots = {}
+		local function registerService(service: Instance)
+			local entities = Manager.getEntitiesOfInstance(service)
+			if entities then
+				for _, v in entities do
+					table.insert(roots, v)
+				end
+			end
+		end
+		registerService(game:GetService("ReplicatedStorage"))
+		registerService(game:GetService("ServerScriptService"))
+		registerService(game:GetService("ServerStorage"))
+		registerService(game:GetService("ReplicatedFirst"))
+		Manager.registerTab("Script", "", roots, true)
+	end
 end
 
 Manager.ChildOf = ChildOf

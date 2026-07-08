@@ -143,6 +143,12 @@ return {
 					Visible = false,
 
 					"JEXP_MonochromeImage"
+				},
+				create "ImageButton" {
+					Name = "Collection",
+					Visible = false,
+
+					"JEXP_MonochromeImage"
 				}
 			}
 		}

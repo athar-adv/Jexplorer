@@ -19,6 +19,8 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 	local theme = studioSettings.Theme :: StudioTheme
 	
 	local defaultTokens = {
+		["__TOOLBAR_OFFSET"] = 0,
+		["ToolbarVisible"] = true,
 		["SelectedColor"] = var "brightness($BackgroundColor) > 0.5 ? rgb(82, 139, 255) : rgb(0, 39, 184)",
 		["ScriptErrorColor"] = Color3.fromRGB(255, 44, 44),
 		["ScriptWarnColor"] = Color3.fromRGB(255, 211, 53),
@@ -247,7 +249,8 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 				rule("ToolbarStyle", "> #Toolbar", 0, {
 					Size = var "$ToolbarSize",
 					AnchorPoint = Vector2.new(1, 0),
-					Position = var "udim2(1, 0, 0, $TabBarSize.Y.Offset)",
+					Position = var "udim2(1, 0, 0, $TabBarSize.Y.Offset + $__TOOLBAR_OFFSET)",
+					Visible = "$ToolbarVisible",
 					
 					rule("PaddingStyle", "::UIPadding", 0, {
 						PaddingRight = UDim.new(0, 8)
@@ -566,6 +569,17 @@ return function(Manager: Types.Manager, onTokens: (({[string]: any}) -> ())?): (
 					Size = UDim2.new(0, 16, 0, 16),
 					ZIndex = 3,
 					Image = var "'rbxasset://studio_svg_textures/Shared/DraggerTools/![$Theme]/Standard/Scale@2x.png'",
+					
+					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
+						AspectRatio = "$Icon16x16AspectRatio"
+					})
+				}),
+				rule("CollectionStyle", "> #Collection ImageButton", 0, {
+					BackgroundTransparency = 1,
+					AnchorPoint = Vector2.new(1, 0.5),
+					Size = UDim2.new(0, 16, 0, 16),
+					ZIndex = 3,
+					Image = var "'rbxasset://studio_svg_textures/Shared/InsertableObjects/![$Theme]/Standard/Service.png'",
 					
 					rule("AspectRatioConstraint", "::UIAspectRatioConstraint", 0, {
 						AspectRatio = "$Icon16x16AspectRatio"

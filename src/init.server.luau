@@ -108,8 +108,8 @@ local jexplorerWidget = pluginui("", function()
 	return plugin:CreateDockWidgetPluginGuiAsync(
 		getId("Jexplorer"), DockWidgetPluginGuiInfo.new(
 			Enum.InitialDockState.Left,
-			false,
-			false
+			true,
+			true
 		)
 	)
 end)
@@ -148,8 +148,13 @@ uiToggleButton.Click:Connect(function()
 	end
 end)
 
-if jexplorerWidget.HostWidgetWasRestored and not finished_init then
+--if jexplorerWidget.HostWidgetWasRestored and not finished_init then
 	init()
-end
+--end
 
 UniPlugin:exportAs("athar-adv/Jexplorer")
+
+--if game:GetService("RunService"):IsRunMode() then
+--	uiToggleButton:SetActive(true)
+--	Manager.WidgetState.Enabled = true
+--end

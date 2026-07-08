@@ -61,10 +61,13 @@ local updateLayoutQueue = {}
 local layoutQueueDirty = false
 local queueProcessing = false
 local function updateLayout(container: any)
+	if queueProcessing then
+		task.defer(updateLayout, container)
+		return
+	end
 	table.insert(updateLayoutQueue, container)
 	layoutQueueDirty = true
 	task.defer(function()
-		if queueProcessing then return end
 		if not layoutQueueDirty then return end
 		queueProcessing = true
 		layoutQueueDirty = false

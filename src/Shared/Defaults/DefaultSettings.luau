@@ -12,19 +12,46 @@ return {
 			Display = "Show Tab Bar",
 			Default = true,
 			OnChange = function(manager, newvalue)
-				if newvalue == true then
-					DefaultStyle(manager, function(tokens)
+				local isToolbarVisible = manager.getSetting("ShowToolbar") 
+
+				DefaultStyle(manager, function(tokens)
+					if newvalue == true then
 						manager.Style:SetToken("TabBarSize", assert(tokens["TabBarSize"]), false)
 						manager.Style:SetToken("TabFramesVisible", assert(tokens["TabFramesVisible"]), false)
-						manager.Style:UpdateTokens()
-					end)
-				else
-					DefaultStyle(manager, function(tokens)
+						manager.Style:SetToken("__TOOLBAR_OFFSET", 0, false)
+					else
 						manager.Style:SetToken("TabBarSize", UDim2.fromScale(0, 0), false)
 						manager.Style:SetToken("TabFramesVisible", false, false)
-						manager.Style:UpdateTokens()
-					end)
-				end
+						
+						local offset = isToolbarVisible and assert(tokens["TabBarSize"]).Y.Offset or 0
+						manager.Style:SetToken("__TOOLBAR_OFFSET", offset, false)
+					end
+					manager.Style:UpdateTokens()
+				end)
+			end,
+		},
+		ShowToolbar = {
+			Type = "boolean",
+			Display = "Show Toolbar",
+			Default = true,
+			OnChange = function(manager, newvalue)
+				local isTabBarVisible = manager.getSetting("ShowTabBar")
+
+				DefaultStyle(manager, function(tokens)
+					if newvalue == true then
+						manager.Style:SetToken("ToolbarSize", assert(tokens["ToolbarSize"]), false)
+						
+						if not isTabBarVisible then
+							manager.Style:SetToken("__TOOLBAR_OFFSET", assert(tokens["TabBarSize"]).Y.Offset, false)
+						end
+					else
+						manager.Style:SetToken("ToolbarSize", UDim2.fromScale(0, 0), false)
+
+						-- Force offset to 0 because the toolbar is hidden
+						manager.Style:SetToken("__TOOLBAR_OFFSET", 0, false)
+					end
+					manager.Style:UpdateTokens()
+				end)
 			end,
 		}
 	},
