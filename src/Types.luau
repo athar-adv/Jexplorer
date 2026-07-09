@@ -262,6 +262,7 @@ export type Tab = {
 
 	Toggle: () -> (),
 	Remove: () -> (),
+	UpdateTabFrameSize: () -> (),
 	QueryDescendants: (selector: string) -> {Instance}
 }
 export type RepoProxy = {
@@ -344,8 +345,9 @@ export type Components = {
 	DisplayTopLevel: Jecs.Component,
 	HasPackageLink: Jecs.Component,
 	HasSideIcons: Jecs.Component,
+	ShouldntCleanupEntityWhenParentedToNil: Jecs.Component,
 	
-	CleanupTicket: Jecs.Component<{}>,
+	CleanupTicket: Jecs.Component<{recursive: boolean}>,
 	DeletionTicket: Jecs.Component<{}>,
 	ChildAddedTicket: Jecs.Component<{children: {Instance}}>,
 	ChildMovedTicket: Jecs.Component<{children: {Instance}}>,
@@ -415,11 +417,12 @@ export type WidgetState = {
 }
 
 export type HierarchyState = {
+	ArchetypeToQueryEntity: {[string]: QueryEntity},
 	StateCache: {[ExplorerEntity]: {invisible: boolean, expanded: boolean, isTopLevel: boolean}},
 	ChildrenMap: {[ExplorerEntity]: {ExplorerEntity}},
 
 	cleanupEntities: (Manager) -> boolean,
-	cleanupEntity: (Manager, ExplorerEntity) -> (),
+	cleanupEntity: (Manager, ExplorerEntity, recursive: boolean) -> (),
 	rebuildHierarchyCache: (Manager) -> ({[ExplorerEntity]: {ExplorerEntity}}, {ExplorerEntity}),
 	getFlattenedVisibleEntities: (Manager, invisible: {ExplorerEntity}, isScroller: boolean) -> ({ExplorerEntity}, {[ExplorerEntity]: number}, {number}),
 
@@ -429,7 +432,7 @@ export type HierarchyState = {
 	queueForEntityCreation: (Manager, parent: ExplorerEntity, children: {Instance}) -> (),
 
 	flushEntityCleanupQueue: (Manager) -> boolean,
-	queueForEntityCleanup: (Manager, entity: ExplorerEntity) -> (),
+	queueForEntityCleanup: (Manager, entity: ExplorerEntity, recursive: boolean) -> (),
 
 	flushOnChildAddedQueue: (Manager) -> boolean,
 	queueForOnChildAdded: (Manager, new_parent: ExplorerEntity, child: Instance) -> (),
@@ -456,7 +459,7 @@ export type HierarchyState = {
 	createInstanceEntity: (Manager, instance: Instance, parent: ExplorerEntity?, dontSetInInstanceToEntity: boolean?) -> ExplorerEntity,
 
 	deregisterFromQueryWorld: (Manager, entity: ExplorerEntity) -> (),
-	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, tags: {Jecs.Id}, attributes: {Jecs.Id}) -> (),
+	registerIntoQueryWorld: (Manager, entity: ExplorerEntity, className: string, queryComponents: {Jecs.Id}) -> QueryEntity?,
 
 	updateEntityOrder: (Manager, entity: ExplorerEntity) -> (),
 	getChildren: (ExplorerEntity) -> {ExplorerEntity},
@@ -596,7 +599,9 @@ export type Manager = {
 	ChildAmountCache: {[ExplorerEntity]: number},
 	ClassNameCache: {[ExplorerEntity]: string},
 	NameCache: {[ExplorerEntity]: string},
-
+	NumericSuffixCache: {[ExplorerEntity]: number},
+	EntityQueryComponents: {[ExplorerEntity]: {Jecs.Id}},
+	
 	IdToInstance: {[InstanceId]: Instance},
 	InstanceToId: {[Instance]: InstanceId},
 	IdToObjectValue: {[InstanceId]: ObjectValue},
@@ -661,8 +666,7 @@ export type Manager = {
 	addExplorerEntitiesToSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 	setExplorerEntitiesAsSelection: (entities: {ExplorerEntity}, updateSelection: boolean) -> (),
 
-	refreshQueryTags: (entity: ExplorerEntity, tagEnt: Jecs.Id?) -> (),
-	refreshQueryAttributes: (entity: ExplorerEntity, attrEnt: Jecs.Id?) -> (),
+	refreshQueryComponents: (entity: ExplorerEntity) -> QueryEntity?,
 
 	startDraggingSelected: (inputOnSelect: InputObject?) -> (),
 

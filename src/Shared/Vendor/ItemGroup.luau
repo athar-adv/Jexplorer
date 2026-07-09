@@ -8,7 +8,7 @@ local __itemgroup
 export type ItemGroup<T = any> = {
 	add: (ItemGroup<T>, item: T) -> Disconnect,
 	add_many: (ItemGroup<T>, items: {T}) -> Disconnect,
-	free: (ItemGroup<T>) -> (),
+	free: (ItemGroup<T>, recursive: boolean?) -> (),
 	extend: typeof(__extend),
 	
 	items: {T},
@@ -44,13 +44,16 @@ local function group_add_many(self: ItemGroup, src: any)
 	end
 end
 
-local function group_free(self: ItemGroup)
+local function group_free(self: ItemGroup, recursive: boolean?)
+	local recursive = if recursive == nil then true else recursive
 	local items = self.items
 	local cleanup_handler = self.cleanup_handler
 	local children = self.children
 	
-	for child: any in children do
-		child:free()
+	if recursive then
+		for child: any in children do
+			child:free()
+		end
 	end
 	for _, item in items do
 		cleanup_handler(item)

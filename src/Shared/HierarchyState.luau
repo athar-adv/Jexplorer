@@ -21,6 +21,7 @@ local profilebegin, profileend = debug.profilebegin, debug.profileend
 local rbxconnect = RawInst.rbxconnect
 local getpropertychangedsignal = RawInst.getpropertychangedsignal
 local getattributes = game.GetAttributes
+local gettags = game.GetTags
 local rawindex = RawInst.rawindex
 local index = RawInst.index
 local bulkinsert = Jecs.bulk_insert
@@ -113,24 +114,6 @@ local HierarchyState = {
 	ChildrenMap = hierarchyCache.childrenMap
 } :: Types.HierarchyState
 
-function HierarchyState.cleanupEntity(Manager, ent)
-	local state = Manager.WidgetState
-	local world, components = state.World, Manager.Components
-	world:add(ent, components.Deleted)
-
-	HierarchyState.queueForEntityCleanup(Manager, ent)
-	
-	local function addchildren(entity: ExplorerEntity)
-		for _, v in HierarchyState.getChildren(entity) do
-			HierarchyState.cleanupEntity(Manager, v)
-			addchildren(v)
-		end
-	end
-	addchildren(ent)
-	
-	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
-end
-
 function HierarchyState.rebuildHierarchyCache(Manager)
 	local state = Manager.WidgetState
 	local components = Manager.Components
@@ -178,6 +161,7 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 	profileend()
 	profilebegin("sort")
 	
+	local suffixCache = Manager.NumericSuffixCache
 	local nameCache = Manager.NameCache
 	local function sort(a, b)
 		local priorityA = mergedPriorities[a]
@@ -188,11 +172,11 @@ function HierarchyState.rebuildHierarchyCache(Manager)
 		local nameA = nameCache[a]
 		local nameB = nameCache[b]
 		
-		local numA = match(nameA, SUFFIX_PATTERN)
-		local numB = match(nameB, SUFFIX_PATTERN)
+		local numA = suffixCache[a]
+		local numB = suffixCache[b]
 		
 		if numA and numB then
-			return tonumber(numA) < tonumber(numB)
+			return numA < numB
 		end
 		return nameA < nameB
 	end
@@ -316,7 +300,7 @@ function HierarchyState.flushEntityCreationQueue(Manager)
 		
 		for _, child in ticketData.children do
 			if Manager.isInstanceExcluded(child) then continue end
-			--if Manager.getEntitiesOfInstance(child) then continue end
+			if Manager.getEntitiesOfInstance(child) then continue end
 			anyEntities = true
 
 			HierarchyState.createInstanceEntity(Manager, child, parent)
@@ -358,6 +342,10 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 	local query = Jecs.cached_query(world, components.CleanupTicket)
 	for entity, ticketData in query:iter() do
 		world:remove(entity, components.CleanupTicket)
+		--if world:has(entity, components.Deleted) then
+		--	warn(`ExplorerEntity {Manager.instanceOf(entity)} ({Manager.ClassNameCache[entity]}) double cleanup`)
+		--	continue
+		--end -- Prevent double deletes
 		-- Prevent double cleanups
 		if seen[entity] then continue end
 		seen[entity] = true
@@ -372,10 +360,10 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		if inst then
 			Manager.removeInstanceToEntity(inst, entity)
 		end
-
+		
 		local entityConnections = world:get(entity, components.Connections)
 		if entityConnections then
-			table.insert(groupsToFree, entityConnections)
+			table.insert(groupsToFree, {connections = entityConnections, recursive = ticketData.recursive})
 		end
 
 		local frame = world:get(entity, components.Frame)
@@ -397,8 +385,8 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 
 	profilebegin("Jexplorer::cleanupEntity::processDeferredCleaningTasks")
 		profilebegin("freeGroups")
-		for _, group in groupsToFree do
-			(group::ItemGroup.ItemGroup):free()
+		for _, info in groupsToFree do
+			(info.connections::ItemGroup.ItemGroup):free(info.recursive)
 		end
 		profileend()
 		
@@ -406,6 +394,7 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 		for _, entity in entitiesWithTicket do
 			Manager.ClassNameCache[entity] = nil
 			Manager.NameCache[entity] = nil
+			Manager.NumericSuffixCache[entity] = nil
 			Manager.ChildAmountCache[entity] = nil
 		end
 		profileend()
@@ -422,12 +411,32 @@ function HierarchyState.flushEntityCleanupQueue(Manager)
 	return true
 end
 
-function HierarchyState.queueForEntityCleanup(Manager, entity)
+function HierarchyState.cleanupEntity(Manager, ent, recursive)
+	local state = Manager.WidgetState
+	local world, components = state.World, Manager.Components
+	world:add(ent, components.Deleted)
+
+	HierarchyState.queueForEntityCleanup(Manager, ent, recursive)
+
+	local function addchildren(entity: ExplorerEntity)
+		for _, v in HierarchyState.getChildren(entity) do
+			HierarchyState.cleanupEntity(Manager, v, true)
+			addchildren(v)
+		end
+	end
+	if recursive then
+		addchildren(ent)
+	end
+
+	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
+end
+
+function HierarchyState.queueForEntityCleanup(Manager, entity, recursive)
 	local state = Manager.WidgetState
 	local components = Manager.Components
 	local world = state.World
 	
-	world:set(entity, components.CleanupTicket, {})
+	world:set(entity, components.CleanupTicket, {recursive = recursive})
 end
 
 function HierarchyState.flushOnChildAddedQueue(Manager)
@@ -545,7 +554,7 @@ function HierarchyState.flushOnChildRemovedQueue(Manager)
 				else
 					if childEntities then
 						for _, childEntity in childEntities do
-							HierarchyState.cleanupEntity(Manager, childEntity)
+							HierarchyState.cleanupEntity(Manager, childEntity, true)
 						end
 					end
 				end
@@ -626,11 +635,12 @@ function HierarchyState.queueForEntityDeletion(Manager, entity)
 end
 
 local function onChange(world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance, v: string, oldValueCache: {[string]: any})
+	profilebegin("<HierarchyState>::onChange")
 	local frame = world:get(ent, components.Frame)
-	if not frame then return end
+	if not frame then profileend() return end
 
 	local frameInst = Manager.frameOf(frame)
-	if not frameInst then return end
+	if not frameInst then profileend() return end
 
 	local oldValue = oldValueCache[v]
 	local value = rawindex(instance, v)
@@ -640,26 +650,37 @@ local function onChange(world: World, components: Types.Components, Manager: Man
 	frameInst:RemoveTag(oldTag)
 	frameInst:AddTag(newTag)
 	oldValueCache[v] = value
+	profileend()
 end
 
 local function onChangeRunContext(world: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance, oldValueCache: {[string]: any})
+	profilebegin("<HierarchyState>::onChangeRunContext")
 	local frame = world:get(ent, components.Frame)
-	if not frame then return end
+	if not frame then profileend() return end
 
 	local frameInst = Manager.frameOf(frame)
-	if not frameInst then return end
+	if not frameInst then profileend() return end
 
 	local value = rawindex(instance, "RunContext")
 	frameInst.Name = Constants.ExplorerFrameScriptClassNameFormat:format(value.Name)
 	oldValueCache.RunContext = value
+	profileend()
 end
 
 local function onChanged(
 	world: World, frameWorld: World, components: Types.Components, Manager: Manager, ent: ExplorerEntity, instance: Instance,
-	handlers: {[string]: () -> ()}, nameCache: {[ExplorerEntity]: string}, classNameCache: {[ExplorerEntity]: string}, prop: string
+	handlers: {[string]: () -> ()}, nameCache: {[ExplorerEntity]: string}, suffixCache: {[ExplorerEntity]: number}, classNameCache: {[ExplorerEntity]: string}, prop: string
 )
+	profilebegin("<HierarchyState>::onChanged")
 	if prop == "Name" then
 		nameCache[ent] = instance.Name
+		local numericSuffix = match(instance.Name, SUFFIX_PATTERN)
+		if numericSuffix then
+			local n = tonumber(numericSuffix)
+			if n then
+				suffixCache[ent] = n
+			end
+		end
 		local frame = world:get(ent, components.Frame)
 		if frame then
 			local frameState = frameWorld:get(frame, components.FrameState)
@@ -676,12 +697,20 @@ local function onChanged(
 		classNameCache[ent] = instance.ClassName
 	end
 	local handler = handlers[prop]
-	if not handler then return end
+	if not handler then profileend() return end
 	handler()
+	profileend()
 end
 
 local function onChildAdded(Manager: Manager, ent: ExplorerEntity, child: Instance)
 	if Manager.isInstanceExcluded(child) then return end
+	
+	local world = Manager.WidgetState.World
+	local components = Manager.Components
+	
+	if world:has(ent, components.AncestryLocked) then
+		return
+	end
 
 	local existing = Manager.getEntitiesOfInstance(child)
 	if existing then
@@ -693,8 +722,14 @@ local function onChildAdded(Manager: Manager, ent: ExplorerEntity, child: Instan
 end
 
 local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Instance)
+	profilebegin("<HierarchyState>::onChildRemoved")
 	local world = Manager.WidgetState.World
 	local components = Manager.Components
+	
+	if world:has(ent, components.AncestryLocked) then
+		return
+	end
+	
 	local entities = Manager.getEntitiesOfInstance(child)
 	
 	if entities then
@@ -709,7 +744,7 @@ local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Inst
 				if parent then
 					local inst = Manager.instanceOf(parent)
 					if inst and Manager.isInstanceExcluded(inst) then
-						return
+						continue
 					end
 				end
 			end
@@ -718,25 +753,29 @@ local function onChildRemoved(Manager: Manager, ent: ExplorerEntity, child: Inst
 		end
 		Manager.DeferredTaskScheduler.EntityChildRemovedQueuePending = true
 	end
+	profileend()
 end
 
 local function onParentChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance)
+	if Manager.WidgetState.World:has(ent, Manager.Components.ShouldntCleanupEntityWhenParentedToNil) then return end
 	if rawindex(instance, "Parent") == nil then
-		HierarchyState.cleanupEntity(Manager, ent)
+		HierarchyState.cleanupEntity(Manager, ent, true)
 		Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 	end
 end
 
 local function onDestroying(Manager: Manager, ent: ExplorerEntity)
-	HierarchyState.cleanupEntity(Manager, ent)
+	HierarchyState.cleanupEntity(Manager, ent, true)
 	Manager.DeferredTaskScheduler.EntityCleanupQueuePending = true
 end
 
 local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instance: Instance, currentAttributes: {[string]: any}, attrName: string)
+	profilebegin("<HierarchyState>::onAttributeChanged")
 	local queryWorld = Manager.WidgetState.QueryWorld
 	local components = Manager.Components
 	local usages = Manager.AttributeUsageAmounts
 	local attrValue = instance:GetAttribute(attrName)
+	local entityComponentCache = Manager.EntityQueryComponents[ent]
 
 	if attrValue ~= nil and not currentAttributes[attrName] then
 		currentAttributes[attrName] = true
@@ -751,8 +790,12 @@ local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instanc
 			queryWorld:set(attrComp::any, Jecs.Name, attrName)
 			Manager.QueryAttrMap[attrName] = attrComp
 		end
+		if not table.find(entityComponentCache, attrComp) then
+			table.insert(entityComponentCache, attrComp)
+			table.sort(entityComponentCache)
+		end
 
-		Manager.refreshQueryAttributes(ent, attrComp)
+		Manager.refreshQueryComponents(ent)
 	elseif attrValue == nil and currentAttributes[attrName] then
 		currentAttributes[attrName] = nil
 		if usages[attrName] then
@@ -760,14 +803,19 @@ local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instanc
 		else
 			usages[attrName] = 0
 		end
-		Manager.refreshQueryAttributes(ent, nil)
 
 		if usages[attrName] == 0 then
 			local attrComp = Manager.QueryAttrMap[attrName]
 			if attrComp then
 				for queryEnt, linked in queryWorld:query(components.QueryLinkedEntities, attrComp):iter() do
 					for _, ent in linked do
-						Manager.refreshQueryTags(ent, nil)
+						local q = Manager.EntityQueryComponents[ent]
+						local idx = table.find(q, attrComp)
+						if idx then
+							table.remove(q, idx)
+							table.sort(q)
+						end
+						Manager.refreshQueryComponents(ent)
 					end
 					if #linked == 0 then
 						queryWorld:delete(queryEnt)
@@ -779,6 +827,7 @@ local function onAttributeChanged(Manager: Manager, ent: ExplorerEntity, instanc
 			usages[attrName] = nil
 		end
 	end
+	profileend()
 end
 
 local appliedTaggedProps = {}
@@ -788,8 +837,10 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 	local components = Manager.Components
 
 	local nameCache = Manager.NameCache
+	local suffixCache = Manager.NumericSuffixCache
 	local classNameCache = Manager.ClassNameCache
 	local childAmountCache = Manager.ChildAmountCache
+	local entityComponentCache = Manager.EntityQueryComponents
 	local any = false
 
 	local query = Jecs.cached_query(world, components.PropAssignTicket)
@@ -813,8 +864,18 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 
 		local className = instance.ClassName
 		nameCache[ent] = instance.Name
+		local numericSuffix = match(instance.Name, SUFFIX_PATTERN)
+		if numericSuffix then
+			local n = tonumber(numericSuffix)
+			if n then
+				suffixCache[ent] = n
+			end
+		end
 		classNameCache[ent] = className
 		childAmountCache[ent] = #instance:GetChildren()
+		if not entityComponentCache[ent] then
+			entityComponentCache[ent] = {}
+		end
 
 		if ticketData.ty ~= "instance" then continue end
 		
@@ -836,6 +897,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 			appliedTaggedProps[n] = name
 		end
 		
+		local entityComponentCache = Manager.EntityQueryComponents[ent]
 		for attrName in getattributes(instance) do
 			currentAttributes[attrName] = true
 			local usages = Manager.AttributeUsageAmounts
@@ -850,7 +912,23 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 				queryWorld:set(attrComp::any, Jecs.Name, attrName)
 				Manager.QueryAttrMap[attrName] = attrComp
 			end
+			if not table.find(entityComponentCache, attrComp) then
+				table.insert(entityComponentCache, attrComp)
+			end
 		end
+		for _, tag in gettags(instance) do
+			local tagComp = Manager.QueryTagMap[tag]
+			if not tagComp then
+				tagComp = queryWorld:entity()
+				queryWorld:set(tagComp::any, Jecs.Name, tag)
+				Manager.QueryTagMap[tag] = tagComp
+			end
+			if not table.find(entityComponentCache, tagComp) then
+				table.insert(entityComponentCache, tagComp)
+			end
+		end
+		table.sort(entityComponentCache)
+		
 		for _, v in appliedTaggedProps do
 			oldValueCache[v] = rawindex(instance, v)
 			handlers[v] = function() onChange(world, components, Manager, ent, instance, v, oldValueCache) end
@@ -869,7 +947,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		
 		local n = #connections.items
 		connections.items[n+1] = rbxconnect(rawindex(instance, "Changed"), function(prop: string)
-			onChanged(world, Manager.WidgetState.FrameWorld, components, Manager, ent, instance, handlers, nameCache, classNameCache, prop)
+			onChanged(world, Manager.WidgetState.FrameWorld, components, Manager, ent, instance, handlers, nameCache, suffixCache, classNameCache, prop)
 		end)
 		connections.items[n+2] = rbxconnect(rawindex(instance, "ChildAdded"), function(child: Instance)
 			if rawindex(child, "ClassName") == "PackageLink" then
@@ -893,8 +971,8 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 		connections.items[n+6] = rbxconnect(rawindex(instance, "Destroying"), function()
 			onDestroying(Manager, ent)
 		end)
-
-		Manager.refreshQueryAttributes(ent, nil)
+		
+		Manager.refreshQueryComponents(ent)
 	end
 
 	profileend()
@@ -902,6 +980,7 @@ function HierarchyState.flushEntityPropAssignQueue(Manager)
 end
 
 local archetypeToQueryEntity: {[string]: Jecs.Id} = {}
+HierarchyState.ArchetypeToQueryEntity = archetypeToQueryEntity
 
 function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	local components = Manager.Components
@@ -914,11 +993,11 @@ function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 		local linked = queryWorld:get(queryEntity, components.QueryLinkedEntities)
 		if linked then
 			if #linked == 1 then
-				queryWorld:delete(queryEntity)
 				local hash = queryWorld:get(queryEntity, components.QUERYWORLD_ComponentHash)
 				if hash then
 					archetypeToQueryEntity[hash] = nil
 				end
+				queryWorld:delete(queryEntity)
 			else
 				local idx = table.find(linked, entity)
 				if idx then
@@ -930,12 +1009,15 @@ function HierarchyState.deregisterFromQueryWorld(Manager, entity)
 	world:remove(entity, components.LinkedQueryEntity)
 end
 
-local temporaryComponentArray: {Jecs.Id} = {}
-function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags, attributes)
+local temporaryComponentArray: {Jecs.Id} = table.create(150) -- magick number
+local SCRATCH_BUFFER = {}
+function HierarchyState.registerIntoQueryWorld(Manager, entity, className, queryComponents)
 	if not className then
-		warn("classname aint it")
-		return
+		error(`Missing className for '{Manager.instanceOf(entity)}'`)
+		return nil
 	end
+	
+	profilebegin("HierarchyState::registerIntoQueryWorld")
 	
 	local state = Manager.WidgetState
 	local world = state.World
@@ -945,32 +1027,31 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags,
 	local classComponents = Manager.getPropertyComponentsForClass(queryWorld, className)
 	
 	local n = #classComponents
-	local tn = #tags
-	move(classComponents, 1, n, 1, temporaryComponentArray)
-	move(tags, 1, tn, n + 1, temporaryComponentArray)
-	move(attributes, 1, #attributes, n + tn + 1, temporaryComponentArray)
+	local tn = #queryComponents
+	temporaryComponentArray = clone(classComponents)
+	move(queryComponents, 1, tn, n + 1, temporaryComponentArray)
 	
-	sort(temporaryComponentArray)
 	local hash = concat(temporaryComponentArray, ",")
 	
 	local existingQueryEntity = archetypeToQueryEntity[hash]
 	if existingQueryEntity then
-		clear(temporaryComponentArray)
 		local linked = queryWorld:get(existingQueryEntity, components.QueryLinkedEntities)
 		if not linked then
 			world:set(entity, components.PropAssignTicket, {ty = "instance"})
-			return
+			return nil
 		end
 		
 		world:set(entity, components.LinkedQueryEntity, existingQueryEntity)
 		table.insert(linked, entity)
+		
 		return existingQueryEntity
 	end
 	
 	local linked = {entity}
 	
 	-- Query entity not found, create new
-	local queryEntity = Jecs.entity_with_archetype(queryWorld, true, temporaryComponentArray)
+	local queryEntity = queryWorld:entity()
+	Jecs.bulk_insert(queryWorld, queryEntity, temporaryComponentArray, SCRATCH_BUFFER)
 	queryWorld:set(queryEntity, components.QUERYWORLD_ComponentHash, hash)
 	queryWorld:set(queryEntity, components.QueryLinkedEntities, linked)
 	
@@ -978,7 +1059,8 @@ function HierarchyState.registerIntoQueryWorld(Manager, entity, className, tags,
 	
 	archetypeToQueryEntity[hash] = queryEntity
 	
-	clear(temporaryComponentArray)
+	profileend()
+	
 	return queryEntity
 end
 
@@ -1063,6 +1145,7 @@ function HierarchyState.createVirtualEntity(Manager, options, extra)
 	return ent
 end
 
+local entityPrefab: {Jecs.Id}
 function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetInInstanceToEntity)
 	profilebegin("Jexplorer::createInstanceEntity")
 	local state = Manager.WidgetState
@@ -1098,20 +1181,25 @@ function HierarchyState.createInstanceEntity(Manager, instance, parent, dontSetI
 	end
 	local className = instance.ClassName
 	
-	local entity = Jecs.entity_with_archetype(world,
-		false,
-		{
+	local entity = world:entity()
+	if not entityPrefab then
+		entityPrefab = {
 			components.Instance,
 			components.Connections,
 			components.ParentTabs,
 			components.PropAssignTicket,
-			if parent then pair(childof, parent) :: any else nil,
-		}, 
-		instance,
-		connections,
-		{},
-		{ty = "instance"}
+		}
+	end
+	Jecs.bulk_insert(
+		world,
+		entity,
+		entityPrefab,
+		{instance, connections, {}, {ty = "instance"}}
 	)
+	
+	if parent then
+		world:add(entity, pair(childof, parent))
+	end
 	
 	local children = getchildren(instance)
 	if #children > 0 then

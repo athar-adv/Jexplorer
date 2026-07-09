@@ -1,8 +1,10 @@
 --!strict
 --!optimize 2
 
+debug.setmemorycategory("Jexplorer::Manager")
+
 local global = shared
-local plugin = script:FindFirstAncestorOfClass("Plugin")
+local plugin: Plugin = script:FindFirstAncestorOfClass("Plugin")
 assert(plugin)
 
 local HttpService = game:GetService("HttpService")
@@ -142,6 +144,7 @@ local components: Types.Components do
 		DisplayTopLevel = tag(),
 		HasPackageLink = tag(),
 		HasSideIcons = tag(),
+		ShouldntCleanupEntityWhenParentedToNil = tag(),
 		
 		CleanupTicket = comp(),
 		DeletionTicket = comp(),
@@ -194,10 +197,12 @@ local Manager = {
 	
 	InstanceToEntities = {},
 	FrameToInstanceFrame = {},
+	EntityQueryComponents = {},
 
 	ChildAmountCache = {},
 	ClassNameCache = {},
 	NameCache = {},
+	NumericSuffixCache = {},
 	IdToInstance = {},
 	InstanceToId = {},
 	IdToObjectValue = {},
@@ -848,6 +853,9 @@ function Manager.convertEntitiesInto(entities, className: string)
 	recordChanges("Convert Entities Into", function(cancel)
 		for _, info in toConvert do
 			if not info.parent then continue end
+			if not info.parentEntity then continue end
+			world:add(info.entity, components.ShouldntCleanupEntityWhenParentedToNil)
+
 			local suc, err = pcall(function()
 				info.inst.Parent = nil
 			end)
@@ -885,13 +893,6 @@ function Manager.convertEntitiesInto(entities, className: string)
 				end
 			end
 
-			for _, tag in info.inst:GetTags() do
-				converted:AddTag(tag)
-			end
-			for k, v in info.inst:GetAttributes() do
-				converted:SetAttribute(k, v)
-			end
-
 			local convertedEnt = HierarchyState.createInstanceEntity(Manager, converted, info.parentEntity)
 			assert(convertedEnt)
 
@@ -902,7 +903,8 @@ function Manager.convertEntitiesInto(entities, className: string)
 
 			world:add(convertedEnt, components.AncestryLocked)
 			table.insert(convertedEntities, convertedEnt)
-
+			
+			world:add(info.parentEntity, components.AncestryLocked)
 			for _, childEntity in info.children do
 				world:add(childEntity, components.AncestryLocked)
 			end
@@ -922,8 +924,7 @@ function Manager.convertEntitiesInto(entities, className: string)
 					childInst.Parent = converted
 				end)
 				if not suc then
-					cancel()
-					return
+					continue
 				end
 				HierarchyState.updateEntityOrder(Manager, childEntity)
 			end
@@ -938,16 +939,24 @@ function Manager.convertEntitiesInto(entities, className: string)
 			else
 				VirtualScroller.invalidateEntityHeightCache(Manager, convertedEnt)
 			end
-
-			Manager.updateParent(info.entity, nil)
-			HierarchyState.cleanupEntity(Manager, info.entity)
-
+			
 			converted.Parent = info.parent
+			
+			world:remove(info.parentEntity, components.AncestryLocked)
 			for _, childEntity in info.children do
 				world:remove(childEntity, components.AncestryLocked)
 			end
+			for _, tag in info.inst:GetTags() do
+				converted:AddTag(tag)
+			end
+			for k, v in info.inst:GetAttributes() do
+				converted:SetAttribute(k, v)
+			end
+			Manager.updateParent(info.entity, nil)
+			HierarchyState.cleanupEntity(Manager, info.entity, false)
 		end
 		
+		HierarchyState.flushEntityPropAssignQueue(Manager)
 		Manager.DeferredTaskScheduler.EntityCreationQueuePending = true
 		Manager.DeferredTaskScheduler.ChildGraphDirty = true
 		Manager.DeferredTaskScheduler.FrameReuseQueuePending = true
@@ -1012,7 +1021,7 @@ function Manager.triggerDeleteTarget()
 			instance.Parent = nil
 			VirtualScroller.invalidateEntityHeightCache(Manager, entity)
 			Manager.updateParent(entity, nil)
-			HierarchyState.cleanupEntity(Manager, entity)
+			HierarchyState.cleanupEntity(Manager, entity, true)
 		end
 	end)
 	
@@ -1931,6 +1940,8 @@ function Manager.getPropertyComponentsForClass(world, className)
 
 		table.insert(components, component)
 	end
+	
+	table.sort(components)
 
 	classComponentCache[className] = components
 	return components
@@ -2265,6 +2276,8 @@ function Manager.registerTab(name, icon, stored, registerIntoTabs)
 		tabFrame.Size = UDim2.fromOffset(tabWidth, tabBar.AbsoluteSize.Y - 4)
 		task.defer(updateTabBarCanvasSize)
 	end
+	
+	tab.UpdateTabFrameSize = updateSize
 	tabConnections:add_many({
 		nameBox:GetPropertyChangedSignal("Text"):Connect(updateSize),
 		nameBox:GetPropertyChangedSignal("TextBounds"):Connect(updateSize),
@@ -3424,6 +3437,36 @@ local function initRegisterPluginMenusAndActions(
 				end)
 			end
 		},
+		DebugMenu = {
+			Id = "DebugMenu",
+			Text = "< DEBUG >",
+			Desc = "Opens the debug menu for an explorer entity.",
+			Icon = nil,
+			Triggered = function(target: ExplorerEntity)
+				local widget, mainframe = PluginUI.createEditorWidget(
+					UITemplates.EditorFrame(),
+					getId("DebugMenu", true),
+					"Debug Menu"
+				)
+				Manager.Style:Link(widget)
+				widget.Enabled = true
+				connections:extend(cleanup.destroy, {
+					widget
+				})
+				
+				local function newlabel(text: string)
+					local label = Instance.new("TextLabel")
+					label.TextXAlignment = Enum.TextXAlignment.Left
+					label:AddTag("JEXP_Text")
+					label.Size = UDim2.new(1, 0, 0, 16)
+					label.BackgroundTransparency = 1
+					label.Text = text
+					label.Parent = mainframe.Items.Content
+				end
+				
+				newlabel(`Entity id: {target}`)
+			end,
+		},
 
 		-- Part / CSG
 		Part_WeldTogether = {
@@ -3626,7 +3669,7 @@ local function initRegisterPluginMenusAndActions(
 				end
 				
 				recordChanges("ImportFbx", function()
-					local keyframes: KeyframeSequence = plugin:ImportFbxAnimationAsync(inst, isR15)
+					local keyframes: KeyframeSequence = plugin:ImportFbxAnimationAsync(inst, isR15) :: any
 					keyframes.Parent = inst
 					task.delay(0.1, function()
 						Selection:Set({keyframes})
@@ -3749,6 +3792,7 @@ local function initRegisterPluginMenusAndActions(
 	local metaClassingActions = {
 		"ConvertInto",
 		"HideClass",
+		"DebugMenu"
 	}
 	
 	local groupAsMenu = subMenu("Menu.GroupAs", "Group As", nil, {
@@ -4070,60 +4114,10 @@ local function initRegisterPluginMenusAndActions(
 	}
 end
 
-local function refreshQueryEntity(queryWorld: World, inst: Instance, entity: ExplorerEntity, tags: {Jecs.Id}, attrs: {Jecs.Id})
-	for _, tag_str in inst:GetTags() do
-		if tag_str:match("JEXP") then continue end  -- Skip internal tags
-
-		local tag = Manager.QueryTagMap[tag_str]
-		if not tag then
-			-- Tag entity doesn't exist yet, create it
-			tag = queryWorld:entity()
-			Manager.QueryTagMap[tag_str] = tag
-		end
-		if table.find(tags, tag) then continue end
-		table.insert(tags, tag)
-	end
-	for attr_name in inst:GetAttributes() do
-		local id = Manager.QueryAttrMap[attr_name]
-		if not id then
-			id = queryWorld:entity()
-			Manager.QueryAttrMap[attr_name] = id
-		end
-		if table.find(attrs, id) then continue end
-		table.insert(attrs, id)
-	end
+function Manager.refreshQueryComponents(entity)
+	local state = Manager.WidgetState
 	HierarchyState.deregisterFromQueryWorld(Manager, entity)
-	HierarchyState.registerIntoQueryWorld(Manager, entity, Manager.ClassNameCache[entity], tags, attrs)
-end
-
-function Manager.refreshQueryTags(entity, tag_ent)
-	local state = Manager.WidgetState
-	local queryWorld = state.QueryWorld
-	
-	local inst = Manager.instanceOf(entity)
-	assert(inst)
-	
-	local tags: {Jecs.Id} = {}
-	local attrs: {Jecs.Id} = {}
-	if tag_ent then
-		table.insert(tags, tag_ent)
-	end
-	refreshQueryEntity(queryWorld, inst, entity, tags, attrs)
-end
-
-function Manager.refreshQueryAttributes(entity, attr_ent)
-	local state = Manager.WidgetState
-	local queryWorld = state.QueryWorld
-
-	local inst = Manager.instanceOf(entity)
-	assert(inst)
-
-	local tags: {Jecs.Id} = {}
-	local attrs: {Jecs.Id} = {}
-	if attr_ent then
-		table.insert(attrs, attr_ent)
-	end
-	refreshQueryEntity(queryWorld, inst, entity, tags, attrs)
+	return HierarchyState.registerIntoQueryWorld(Manager, entity, Manager.ClassNameCache[entity], Manager.EntityQueryComponents[entity])
 end
 
 local function initRegisterTagListeners(
@@ -4133,6 +4127,17 @@ local function initRegisterTagListeners(
 	local world = state.World
 	local frameWorld = state.FrameWorld
 	local queryWorld = state.QueryWorld
+	
+	local function removeRefreshQueryComponents(tagComponent: Jecs.Id, entity: ExplorerEntity)
+		local queryComponents = Manager.EntityQueryComponents[entity]
+		if not queryComponents then return end
+		
+		local idx = table.find(queryComponents, tagComponent)
+		if idx then
+			table.remove(queryComponents, idx)
+			table.sort(queryComponents)
+		end
+	end
 	
 	local tagAddedSignals = {}
 	local tagRemovedSignals = {}
@@ -4153,13 +4158,24 @@ local function initRegisterTagListeners(
 			if entities then
 				local shouldUpdate = {}
 				for _, entity in entities do
-					Manager.refreshQueryTags(entity, tagComponent)
-
+					local queryComponents = Manager.EntityQueryComponents[entity]
+					if not queryComponents then
+						local q = {}
+						Manager.EntityQueryComponents[entity] = q
+						queryComponents = q
+					end
+					if not table.find(queryComponents, tagComponent) then
+						table.insert(queryComponents, tagComponent)
+						table.sort(queryComponents)
+					end
+					
+					local ent = Manager.refreshQueryComponents(entity)
+					
 					local frame = world:get(entity, components.Frame)
-					if not frame then return end
+					if not frame then continue end
 
 					local frameState, frameInst = frameWorld:get(frame, components.FrameState, components.Instance)
-					if not frameState or not frameInst then return end
+					if not frameState or not frameInst then continue end
 
 					local tag = `JEXP_TAG_{tag}`
 					table.insert(frameState.tagsToRemove, tag)
@@ -4190,17 +4206,18 @@ local function initRegisterTagListeners(
 			if entities then
 				local shouldUpdate = {}
 				for _, entity in entities do
-					Manager.refreshQueryTags(entity, nil)
+					removeRefreshQueryComponents(tagComponent, entity)
+					Manager.refreshQueryComponents(entity)
 
 					local frame = world:get(entity, components.Frame)
-					if not frame then return end
+					if not frame then continue end
 
 					local frameState, frameInst = frameWorld:get(frame, components.FrameState, components.Instance)
-					if not frameState or not frameInst then return end
+					if not frameState or not frameInst then continue end
 
 					local tag = `JEXP_TAG_{tag}`
 					local idx = table.find(frameState.tagsToRemove, tag)
-					if not idx then return end
+					if not idx then continue end
 
 					frameInst:RemoveTag(tag)
 					table.remove(frameState.tagsToRemove, idx)
@@ -4239,7 +4256,8 @@ local function initRegisterTagListeners(
 			
 			for queryEnt, linked in queryWorld:query(components.QueryLinkedEntities, tagEnt):iter() do
 				for _, ent in linked do
-					Manager.refreshQueryTags(ent, nil)
+					removeRefreshQueryComponents(tagEnt, ent)
+					Manager.refreshQueryComponents(ent)
 				end
 				if #linked == 0 then
 					queryWorld:delete(queryEnt)
@@ -4458,7 +4476,7 @@ local function initConnections(state: Types.WidgetState, components: typeof(Mana
 			do
 				local partial = currentToken:match("^@(.*)$")
 				if partial then
-					local macros = {"has(", "matches(", "is(", "pattern("}
+					local macros = {"has(", "matches(", "is(", "pattern(", "isA("}
 					for _, macro in macros do
 						if matchesPartial(macro, partial) then
 							addResult("@" .. macro, "@" .. macro, 10)

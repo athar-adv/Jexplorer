@@ -27,6 +27,11 @@ return {
 						manager.Style:SetToken("__TOOLBAR_OFFSET", offset, false)
 					end
 					manager.Style:UpdateTokens()
+					task.delay(0.1, function()
+						for _, tab in manager.WidgetState.Tabs do
+							tab.UpdateTabFrameSize()
+						end
+					end)
 				end)
 			end,
 		},

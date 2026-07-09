@@ -39,6 +39,10 @@ type PropIsCondition = {
 	property: string,
 	expectedType: string
 }
+type PropIsACondition = {
+	type: "isA",
+	superclass: string
+}
 type PatternCondition = {
 	type: "pattern",
 	property: string,
@@ -102,6 +106,7 @@ type QueryCondition =
 |HasCondition
 |PropMatchesCondition
 |PropIsCondition
+|PropIsACondition
 |PatternCondition
 |PredicateCondition
 |DescendantCondition
@@ -298,6 +303,21 @@ local function parseMatchesMacro(expr: string): PropMatchesCondition
 		type = "matches",
 		property = property,
 		pattern = pattern,
+	}
+end
+
+local function parseIsAMacro(expr: string): PropIsACondition
+	local content = expr:match("^@isA%((.*)%)$")
+	assert(content, `Invalid @isA syntax: {expr}`)
+
+	local parts = splitArguments(content)
+	if #parts ~= 1 then
+		error("@isA requires exactly 1 argument: superclass: " .. expr)
+	end
+
+	return {
+		type = "isA",
+		superclass = parts[1]:gsub("^%s+", ""):gsub("%s+$", ""),
 	}
 end
 
@@ -528,6 +548,8 @@ local function parseCondition(condition: string): QueryCondition
 		return parseIsMacro(condition)
 	elseif condition:match("^@pattern%(") then
 		return parsePatternMacro(condition)
+	elseif condition:match("^@isA%(") then
+		return parseIsAMacro(condition)
 	elseif condition:match("^%[selected%]$") then
 		return { type = "selected" }
 	else
@@ -600,6 +622,8 @@ local function getQueryCacheKey(queryTree: QueryCondition): string
 		return "matches:" .. queryTree.property .. "~" .. tostring(queryTree.pattern)
 	elseif queryTree.type == "is" then
 		return "is:" .. queryTree.property .. ":" .. queryTree.expectedType
+	elseif queryTree.type == "isA" then
+		return "isA:" .. queryTree.superclass
 	elseif queryTree.type == "pattern" then
 		return "pattern:" .. queryTree.property .. "~" .. queryTree.pattern
 	elseif queryTree.type == "attribute" then
@@ -683,6 +707,8 @@ local function estimateConditionCost(condition: QueryCondition, world: World, co
 		return 5000
 	elseif condition.type == "is" then
 		return 5000
+	elseif condition.type == "isA" then
+		return 10_000
 	elseif condition.type == "pattern" then
 		return 5000
 	elseif condition.type == "pair" then
@@ -860,6 +886,11 @@ local function testConditionMatch(
 		end
 
 		return typeof(value) == condition.expectedType
+	elseif condition.type == "isA" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+		
+		return instance:IsA(condition.superclass)
 	elseif condition.type == "pattern" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
@@ -971,6 +1002,11 @@ local function checkSingleCondition(
 		end
 
 		return typeof(value) == condition.expectedType
+	elseif condition.type == "isA" then
+		local instance = world:get(entity, components.Instance)
+		if not instance then return false end
+
+		return instance:IsA(condition.superclass)
 	elseif condition.type == "pattern" then
 		local instance = world:get(entity, components.Instance)
 		if not instance then return false end
@@ -1006,7 +1042,7 @@ local function evaluateLeafCondition(
 )
 	local validEntities = {}
 
-	if condition.type == "matches" or condition.type == "is" or condition.type == "pattern" then
+	if condition.type == "matches" or condition.type == "is" or condition.type == "pattern" or condition.type == "isA" then
 		local instanceComponent = components.Instance
 		if not instanceComponent then
 			return validEntities
@@ -1053,7 +1089,6 @@ local function evaluateLeafCondition(
 		if component then
 			table.insert(queriedComponents, component)
 		end
-
 	elseif condition.type == "attribute" then
 		local attribute = attributeMap[condition.attributeName]
 		if attribute then

@@ -638,18 +638,17 @@ function StyleEditor.init(Manager)
 				rulesDropdown:SetText("StyleRules")
 			end)
 		})
+		connections:add_many({
+			sheet.RuleAdded:Connect(function(newRule)
+				createStyleRuleDropdown(newRule, rulesDropdown)
+			end) :: any,
+		})
 	end)
 	
 	button.Instance.Parent = mainframe.Items.Content
 
 	rulesDropdown.Backdrop.Parent = mainframe.Items.Content
 	tokensDropdown.Backdrop.Parent = mainframe.Items.Content
-	
-	connections:add_many({
-		sheet.RuleAdded:Connect(function(newRule)
-			createStyleRuleDropdown(newRule, rulesDropdown)
-		end) :: any,
-	})
 	
 	local instances = connections:extend(cleanup.destroy)
 	
